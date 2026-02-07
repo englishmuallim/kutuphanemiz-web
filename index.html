@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kütüphanemiz | Mobil</title>
+    <link rel="icon" type="image/png" href="app_logo.png">
+    
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <style>
+        :root {
+            --primary: #274ae4;
+            --success: #10b981;
+            --warning: #f59e0b; /* Sorgu rengi */
+            --bg: #f3f4f6;
+            --surface: #ffffff;
+            --text: #1f2937;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        ```css
+/* Logo Boyut Ayarı */
+.app-logo {
+    width: 60px;  /* Logoyu buradan büyütüp küçültebilirsin */
+    height: 60px; 
+    object-fit: contain;
+    border-radius: 8px;
+}
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            margin: 0; display: flex; justify-content: center;
+            min-height: 100vh; color: var(--text);
+            overflow: hidden;
+        }
+
+/* --- HEADER DÜZENLEME --- */
+.header-container {
+    display: flex;
+    align-items: center; /* Logo ve ismi dikeyde ortalar */
+    gap: 15px;           /* Logo ile isim arasındaki boşluğu artırdık */
+    padding: 15px;
+    background: #f9fafb;
+    border-radius: 12px;
+    margin-bottom: 20px; /* ALTTAKİ KARTLARLA ARASINA BOŞLUK EKLEDİK */
+}
+
+/* LOGOYU BÜYÜTME */
+.app-logo {
+    width: 60px;  /* Eski hali muhtemelen 40px civarıydı, 60px yaptık */
+    height: 60px;
+    object-fit: contain;
+    border-radius: 8px; /* İstersen köşeleri hafif yuvarlayabilirsin */
+}
+
+/* OKUL İSMİ BAŞLIĞI */
+#headerTitle {
+    margin: 0;
+    font-size: 1.1rem;
+    line-height: 1.3;
+    color: #1f2937;
+    flex: 1; /* İsmin kalan alanı kaplamasını sağlar */
+    word-wrap: break-word;
+}
+
+/* İSTATİSTİK KARTLARI KONTEYNERI */
+.stats-container {
+    display: flex; 
+    gap: 12px; 
+    margin-top: 10px; /* Üstteki kutuyla arayı iyice açtık */
+    margin-bottom: 25px;
+    justify-content: space-between;
+}
+.stat-card {
+    flex: 1; border-radius: 12px; padding: 15px 10px;
+    color: white; text-align: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    display: flex; flex-direction: column; align-items: center;
+}
+.stat-val { font-size: 1.5rem; font-weight: bold; margin-bottom: 2px; }
+.stat-label { font-size: 0.8rem; opacity: 0.9; }
+.stat-icon { font-size: 24px; margin-bottom: 5px; opacity: 0.8; }
+
+/* Renkler */
+.sc-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.sc-green { background: linear-gradient(135deg, #10b981, #059669); }
+.sc-red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        /* --- GÜNCELLENEN SPLASH SCREEN --- */
+        
+        #splash-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #ffffff; z-index: 9999;
+            display: flex; justify-content: center; align-items: center;
+            flex-direction: column;
+            transition: opacity 0.5s ease-out;
+        }
+        /* Logo artık daha büyük ve ekranın %60'ını kaplıyor */
+        #splash-screen img { width: 60%; max-width: 300px; height: auto; } 
+        .hidden-splash { opacity: 0; pointer-events: none; }
+
+        .app-container {
+            width: 100%; max-width: 450px; background: var(--surface);
+            min-height: 100vh; display: flex; flex-direction: column;
+            box-shadow: 0 0 20px rgba(0,0,0,0.05); position: relative;
+        }
+
+        /* Header */
+        .app-header {
+            background: var(--primary); color: white; padding: 15px 20px;
+            border-bottom-left-radius: 24px; border-bottom-right-radius: 24px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); z-index: 10;
+        }
+        .header-logo { height: 40px; width: auto; background: white; padding: 2px; border-radius: 8px; }
+        .logout-btn { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px; border-radius: 12px; cursor: pointer; }
+
+        /* Login */
+        #login-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--surface); z-index: 100;
+    
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; /* Yatayda (Sağ-Sol) Ortala */
+    
+    /* --- İŞTE DEĞİŞEN KISIM --- */
+    
+    /* Eskiden 'center' idi, sildik. Şimdi 'flex-start' (Tepeden başla) diyoruz */
+    justify-content: flex-start; 
+    
+    /* Tepeden ne kadar aşağı insin? (Ayar düğmesi burası) */
+    padding-top: 2vh; /* Ekran boyunun %15'i kadar aşağı in */
+    
+    padding-left: 20px;
+    padding-right: 20px;
+}
+        /* GİRİŞ LOGOSU BÜYÜTÜLDÜ */
+        .login-logo-img { 
+    /* BOYUT AYARLARI */
+    width: 50%;       
+    max-width: 400px; /* İstediğin boyutu buraya yaz */
+    height: auto; 
+    
+    
+    
+    /* BOŞLUK AYARLARI (Sıfırla ve yeniden ver) */
+    margin: 1px;          /* Tüm boşlukları sil */
+    margin-bottom: 5px; /* Sadece alta biraz boşluk ver (Input ile arası) */
+    
+    /* GÖRÜNTÜ AYARI */
+    display: block; 
+    object-fit: contain; /* Resmi kutuya sığdır */
+}
+
+        /* Inputs & Buttons */
+        .input-group { position: relative; margin-bottom: 15px; display: flex; align-items: center; gap: 5px; }
+        .input-icon { position: absolute; left: 15px; z-index: 2; color: #6b7280; }
+        
+        input {
+            width: 100%; padding: 16px 16px 16px 45px;
+            border: 2px solid #e5e7eb; border-radius: 16px;
+            font-size: 16px; outline: none; transition: 0.3s; background: #f9fafb;
+        }
+        input:focus { border-color: var(--primary); background: white; }
+
+        .scan-btn {
+            background: #e0e7ff; color: var(--primary); border: none;
+            padding: 12px; border-radius: 14px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .scan-btn:active { transform: scale(0.95); }
+
+        .action-btn {
+            width: 100%; padding: 16px; border: none; border-radius: 16px;
+            font-size: 18px; font-weight: 600; cursor: pointer; color: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; justify-content: center; gap: 8px;
+        }
+        .btn-ver { background: var(--success); }
+        .btn-al { background: var(--primary); }
+        .btn-sorgu { background: var(--warning); color: #fff; }
+        .btn-login { background: var(--primary); margin-top: 20px; }
+
+        /* Tabs - Güncellendi (3'lü yapı için) */
+        .tabs { background: #e5e7eb; padding: 5px; border-radius: 16px; display: flex; margin: 20px; gap: 5px; }
+        .tab-btn { 
+            flex: 1; border: none; background: transparent; padding: 10px 5px; 
+            border-radius: 12px; font-weight: 600; color: #6b7280; cursor: pointer; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            gap: 2px; font-size: 0.85rem;
+        }
+        .tab-btn span { font-size: 24px; }
+        .tab-btn.active { background: var(--surface); color: var(--primary); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+
+        .content { padding: 0 20px; }
+        .hidden { display: none !important; }
+
+        /* Kamera Modali */
+        #scanner-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        #reader { width: 100%; max-width: 500px; background: black; }
+        .close-scan-btn {
+            margin-top: 20px; padding: 10px 30px; background: white; color: black;
+            border: none; border-radius: 20px; font-weight: bold; cursor: pointer;
+        }
+
+        /* --- SONUÇ KARTLARI --- */
+.result-card {
+    background: white; border-radius: 12px; padding: 15px;
+    margin-top: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-left: 5px solid var(--primary);
+}
+.card-header { font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; color: #374151; }
+.card-sub { font-size: 0.9rem; color: #6b7280; margin-bottom: 10px; }
+
+/* Durum Etiketleri */
+.badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; display: inline-block; }
+.badge-raf { background: #d1fae5; color: #065f46; } /* Yeşil */
+.badge-out { background: #fee2e2; color: #991b1b; } /* Kırmızı */
+.book-list-item { 
+    background: #f9fafb; padding: 10px; border-radius: 8px; 
+    margin-top: 5px; border: 1px solid #e5e7eb; display:flex; justify-content:space-between;
+}
+/* --- GÜÇLÜ BUTON GRUBU --- */
+.btn-group {
+    display: flex; gap: 15px; margin-top: 15px;
+}
+
+.btn-half {
+    flex: 1; /* Eşit genişlik */
+    padding: 20px 10px; /* Daha yüksek butonlar */
+    font-size: 1rem; 
+    border: none; border-radius: 16px;
+    font-weight: 600; cursor: pointer; color: white;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* Hafif gölge */
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.btn-half:active {
+    transform: scale(0.96); /* Tıklayınca küçülme efekti */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Renk Geçişleri (Gradyan) */
+.bg-student { background: linear-gradient(135deg, #6366f1, #4f46e5); } /* Mavi tonları */
+.bg-book { background: linear-gradient(135deg, #f59e0b, #d97706); } /* Turuncu tonları */
+
+.btn-half span.material-symbols-rounded {
+    font-size: 32px; /* İkonlar daha büyük */
+}
+    </style>
+</head>
+<body>
+
+    <div id="splash-screen">
+        <img src="startup.gif" alt="Yükleniyor...">
+    </div>
+
+    <div id="login-screen">
+        <img src="app_logo.png" alt="Logo" class="login-logo-img">
+        
+        <div class="input-group">
+            <span class="material-symbols-rounded input-icon">vpn_key</span>
+            <input type="text" id="schoolCode" placeholder="Okul Kodu">
+        </div>
+        <div class="input-group">
+            <span class="material-symbols-rounded input-icon">lock</span>
+            <input type="password" id="schoolPass" placeholder="Şifre">
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:15px; width:100%; max-width:350px;">
+            <input type="checkbox" id="beniHatirla" style="width:20px; height:20px; margin:0; padding:0;">
+            <label for="beniHatirla" style="color:#4b5563; font-size:0.95rem; cursor:pointer;">Beni Hatırla</label>
+        </div>
+        <button class="action-btn btn-login" onclick="login()">Giriş Yap</button>
+    </div>
+
+    <div id="dashboard" class="app-container hidden">
+        <div class="app-header" style="margin-bottom: 25px;"> <div style="display:flex; align-items:center; gap:15px;">
+            <img src="app_logo.png" alt="Logo" class="app-logo"> 
+            
+            <h2 id="headerTitle" style="margin:0; font-size:1.1rem; line-height:1.2; max-width: 220px; word-wrap: break-word;">
+                Panel
+            </h2>
+        </div>
+
+        <button class="logout-btn" onclick="logout()">
+            <span class="material-symbols-rounded">logout</span>
+        </button>
+    </div>
+        <div class="stats-container">
+            <div class="stat-card sc-blue">
+                <span class="material-symbols-rounded stat-icon">library_books</span>
+                <div class="stat-val" id="stat-kitap">-</div>
+                <div class="stat-label">Kitap</div>
+            </div>
+            <div class="stat-card sc-green">
+                <span class="material-symbols-rounded stat-icon">groups</span>
+                <div class="stat-val" id="stat-ogrenci">-</div>
+                <div class="stat-label">Öğrenci</div>
+            </div>
+            <div class="stat-card sc-red">
+                <span class="material-symbols-rounded stat-icon">outbound</span>
+                <div class="stat-val" id="stat-emanet">-</div>
+                <div class="stat-label">Emanet</div>
+            </div>
+        </div>
+      
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('ver')">
+                <span class="material-symbols-rounded">upload</span> Ver
+            </button>
+            <button class="tab-btn" onclick="showTab('al')">
+                <span class="material-symbols-rounded">download</span> Al
+            </button>
+            <button class="tab-btn" onclick="showTab('sorgu')">
+                <span class="material-symbols-rounded">search</span> Sorgu
+            </button>
+        </div>
+
+        <div class="content">
+            <div id="tab-ver" class="tab-content">
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">person</span>
+                    <input type="number" id="verOgrNo" placeholder="Öğrenci No">
+                </div>
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">barcode_reader</span>
+                    <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Kitap No Yazın..." onkeydown="handleEnter(event, 'ver')">
+                    <button class="scan-btn" onclick="startScanner('verBarkod')">
+                        <span class="material-symbols-rounded">qr_code_scanner</span>
+                    </button>
+                </div>
+                
+                <button class="action-btn btn-ver" onclick="islemYap('kitapVer')">Kitabı Ver</button>
+            </div>
+
+            <div id="tab-al" class="tab-content hidden">
+                <div style="text-align:center; padding:20px; color:#6b7280;">
+                    <span class="material-symbols-rounded" style="font-size:48px;">assignment_return</span><br>
+                    İade için okutun
+                </div>
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">barcode_reader</span>
+                    <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Kitap No Yazın..." onkeydown="handleEnter(event, 'al')">
+                    <button class="scan-btn" onclick="startScanner('alBarkod')">
+                        <span class="material-symbols-rounded">qr_code_scanner</span>
+                    </button>
+                </div>
+                <button class="action-btn btn-al" onclick="islemYap('kitapAl')">Teslim Al</button>
+            </div>
+            
+            <div id="tab-sorgu" class="tab-content hidden">
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">search</span>
+                    <input type="text" id="sorguInput" placeholder="No veya Barkod girin..." onkeydown="handleEnter(event, 'sorgu')">
+                    <button class="scan-btn" onclick="startScanner('sorguInput')">
+                        <span class="material-symbols-rounded">qr_code_scanner</span>
+                    </button>
+                </div>
+               
+                <div class="btn-group">
+                    <button type="button" class="btn-half bg-student" onclick="sorgula('student')">
+                        <span class="material-symbols-rounded">person_search</span> 
+                        <span>Öğrenci Sorgula</span>
+                    </button>
+                    <button type="button" class="btn-half bg-book" onclick="sorgula('book')">
+                        <span class="material-symbols-rounded">menu_book</span> 
+                        <span>Kitap Sorgula</span>
+                    </button>
+                </div>
+                
+                <div id="sorguSonucAlani"></div>
+                <div class="activity-box" style="background:#fef2f2; border:1px solid #fee2e2; border-radius:12px; padding:15px; margin-top:20px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">
+                    <div style="font-weight:bold; color:#991b1b; border-bottom:1px solid #fecaca; padding-bottom:8px; margin-bottom:10px; display:flex; align-items:center; gap:5px;">
+                        <span class="material-symbols-rounded">warning</span>
+                        Geciken Kitaplar
+                    </div>
+                    
+                    <div id="overdue-list" style="max-height: 200px; overflow-y: auto;">
+                        <div style="text-align:center; color:#9ca3af; font-size:0.9rem;">Kontrol ediliyor...</div>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="scanner-modal" class="hidden">
+        <div id="reader"></div>
+        <button class="close-scan-btn" onclick="stopScanner()">Kapat</button>
+    </div>
+   
+
+    <audio id="beepSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
+    <script>
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                splash.classList.add('hidden-splash');
+                document.body.style.overflow = 'auto'; 
+            }, 2500); 
+        });
+
+        const API_URL = "http://localhost:3000/api";
+        let html5QrCode;
+        let activeInputId = null;
+
+        function startScanner(inputId) {
+            activeInputId = inputId;
+            document.getElementById("scanner-modal").classList.remove("hidden");
+
+            const formatsToSupport = [
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.QR_CODE
+            ];
+
+            html5QrCode = new Html5Qrcode("reader");
+            const config = {
+                fps: 10, qrbox: { width: 300, height: 100 }, aspectRatio: 1.0,
+                formatsToSupport: formatsToSupport,
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+            };
+
+            html5QrCode.start(
+                { facingMode: "environment" }, config,
+                (decodedText) => {
+                    playBeep();
+                    document.getElementById(activeInputId).value = decodedText;
+                    stopScanner();
+                },
+                (err) => {}
+            ).catch(err => {
+                console.log(err);
+                Swal.fire({icon: 'error', title: 'Hata', text: 'Kamera açılamadı.'});
+                stopScanner();
+            });
+        }
+
+        function stopScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById("scanner-modal").classList.add("hidden");
+                    html5QrCode.clear();
+                }).catch(err => console.log(err));
+            } else {
+                document.getElementById("scanner-modal").classList.add("hidden");
+            }
+        }
+
+        function playBeep() {
+            const sound = document.getElementById("beepSound");
+            sound.currentTime = 0; sound.play().catch(e=>{});
+        }
+
+        async function login() {
+    const code = document.getElementById("schoolCode").value;
+    const pass = document.getElementById("schoolPass").value;
+    const remember = document.getElementById("beniHatirla").checked; // Checkbox durumu
+    const btn = document.querySelector(".btn-login");
+
+    if (!code || !pass) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri doldurun'}); return; }
+    
+    btn.innerText = "..."; btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
+        });
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            // 1. Okul İsmini Kaydet
+            localStorage.setItem("okul_ismi", result.schoolName);
+            document.getElementById("headerTitle").innerText = result.schoolName;
+
+            // 2. Beni Hatırla Mantığı
+            if (remember) {
+                localStorage.setItem("kutuphane_code", code);
+                localStorage.setItem("kutuphane_pass", pass);
+                localStorage.setItem("beni_hatirla", "true");
+            } else {
+                // İşaretli değilse, oturum boyunca kalsın ama hafızadan silelim (İsteğe bağlı)
+                // Ama API çağrıları için localStorage kullanıyoruz, o yüzden "geçici" tutmak lazım.
+                // Şimdilik sistemin çalışması için localStorage'a yazıyoruz ama
+                // bir sonraki açılışta silinecek şekilde işaretleyebiliriz.
+                // Basitlik adına: İşaretli değilse kayıtlı şifreleri temizlemiyoruz ama
+                // sayfa açılışında otomatik doldurmayı engelliyoruz.
+                localStorage.setItem("kutuphane_code", code);
+                localStorage.setItem("kutuphane_pass", pass);
+                localStorage.removeItem("beni_hatirla");
+            }
+
+            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+            Toast.fire({ icon: 'success', title: 'Giriş Başarılı' });
+            
+            document.getElementById("login-screen").classList.add("hidden");
+            document.getElementById("dashboard").classList.remove("hidden");
+            // ... dashboard visible yapıldıktan hemen sonra ...
+    getStats(); // <--- BU SATIRI EKLE
+    getOverdueBooks();
+        } else {
+            Swal.fire({icon:'error', title:'Hata', text: result.message});
+        }
+    } catch (error) {
+        Swal.fire({icon:'error', title:'Hata', text:'Sunucu hatası'});
+    } finally {
+        btn.innerText = "Giriş Yap"; btn.disabled = false;
+    }
+}
+
+window.onload = function() {
+    // Splash Screen kapatma (Mevcut kodun)
+    const splash = document.getElementById('splash-screen');
+    if(splash) {
+        setTimeout(() => {
+            splash.classList.add('hidden-splash');
+            document.body.style.overflow = 'auto'; 
+        }, 2500);
+    }
+
+    // --- BENİ HATIRLA KONTROLÜ ---
+    const isRemembered = localStorage.getItem("beni_hatirla");
+    const savedCode = localStorage.getItem("kutuphane_code");
+    
+    if (isRemembered === "true" && savedCode) {
+        // Beni hatırla seçiliyse bilgileri doldur
+        document.getElementById("schoolCode").value = savedCode;
+        document.getElementById("schoolPass").value = localStorage.getItem("kutuphane_pass");
+        document.getElementById("beniHatirla").checked = true;
+    } else {
+        // Seçili değilse kutuları boşalt
+        document.getElementById("schoolCode").value = "";
+        document.getElementById("schoolPass").value = "";
+        document.getElementById("beniHatirla").checked = false;
+    }
+
+    // Okul ismi varsa başlığa yaz
+    const savedName = localStorage.getItem("okul_ismi");
+    if(savedName) {
+        document.getElementById("headerTitle").innerText = savedName;
+    }
+};
+        function logout() {
+            Swal.fire({ title: 'Çıkış?', icon: 'question', showCancelButton: true, confirmButtonText: 'Evet', cancelButtonText: 'Hayır' }).then((res) => {
+                if (res.isConfirmed) { localStorage.clear(); location.reload(); }
+            });
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
+            document.getElementById("tab-" + tabName).classList.remove("hidden");
+            document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
+            event.currentTarget.classList.add("active");
+        }
+
+        async function islemYap(actionType) {
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            let data = { schoolCode: code, schoolPass: pass };
+            let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
+
+            if (actionType === 'kitapVer') {
+                data.ogrNo = document.getElementById("verOgrNo").value;
+                data.barkod = document.getElementById("verBarkod").value;
+                if (!data.ogrNo || !data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); return; }
+            } else {
+                data.barkod = document.getElementById("alBarkod").value;
+                if (!data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); return; }
+            }
+
+            Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    playBeep();
+                    let msg = result.message;
+                    if(result.raf) {
+                        msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
+                        msg += `<div style="font-size:0.9rem; margin-top:5px; color:#555;">Lütfen kitabı rafa yerleştiriniz.</div>`;
+                    }
+                    Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', timer: null, allowOutsideClick: false });
+                    document.getElementById("verBarkod").value = "";
+                    document.getElementById("alBarkod").value = "";
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+                }
+            } catch (error) {
+                Swal.fire({ icon: 'error', title: 'Hata', text: error.message });
+            }
+        }
+
+// --- SORGULA FONKSİYONU (TAM VE TEK HALİ) ---
+async function sorgula(incomingType) {
+    console.log("Sorgula Tetiklendi. Gelen Tür:", incomingType); 
+
+    const inputEl = document.getElementById("sorguInput");
+    const resultArea = document.getElementById("sorguSonucAlani");
+    const query = inputEl.value.trim();
+
+    // 1. KONTROL: Kutu boş mu?
+    if (!query) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen numara veya barkod yazınız.' });
+        return;
+    }
+
+    // 2. TÜR BELİRLEME
+    let searchType = incomingType;
+
+    // Eğer tür gelmediyse (Enter'a basıldıysa), Popup açıp soralım
+    if (!searchType) {
+        const popup = await Swal.fire({
+            title: 'Ne arıyorsunuz?',
+            text: 'Lütfen seçim yapınız:',
+            icon: 'question',
+            showDenyButton: true,
+            confirmButtonText: 'Öğrenci',
+            denyButtonText: 'Kitap',
+            confirmButtonColor: '#6366f1',
+            denyButtonColor: '#f59e0b',
+            allowOutsideClick: false
+        });
+
+        if (popup.isConfirmed) searchType = 'student';
+        else if (popup.isDenied) searchType = 'book';
+        else return; // İptal edildi
+    }
+
+    // 3. API İSTEĞİ
+    resultArea.innerHTML = '<div style="text-align:center; padding:20px; font-weight:bold; color:#6b7280;">Aranıyor...</div>';
+    
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    try {
+        const response = await fetch('/api/sorgula', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                schoolCode: code, 
+                schoolPass: pass, 
+                query: query,
+                type: searchType 
+            })
+        });
+        
+        const res = await response.json();
+
+        if (res.status === 'success') {
+            let html = '';
+
+            // A) KİTAP BULUNDU
+            if (res.result.type === 'book') {
+                if(res.result.data.length === 0) {
+                    resultArea.innerHTML = '<div style="text-align:center; color:red; padding:15px;">Kayıt bulunamadı.</div>'; return;
+                }
+                res.result.data.forEach(book => {
+                    const statusClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
+                    const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
+                    const extraInfo = book.status === 'Out' ? `<br><small style="color:#6b7280">Veriliş: ${book.date}</small>` : '';
+
+                    html += `
+                    <div class="result-card" style="border-left: 5px solid #f59e0b;">
+                        <div class="card-header"><span class="material-symbols-rounded" style="vertical-align:middle">menu_book</span> ${book.name}</div>
+                        <div class="card-sub">Barkod: <b>${book.code}</b></div>
+                        <div class="card-sub">${book.author || '-'}</div>
+                        <div style="margin-top:5px;"><span class="badge ${statusClass}">${statusText}</span> ${extraInfo}</div>
+                    </div>`;
+                });
+            } 
+            // B) ÖĞRENCİ BULUNDU
+            else if (res.result.type === 'student') {
+                const std = res.result.data;
+                html += `
+                <div class="result-card" style="border-left: 5px solid #6366f1;">
+                    <div class="card-header"><span class="material-symbols-rounded" style="vertical-align:middle">person</span> ${std.name}</div>
+                    <div class="card-sub">No: <b>${std.no}</b> | Sınıf: ${std.class}</div>
+                    <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
+                    <strong>Elindeki Kitaplar (${std.books.length}):</strong>
+                `;
+                
+                if (std.books.length > 0) {
+                    std.books.forEach(b => {
+                        html += `
+                        <div class="book-list-item" style="flex-direction:column; gap:2px;">
+                            <div style="font-weight:600;">${b.name}</div>
+                            <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#6b7280;">
+                                <span>${b.code}</span>
+                                <span>${b.date}</span>
+                            </div>
+                        </div>`;
+                    });
+                } else {
+                    html += '<div style="color:green; margin-top:5px; font-size:0.9rem;">Elinde kitap yok.</div>';
+                }
+                html += '</div>';
+            }
+            resultArea.innerHTML = html;
+        } else {
+            resultArea.innerHTML = `<div style="text-align:center; color:red; padding:15px;">${res.message}</div>`;
+        }
+    } catch (error) {
+        console.error("Hata:", error);
+        resultArea.innerHTML = '<div style="text-align:center; color:red;">Bağlantı hatası!</div>';
+    }
+}
+
+// --- ENTER TUŞU YÖNETİMİ ---
+function handleEnter(e, type) {
+    if (e.key === "Enter") {
+        e.preventDefault(); // Sayfa yenilemeyi durdur
+        if(type === 'sorgu') {
+            sorgula(null); // Parametresiz çağır -> Popup açılır
+        } else {
+            type === 'ver' ? islemYap('kitapVer') : islemYap('kitapAl');
+        }
+    }
+}
+// --- İSTATİSTİKLERİ ÇEK ---
+async function getStats() {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    
+    // Yükleniyor efekti (...)
+    document.getElementById("stat-kitap").innerText = "...";
+    document.getElementById("stat-ogrenci").innerText = "...";
+    document.getElementById("stat-emanet").innerText = "...";
+
+    try {
+        const response = await fetch('/api/stats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
+        });
+        const res = await response.json();
+
+        if (res.status === 'success') {
+            // Sayıları animasyonlu gibi gösterelim
+            document.getElementById("stat-kitap").innerText = res.data.kitap;
+            document.getElementById("stat-ogrenci").innerText = res.data.ogrenci;
+            document.getElementById("stat-emanet").innerText = res.data.emanet;
+        }
+    } catch (error) {
+        console.error("İstatistik alınamadı");
+    }
+}
+// --- GECİKENLERİ ÇEK ---
+async function getOverdueBooks() {
+    const listArea = document.getElementById("overdue-list");
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    try {
+        // Yeni API adresimize istek atıyoruz: /api/overdue
+        const response = await fetch('/api/overdue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
+        });
+        const res = await response.json();
+
+        if (res.status === 'success' && res.data.length > 0) {
+            let html = '';
+            // ... getOverdueBooks fonksiyonunun içi ...
+
+            res.data.forEach(item => {
+                html += `
+                <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #fecaca;">
+                    <div style="background:#fee2e2; color:#ef4444; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <span class="material-symbols-rounded" style="font-size:20px">priority_high</span>
+                    </div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600; font-size:0.9rem; color:#7f1d1d;">${item.student}</div>
+                        <div style="font-size:0.8rem; color:#b91c1c;">
+                            <span style="font-weight:bold; color:#991b1b;">#${item.code}</span> -  ${item.book}
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem; color:#ef4444; white-space:nowrap; font-weight:bold;">
+                        ${item.date}
+                    </div>
+                </div>`;
+            });
+
+// ...
+            listArea.innerHTML = html;
+        } else {
+            // Eğer geciken yoksa tebrik mesajı gösterelim :)
+            listArea.innerHTML = `
+                <div style="text-align:center; padding:15px; color:#059669;">
+                    <span class="material-symbols-rounded" style="font-size:32px; display:block; margin-bottom:5px;">thumb_up</span>
+                    Harika! Geciken kitap yok.
+                </div>`;
+        }
+    } catch (error) {
+        console.error("Liste hatası", error);
+        listArea.innerHTML = '<div style="text-align:center; color:red;">Bağlantı hatası.</div>';
+    }
+}
+    </script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+:root {
+    --primary: #4285f4;
+    --success: #34a853;
+    --warning: #fbbc04;
+    --bg: #f0f2f5;
+    --white: #ffffff;
+  }
+  
+  body {
+    font-family: sans-serif;
+    background-color: var(--bg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+  }
+  
+  .container {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+  }
+  
+  .card {
+    background: var(--white);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    text-align: center;
+  }
+  
+  /* İŞTE BU KOD ÇOK ÖNEMLİ */
+  .hidden { display: none !important; }
+  
+  input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    box-sizing: border-box;
+  }
+  
+  button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 5px;
+  }
+  
+  .tabs { display: flex; gap: 5px; margin-bottom: 15px; }
+  .tab-btn { background: #ddd; color: #333; flex: 1; }
+  .tab-btn.active { background: var(--primary); color: white; }
+  
+  .action-btn.success { background-color: var(--success); }
+  .action-btn.warning { background-color: var(--warning); color: #333; }
+  
+  header { display: flex; justify-content: space-between; align-items: center; }
+  .logout-btn { background: #ff4d4d; width: auto; padding: 5px 10px; font-size: 12px; }
+  
+  .result-card {
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid #ccc;
+  }
