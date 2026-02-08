@@ -14,21 +14,14 @@
         :root {
             --primary: #274ae4;
             --success: #10b981;
-            --warning: #f59e0b; /* Sorgu rengi */
+            --warning: #f59e0b;
             --bg: #f3f4f6;
             --surface: #ffffff;
             --text: #1f2937;
         }
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        ```css
-/* Logo Boyut Ayarı */
-.app-logo {
-    width: 60px;  /* Logoyu buradan büyütüp küçültebilirsin */
-    height: 60px; 
-    object-fit: contain;
-    border-radius: 8px;
-}
+        
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
             background-color: var(--bg);
@@ -37,59 +30,7 @@
             overflow: hidden;
         }
 
-/* --- HEADER DÜZENLEME --- */
-.header-container {
-    display: flex;
-    align-items: center; /* Logo ve ismi dikeyde ortalar */
-    gap: 15px;           /* Logo ile isim arasındaki boşluğu artırdık */
-    padding: 15px;
-    background: #f9fafb;
-    border-radius: 12px;
-    margin-bottom: 20px; /* ALTTAKİ KARTLARLA ARASINA BOŞLUK EKLEDİK */
-}
-
-/* LOGOYU BÜYÜTME */
-.app-logo {
-    width: 60px;  /* Eski hali muhtemelen 40px civarıydı, 60px yaptık */
-    height: 60px;
-    object-fit: contain;
-    border-radius: 8px; /* İstersen köşeleri hafif yuvarlayabilirsin */
-}
-
-/* OKUL İSMİ BAŞLIĞI */
-#headerTitle {
-    margin: 0;
-    font-size: 1.1rem;
-    line-height: 1.3;
-    color: #ffffff;
-    flex: 1; /* İsmin kalan alanı kaplamasını sağlar */
-    word-wrap: break-word;
-}
-
-/* İSTATİSTİK KARTLARI KONTEYNERI */
-.stats-container {
-    display: flex; 
-    gap: 12px; 
-    margin-top: 10px; /* Üstteki kutuyla arayı iyice açtık */
-    margin-bottom: 25px;
-    justify-content: space-between;
-}
-.stat-card {
-    flex: 1; border-radius: 12px; padding: 15px 10px;
-    color: white; text-align: center;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    display: flex; flex-direction: column; align-items: center;
-}
-.stat-val { font-size: 1.5rem; font-weight: bold; margin-bottom: 2px; }
-.stat-label { font-size: 0.8rem; opacity: 0.9; }
-.stat-icon { font-size: 24px; margin-bottom: 5px; opacity: 0.8; }
-
-/* Renkler */
-.sc-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-.sc-green { background: linear-gradient(135deg, #10b981, #059669); }
-.sc-red { background: linear-gradient(135deg, #ef4444, #dc2626); }
-        /* --- GÜNCELLENEN SPLASH SCREEN --- */
-        
+        /* --- SPLASH SCREEN (Animasyon) --- */
         #splash-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #ffffff; z-index: 9999;
@@ -97,66 +38,37 @@
             flex-direction: column;
             transition: opacity 0.5s ease-out;
         }
-        /* Logo artık daha büyük ve ekranın %60'ını kaplıyor */
         #splash-screen img { width: 60%; max-width: 300px; height: auto; } 
         .hidden-splash { opacity: 0; pointer-events: none; }
 
+        /* --- ANA KONTEYNER --- */
         .app-container {
             width: 100%; max-width: 450px; background: var(--surface);
             min-height: 100vh; display: flex; flex-direction: column;
             box-shadow: 0 0 20px rgba(0,0,0,0.05); position: relative;
         }
 
-        /* Header */
+        /* --- HEADER --- */
         .app-header {
             background: var(--primary); color: white; padding: 15px 20px;
             border-bottom-left-radius: 24px; border-bottom-right-radius: 24px;
             display: flex; justify-content: space-between; align-items: center;
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); z-index: 10;
+            box-shadow: 0 4px 15px rgba(39, 74, 228, 0.3); z-index: 10;
         }
-        .header-logo { height: 40px; width: auto; background: white; padding: 2px; border-radius: 8px; }
+        .app-logo { width: 50px; height: 50px; object-fit: contain; background: white; border-radius: 12px; padding: 2px; }
         .logout-btn { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px; border-radius: 12px; cursor: pointer; }
 
-        /* Login */
+        /* --- GİRİŞ EKRANI --- */
         #login-screen {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: var(--surface); z-index: 100;
-    
-    display: flex; 
-    flex-direction: column; 
-    align-items: center; /* Yatayda (Sağ-Sol) Ortala */
-    
-    /* --- İŞTE DEĞİŞEN KISIM --- */
-    
-    /* Eskiden 'center' idi, sildik. Şimdi 'flex-start' (Tepeden başla) diyoruz */
-    justify-content: flex-start; 
-    
-    /* Tepeden ne kadar aşağı insin? (Ayar düğmesi burası) */
-    padding-top: 2vh; /* Ekran boyunun %15'i kadar aşağı in */
-    
-    padding-left: 20px;
-    padding-right: 20px;
-}
-        /* GİRİŞ LOGOSU BÜYÜTÜLDÜ */
-        .login-logo-img { 
-    /* BOYUT AYARLARI */
-    width: 50%;       
-    max-width: 400px; /* İstediğin boyutu buraya yaz */
-    height: auto; 
-    
-    
-    
-    /* BOŞLUK AYARLARI (Sıfırla ve yeniden ver) */
-    margin: 1px;          /* Tüm boşlukları sil */
-    margin-bottom: 5px; /* Sadece alta biraz boşluk ver (Input ile arası) */
-    
-    /* GÖRÜNTÜ AYARI */
-    display: block; 
-    object-fit: contain; /* Resmi kutuya sığdır */
-}
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--surface); z-index: 100;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: flex-start; padding-top: 10vh; padding-left: 20px; padding-right: 20px;
+        }
+        .login-logo-img { width: 50%; max-width: 200px; margin-bottom: 20px; }
 
-        /* Inputs & Buttons */
-        .input-group { position: relative; margin-bottom: 15px; display: flex; align-items: center; gap: 5px; }
+        /* --- INPUTLAR & BUTONLAR --- */
+        .input-group { position: relative; margin-bottom: 15px; display: flex; align-items: center; gap: 5px; width: 100%; }
         .input-icon { position: absolute; left: 15px; z-index: 2; color: #6b7280; }
         
         input {
@@ -169,91 +81,89 @@
         .scan-btn {
             background: #e0e7ff; color: var(--primary); border: none;
             padding: 12px; border-radius: 14px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: center; justify-content: center; height: 54px; width: 54px;
         }
-        .scan-btn:active { transform: scale(0.95); }
-
+        
         .action-btn {
             width: 100%; padding: 16px; border: none; border-radius: 16px;
-            font-size: 18px; font-weight: 600; cursor: pointer; color: white;
+            font-size: 16px; font-weight: 600; cursor: pointer; color: white;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; justify-content: center; gap: 8px;
         }
         .btn-ver { background: var(--success); }
         .btn-al { background: var(--primary); }
-        .btn-sorgu { background: var(--warning); color: #fff; }
         .btn-login { background: var(--primary); margin-top: 20px; }
 
-        /* Tabs - Güncellendi (3'lü yapı için) */
-        .tabs { background: #e5e7eb; padding: 5px; border-radius: 16px; display: flex; margin: 20px; gap: 5px; }
+        /* --- İSTATİSTİKLER --- */
+        .stats-container {
+            display: flex; gap: 10px; margin: 20px 20px 10px 20px; justify-content: space-between;
+        }
+        .stat-card {
+            flex: 1; border-radius: 16px; padding: 15px 5px;
+            color: white; text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .stat-val { font-size: 1.4rem; font-weight: bold; margin-bottom: 2px; }
+        .stat-label { font-size: 0.75rem; opacity: 0.9; }
+        .sc-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .sc-green { background: linear-gradient(135deg, #10b981, #059669); }
+        .sc-red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+        /* --- TABLAR (MENU) --- */
+        .tabs { background: #e5e7eb; padding: 5px; border-radius: 16px; display: flex; margin: 10px 20px; gap: 5px; }
         .tab-btn { 
             flex: 1; border: none; background: transparent; padding: 10px 5px; 
             border-radius: 12px; font-weight: 600; color: #6b7280; cursor: pointer; 
-            display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            gap: 2px; font-size: 0.85rem;
+            display: flex; flex-direction: column; align-items: center; 
+            gap: 2px; font-size: 0.8rem;
         }
         .tab-btn span { font-size: 24px; }
         .tab-btn.active { background: var(--surface); color: var(--primary); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 
-        .content { padding: 0 20px; }
+        .content { padding: 0 20px 20px 20px; flex: 1; overflow-y: auto; }
         .hidden { display: none !important; }
 
-        /* Kamera Modali */
-        #scanner-modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 200;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        /* --- YÖNETİM GRID MENÜSÜ --- */
+        .yonetim-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 Sütun */
+            gap: 15px;
+            margin-top: 10px;
         }
-        #reader { width: 100%; max-width: 500px; background: black; }
-        .close-scan-btn {
-            margin-top: 20px; padding: 10px 30px; background: white; color: black;
-            border: none; border-radius: 20px; font-weight: bold; cursor: pointer;
+        .yonetim-card {
+            background: white; border: 1px solid #e5e7eb;
+            border-radius: 16px; padding: 20px;
+            text-align: center; cursor: pointer;
+            transition: transform 0.1s, border-color 0.2s;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.03);
         }
+        .yonetim-card:active { transform: scale(0.97); }
+        .yonetim-card icon { font-family: 'Material Symbols Rounded'; font-size: 32px; color: var(--primary); }
+        .yonetim-card span { font-weight: 600; color: #374151; font-size: 0.9rem; }
+        
+        .yonetim-card.orange icon { color: #f59e0b; }
+        .yonetim-card.green icon { color: #10b981; }
+
+        /* --- YÖNETİM FORMLARI --- */
+        .form-header {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+            padding-bottom: 10px; border-bottom: 1px solid #eee;
+            color: #374151; font-weight: bold; font-size: 1.1rem;
+        }
+        .back-btn { background: #f3f4f6; border: none; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 
         /* --- SONUÇ KARTLARI --- */
-.result-card {
-    background: white; border-radius: 12px; padding: 15px;
-    margin-top: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border-left: 5px solid var(--primary);
-}
-.card-header { font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; color: #374151; }
-.card-sub { font-size: 0.9rem; color: #6b7280; margin-bottom: 10px; }
+        .result-card { background: white; border-radius: 12px; padding: 15px; margin-top: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid var(--primary); }
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; }
+        .badge-raf { background: #d1fae5; color: #065f46; }
+        .badge-out { background: #fee2e2; color: #991b1b; }
 
-/* Durum Etiketleri */
-.badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; display: inline-block; }
-.badge-raf { background: #d1fae5; color: #065f46; } /* Yeşil */
-.badge-out { background: #fee2e2; color: #991b1b; } /* Kırmızı */
-.book-list-item { 
-    background: #f9fafb; padding: 10px; border-radius: 8px; 
-    margin-top: 5px; border: 1px solid #e5e7eb; display:flex; justify-content:space-between;
-}
-/* --- GÜÇLÜ BUTON GRUBU --- */
-.btn-group {
-    display: flex; gap: 15px; margin-top: 15px;
-}
+        /* Kamera Modal */
+        #scanner-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #reader { width: 100%; max-width: 500px; background: black; }
+        .close-scan-btn { margin-top: 20px; padding: 10px 30px; background: white; border: none; border-radius: 20px; font-weight: bold; }
 
-.btn-half {
-    flex: 1; /* Eşit genişlik */
-    padding: 20px 10px; /* Daha yüksek butonlar */
-    font-size: 1rem; 
-    border: none; border-radius: 16px;
-    font-weight: 600; cursor: pointer; color: white;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* Hafif gölge */
-    transition: transform 0.1s, box-shadow 0.1s;
-}
-
-.btn-half:active {
-    transform: scale(0.96); /* Tıklayınca küçülme efekti */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-/* Renk Geçişleri (Gradyan) */
-.bg-student { background: linear-gradient(135deg, #6366f1, #4f46e5); } /* Mavi tonları */
-.bg-book { background: linear-gradient(135deg, #f59e0b, #d97706); } /* Turuncu tonları */
-
-.btn-half span.material-symbols-rounded {
-    font-size: 32px; /* İkonlar daha büyük */
-}
     </style>
 </head>
 <body>
@@ -264,7 +174,6 @@
 
     <div id="login-screen">
         <img src="app_logo.png" alt="Logo" class="login-logo-img">
-        
         <div class="input-group">
             <span class="material-symbols-rounded input-icon">vpn_key</span>
             <input type="text" id="schoolCode" placeholder="Okul Kodu">
@@ -274,43 +183,40 @@
             <input type="password" id="schoolPass" placeholder="Şifre">
         </div>
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:15px; width:100%; max-width:350px;">
-            <input type="checkbox" id="beniHatirla" style="width:20px; height:20px; margin:0; padding:0;">
-            <label for="beniHatirla" style="color:#4b5563; font-size:0.95rem; cursor:pointer;">Beni Hatırla</label>
+            <input type="checkbox" id="beniHatirla" style="width:20px; height:20px; margin:0;">
+            <label for="beniHatirla" style="color:#4b5563; font-size:0.95rem;">Beni Hatırla</label>
         </div>
         <button class="action-btn btn-login" onclick="login()">Giriş Yap</button>
     </div>
 
     <div id="dashboard" class="app-container hidden">
-        <div class="app-header" style="margin-bottom: 25px;"> <div style="display:flex; align-items:center; gap:15px;">
-            <img src="app_logo.png" alt="Logo" class="app-logo"> 
-            
-            <h2 id="headerTitle" style="margin:0; font-size:1.1rem; line-height:1.2; max-width: 220px; word-wrap: break-word;">
-                Panel
-            </h2>
+        
+        <div class="app-header"> 
+            <div style="display:flex; align-items:center; gap:15px;">
+                <img src="app_logo.png" alt="Logo" class="app-logo"> 
+                <h2 id="headerTitle" style="margin:0; font-size:1.1rem; line-height:1.2; font-weight:600;">Panel</h2>
+            </div>
+            <button class="logout-btn" onclick="logout()"><span class="material-symbols-rounded">logout</span></button>
         </div>
 
-        <button class="logout-btn" onclick="logout()">
-            <span class="material-symbols-rounded">logout</span>
-        </button>
-    </div>
         <div class="stats-container">
             <div class="stat-card sc-blue">
-                <span class="material-symbols-rounded stat-icon">library_books</span>
+                <span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">library_books</span>
                 <div class="stat-val" id="stat-kitap">-</div>
                 <div class="stat-label">Kitap</div>
             </div>
             <div class="stat-card sc-green">
-                <span class="material-symbols-rounded stat-icon">groups</span>
+                <span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">groups</span>
                 <div class="stat-val" id="stat-ogrenci">-</div>
                 <div class="stat-label">Öğrenci</div>
             </div>
             <div class="stat-card sc-red">
-                <span class="material-symbols-rounded stat-icon">outbound</span>
+                <span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">outbound</span>
                 <div class="stat-val" id="stat-emanet">-</div>
                 <div class="stat-label">Emanet</div>
             </div>
         </div>
-      
+       
         <div class="tabs">
             <button class="tab-btn active" onclick="showTab('ver')">
                 <span class="material-symbols-rounded">upload</span> Ver
@@ -321,9 +227,13 @@
             <button class="tab-btn" onclick="showTab('sorgu')">
                 <span class="material-symbols-rounded">search</span> Sorgu
             </button>
+            <button class="tab-btn" onclick="showTab('yonetim')">
+                <span class="material-symbols-rounded">settings</span> Yönetim
+            </button>
         </div>
 
         <div class="content">
+            
             <div id="tab-ver" class="tab-content">
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">person</span>
@@ -331,13 +241,19 @@
                 </div>
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">barcode_reader</span>
-                    <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Kitap No Yazın..." onkeydown="handleEnter(event, 'ver')">
-                    <button class="scan-btn" onclick="startScanner('verBarkod')">
-                        <span class="material-symbols-rounded">qr_code_scanner</span>
-                    </button>
+                    <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'ver')">
+                    <button class="scan-btn" onclick="startScanner('verBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
-                
                 <button class="action-btn btn-ver" onclick="islemYap('kitapVer')">Kitabı Ver</button>
+                
+                <div style="margin-top:20px; background: #fef2f2; border:1px solid #fee2e2; border-radius:12px; padding:15px;">
+                    <div style="font-weight:bold; color:#991b1b; border-bottom:1px solid #fecaca; padding-bottom:5px; margin-bottom:10px; display:flex; gap:5px;">
+                        <span class="material-symbols-rounded">warning</span> Gecikenler
+                    </div>
+                    <div id="overdue-list" style="max-height: 150px; overflow-y: auto;">
+                        <div style="text-align:center; color:#9ca3af; font-size:0.9rem;">Yükleniyor...</div>
+                    </div>
+                </div>
             </div>
 
             <div id="tab-al" class="tab-content hidden">
@@ -347,10 +263,8 @@
                 </div>
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">barcode_reader</span>
-                    <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Kitap No Yazın..." onkeydown="handleEnter(event, 'al')">
-                    <button class="scan-btn" onclick="startScanner('alBarkod')">
-                        <span class="material-symbols-rounded">qr_code_scanner</span>
-                    </button>
+                    <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'al')">
+                    <button class="scan-btn" onclick="startScanner('alBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
                 <button class="action-btn btn-al" onclick="islemYap('kitapAl')">Teslim Al</button>
             </div>
@@ -358,36 +272,71 @@
             <div id="tab-sorgu" class="tab-content hidden">
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">search</span>
-                    <input type="text" id="sorguInput" placeholder="Öğrenci No veya Barkod girin..." onkeydown="handleEnter(event, 'sorgu')">
-                    <button class="scan-btn" onclick="startScanner('sorguInput')">
-                        <span class="material-symbols-rounded">qr_code_scanner</span>
-                    </button>
+                    <input type="text" id="sorguInput" placeholder="No veya Barkod..." onkeydown="handleEnter(event, 'sorgu')">
+                    <button class="scan-btn" onclick="startScanner('sorguInput')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
-               
-                <div class="btn-group">
-                    <button type="button" class="btn-half bg-student" onclick="sorgula('student')">
-                        <span class="material-symbols-rounded">person_search</span> 
-                        <span>Öğrenci Sorgula</span>
-                    </button>
-                    <button type="button" class="btn-half bg-book" onclick="sorgula('book')">
-                        <span class="material-symbols-rounded">menu_book</span> 
-                        <span>Kitap Sorgula</span>
-                    </button>
+                
+                <div style="display:flex; gap:10px; margin-bottom:15px;">
+                    <button type="button" class="action-btn" style="background:#6366f1; font-size:0.9rem; padding:12px;" onclick="sorgula('student')">Öğrenci</button>
+                    <button type="button" class="action-btn" style="background:#f59e0b; font-size:0.9rem; padding:12px;" onclick="sorgula('book')">Kitap</button>
                 </div>
                 
                 <div id="sorguSonucAlani"></div>
-                <div class="activity-box" style="background:#fef2f2; border:1px solid #fee2e2; border-radius:12px; padding:15px; margin-top:20px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">
-                    <div style="font-weight:bold; color:#991b1b; border-bottom:1px solid #fecaca; padding-bottom:8px; margin-bottom:10px; display:flex; align-items:center; gap:5px;">
-                        <span class="material-symbols-rounded">warning</span>
-                        Geciken Kitaplar
+            </div>
+
+            <div id="tab-yonetim" class="tab-content hidden">
+                
+                <div id="yonetim-menu" class="yonetim-grid">
+                    <div class="yonetim-card" onclick="showYonetimForm('student')">
+                        <icon>person_add</icon>
+                        <span>Öğrenci Ekle</span>
                     </div>
-                    
-                    <div id="overdue-list" style="max-height: 200px; overflow-y: auto;">
-                        <div style="text-align:center; color:#9ca3af; font-size:0.9rem;">Kontrol ediliyor...</div>
+                    <div class="yonetim-card orange" onclick="showYonetimForm('book')">
+                        <icon>library_add</icon>
+                        <span>Kitap Ekle</span>
+                    </div>
+                    <div class="yonetim-card" style="opacity:0.5; pointer-events:none;">
+                        <icon>bar_chart</icon>
+                        <span>Raporlar</span>
+                    </div>
+                    <div class="yonetim-card" style="opacity:0.5; pointer-events:none;">
+                        <icon>settings</icon>
+                        <span>Ayarlar</span>
                     </div>
                 </div>
+
+                <div id="yonetim-form-student" class="hidden" style="margin-top:10px;">
+                    <div class="form-header">
+                        <button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>
+                        Öğrenci Kaydı
+                    </div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input type="number" id="newOgrNo" placeholder="Okul No"></div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input type="text" id="newOgrAd" placeholder="Ad Soyad"></div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">school</span><input type="text" id="newOgrSinif" placeholder="Sınıf"></div>
+                    <button class="action-btn" style="background:#4f46e5;" onclick="kaydet('student')">Kaydet</button>
+                </div>
+
+                <div id="yonetim-form-book" class="hidden" style="margin-top:10px;">
+                    <div class="form-header">
+                        <button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>
+                        Kitap Kaydı
+                    </div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">menu_book</span><input type="text" id="newKitapAd" placeholder="Kitap Adı"></div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">edit_note</span><input type="text" id="newKitapYazar" placeholder="Yazar"></div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">numbers</span><input type="number" id="newKitapSayfa" placeholder="Sayfa"></div>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">category</span><input type="text" id="newKitapTur" placeholder="Tür"></div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">shelves</span><input type="text" id="newKitapRaf" placeholder="Raf"></div>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">library_books</span><input type="number" id="newKitapAdet" placeholder="Adet" value="1" style="font-weight:bold; border:2px solid #f59e0b;"></div>
+                    </div>
+                    <div style="font-size:0.8rem; color:#6b7280; text-align:center; margin-bottom:10px;">Barkodlar otomatik tanımlanacaktır.</div>
+                    <button class="action-btn" style="background:#f59e0b;" onclick="kaydet('book')">Kaydet</button>
+                </div>
+
             </div>
-            </div>
+
         </div>
     </div>
     
@@ -395,511 +344,346 @@
         <div id="reader"></div>
         <button class="close-scan-btn" onclick="stopScanner()">Kapat</button>
     </div>
-   
 
     <audio id="beepSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
     <script>
+        // --- BAŞLANGIÇ ---
         window.addEventListener('load', () => {
             const splash = document.getElementById('splash-screen');
             setTimeout(() => {
                 splash.classList.add('hidden-splash');
                 document.body.style.overflow = 'auto'; 
-            }, 2500); 
+            }, 2000); 
         });
 
-        const API_URL = "http://localhost:3000/api";
-        let html5QrCode;
-        let activeInputId = null;
-
-        function startScanner(inputId) {
-            activeInputId = inputId;
-            document.getElementById("scanner-modal").classList.remove("hidden");
-
-            const formatsToSupport = [
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.QR_CODE
-            ];
-
-            html5QrCode = new Html5Qrcode("reader");
-            const config = {
-                fps: 10, qrbox: { width: 300, height: 100 }, aspectRatio: 1.0,
-                formatsToSupport: formatsToSupport,
-                experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-            };
-
-            html5QrCode.start(
-                { facingMode: "environment" }, config,
-                (decodedText) => {
-                    playBeep();
-                    document.getElementById(activeInputId).value = decodedText;
-                    stopScanner();
-                },
-                (err) => {}
-            ).catch(err => {
-                console.log(err);
-                Swal.fire({icon: 'error', title: 'Hata', text: 'Kamera açılamadı.'});
-                stopScanner();
-            });
-        }
-
-        function stopScanner() {
-            if (html5QrCode) {
-                html5QrCode.stop().then(() => {
-                    document.getElementById("scanner-modal").classList.add("hidden");
-                    html5QrCode.clear();
-                }).catch(err => console.log(err));
-            } else {
-                document.getElementById("scanner-modal").classList.add("hidden");
-            }
-        }
-
-        function playBeep() {
-            const sound = document.getElementById("beepSound");
-            sound.currentTime = 0; sound.play().catch(e=>{});
-        }
-
+        // --- GİRİŞ & LOGOUT ---
         async function login() {
-    const code = document.getElementById("schoolCode").value;
-    const pass = document.getElementById("schoolPass").value;
-    const remember = document.getElementById("beniHatirla").checked; // Checkbox durumu
-    const btn = document.querySelector(".btn-login");
+            const code = document.getElementById("schoolCode").value;
+            const pass = document.getElementById("schoolPass").value;
+            const remember = document.getElementById("beniHatirla").checked;
+            const btn = document.querySelector(".btn-login");
 
-    if (!code || !pass) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri doldurun'}); return; }
-    
-    btn.innerText = "..."; btn.disabled = true;
-
-    try {
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
-        });
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            // 1. Okul İsmini Kaydet
-            localStorage.setItem("okul_ismi", result.schoolName);
-            document.getElementById("headerTitle").innerText = result.schoolName;
-
-            // 2. Beni Hatırla Mantığı
-            if (remember) {
-                localStorage.setItem("kutuphane_code", code);
-                localStorage.setItem("kutuphane_pass", pass);
-                localStorage.setItem("beni_hatirla", "true");
-            } else {
-                // İşaretli değilse, oturum boyunca kalsın ama hafızadan silelim (İsteğe bağlı)
-                // Ama API çağrıları için localStorage kullanıyoruz, o yüzden "geçici" tutmak lazım.
-                // Şimdilik sistemin çalışması için localStorage'a yazıyoruz ama
-                // bir sonraki açılışta silinecek şekilde işaretleyebiliriz.
-                // Basitlik adına: İşaretli değilse kayıtlı şifreleri temizlemiyoruz ama
-                // sayfa açılışında otomatik doldurmayı engelliyoruz.
-                localStorage.setItem("kutuphane_code", code);
-                localStorage.setItem("kutuphane_pass", pass);
-                localStorage.removeItem("beni_hatirla");
-            }
-
-            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
-            Toast.fire({ icon: 'success', title: 'Giriş Başarılı' });
+            if (!code || !pass) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri doldurun'}); return; }
             
-            document.getElementById("login-screen").classList.add("hidden");
-            document.getElementById("dashboard").classList.remove("hidden");
-            // ... dashboard visible yapıldıktan hemen sonra ...
-    getStats(); // <--- BU SATIRI EKLE
-    getOverdueBooks();
-        } else {
-            Swal.fire({icon:'error', title:'Hata', text: result.message});
+            btn.innerText = "..."; btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schoolCode: code, schoolPass: pass })
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    localStorage.setItem("okul_ismi", result.schoolName);
+                    document.getElementById("headerTitle").innerText = result.schoolName;
+
+                    if (remember) {
+                        localStorage.setItem("kutuphane_code", code);
+                        localStorage.setItem("kutuphane_pass", pass);
+                        localStorage.setItem("beni_hatirla", "true");
+                    } else {
+                        localStorage.setItem("kutuphane_code", code);
+                        localStorage.setItem("kutuphane_pass", pass);
+                        localStorage.removeItem("beni_hatirla");
+                    }
+
+                    const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+                    Toast.fire({ icon: 'success', title: 'Giriş Başarılı' });
+                    
+                    document.getElementById("login-screen").classList.add("hidden");
+                    document.getElementById("dashboard").classList.remove("hidden");
+                    getStats();
+                    getOverdueBooks();
+                } else {
+                    Swal.fire({icon:'error', title:'Hata', text: result.message});
+                }
+            } catch (error) {
+                Swal.fire({icon:'error', title:'Hata', text:'Sunucu hatası'});
+            } finally {
+                btn.innerText = "Giriş Yap"; btn.disabled = false;
+            }
         }
-    } catch (error) {
-        Swal.fire({icon:'error', title:'Hata', text:'Sunucu hatası'});
-    } finally {
-        btn.innerText = "Giriş Yap"; btn.disabled = false;
-    }
-}
 
-window.onload = function() {
-    // Splash Screen kapatma (Mevcut kodun)
-    const splash = document.getElementById('splash-screen');
-    if(splash) {
-        setTimeout(() => {
-            splash.classList.add('hidden-splash');
-            document.body.style.overflow = 'auto'; 
-        }, 2500);
-    }
-
-    // --- BENİ HATIRLA KONTROLÜ ---
-    const isRemembered = localStorage.getItem("beni_hatirla");
-    const savedCode = localStorage.getItem("kutuphane_code");
-    
-    if (isRemembered === "true" && savedCode) {
-        // Beni hatırla seçiliyse bilgileri doldur
-        document.getElementById("schoolCode").value = savedCode;
-        document.getElementById("schoolPass").value = localStorage.getItem("kutuphane_pass");
-        document.getElementById("beniHatirla").checked = true;
-    } else {
-        // Seçili değilse kutuları boşalt
-        document.getElementById("schoolCode").value = "";
-        document.getElementById("schoolPass").value = "";
-        document.getElementById("beniHatirla").checked = false;
-    }
-
-    // Okul ismi varsa başlığa yaz
-    const savedName = localStorage.getItem("okul_ismi");
-    if(savedName) {
-        document.getElementById("headerTitle").innerText = savedName;
-    }
-};
         function logout() {
             Swal.fire({ title: 'Çıkış?', icon: 'question', showCancelButton: true, confirmButtonText: 'Evet', cancelButtonText: 'Hayır' }).then((res) => {
                 if (res.isConfirmed) { localStorage.clear(); location.reload(); }
             });
         }
 
+        window.onload = function() {
+            const isRemembered = localStorage.getItem("beni_hatirla");
+            if (isRemembered === "true") {
+                document.getElementById("schoolCode").value = localStorage.getItem("kutuphane_code");
+                document.getElementById("schoolPass").value = localStorage.getItem("kutuphane_pass");
+                document.getElementById("beniHatirla").checked = true;
+            }
+            const savedName = localStorage.getItem("okul_ismi");
+            if(savedName) document.getElementById("headerTitle").innerText = savedName;
+        };
+
+        // --- TAB YÖNETİMİ ---
         function showTab(tabName) {
             document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
             document.getElementById("tab-" + tabName).classList.remove("hidden");
             document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
             event.currentTarget.classList.add("active");
-        }
-
-        // --- İŞLEM YAP (SENİN ID'LERİNE GÖRE DÜZENLENMİŞ + GERİ AL EKLİ) ---
-async function islemYap(actionType) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-    
-    // Verileri topluyoruz
-    let data = { schoolCode: code, schoolPass: pass };
-    let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
-
-    // Geri alma işleminde kullanmak için bu değerleri saklayalım
-    let islemBarkod = "";
-    let islemOgrNo = "";
-
-    if (actionType === 'kitapVer') {
-        data.ogrNo = document.getElementById("verOgrNo").value;
-        data.barkod = document.getElementById("verBarkod").value;
-        
-        islemOgrNo = data.ogrNo; // Sakla
-        islemBarkod = data.barkod; // Sakla
-
-        if (!data.ogrNo || !data.barkod) { 
-            Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); 
-            return; 
-        }
-    } else {
-        data.barkod = document.getElementById("alBarkod").value;
-        islemBarkod = data.barkod; // Sakla
-        // İade alırken öğrenci nosu girilmediği için boş bırakıyoruz
-        
-        if (!data.barkod) { 
-            Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); 
-            return; 
-        }
-    }
-
-    // Yükleniyor...
-    Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
-
-    try {
-        const response = await fetch(endpoint, {
-            method: "POST", 
-            headers: { "Content-Type": "application/json" }, 
-            body: JSON.stringify(data)
-        });
-        const result = await response.json();
-        // Eğer sunucudan öğrenci numarası geldiyse (Teslim Al işleminde) onu hafızaya al
-        if (result.studentNo) {
-            islemOgrNo = result.studentNo;
-        }
-        // ------------------
-
-        if (result.status === 'success') {
-            playBeep();
             
-            // Mesajı hazırla (Raf bilgisi varsa ekle)
-            let msg = result.message;
-            if(result.raf) {
-                msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
-                msg += `<div style="font-size:0.9rem; margin-top:5px; color:#555;">Lütfen kitabı rafa yerleştiriniz.</div>`;
+            // Yönetim menüsünü sıfırla
+            if(tabName === 'yonetim') closeYonetimForm();
+        }
+
+        // --- YÖNETİM FORM GEÇİŞLERİ ---
+        function showYonetimForm(type) {
+            document.getElementById("yonetim-menu").classList.add("hidden");
+            document.getElementById("yonetim-form-" + type).classList.remove("hidden");
+        }
+        function closeYonetimForm() {
+            document.querySelectorAll("[id^='yonetim-form-']").forEach(el => el.classList.add("hidden"));
+            document.getElementById("yonetim-menu").classList.remove("hidden");
+        }
+
+        // --- İŞLEM YAP (GERİ AL BUTONU DAHİL) ---
+        async function islemYap(actionType) {
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            let data = { schoolCode: code, schoolPass: pass };
+            let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
+
+            let islemBarkod = "";
+            let islemOgrNo = "";
+
+            if (actionType === 'kitapVer') {
+                data.ogrNo = document.getElementById("verOgrNo").value;
+                data.barkod = document.getElementById("verBarkod").value;
+                islemOgrNo = data.ogrNo; islemBarkod = data.barkod;
+
+                if (!data.ogrNo || !data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); return; }
+            } else {
+                data.barkod = document.getElementById("alBarkod").value;
+                islemBarkod = data.barkod;
+                if (!data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); return; }
             }
 
-            // --- POPUP (GERİ AL BUTONU EKLENDİ) ---
-            const popup = await Swal.fire({ 
-                icon: 'success', 
-                title: 'Başarılı', 
-                html: msg, 
-                showConfirmButton: true, 
-                confirmButtonText: 'TAMAM', 
-                confirmButtonColor: '#10b981', 
-                
-                // İPTAL BUTONU AYARLARI
-                showDenyButton: true,
-                denyButtonText: 'Hatalı İşlem - Geri Al',
-                denyButtonColor: '#ef4444',
-                
-                allowOutsideClick: false 
-            });
+            Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
 
-            // EĞER GERİ AL BUTONUNA BASILIRSA
-            if (popup.isDenied) {
-                Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (result.studentNo) islemOgrNo = result.studentNo;
 
-                // Backend'deki /api/undo servisine istek atıyoruz
-                try {
-                    const undoResp = await fetch('/api/undo', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            schoolCode: code, 
-                            schoolPass: pass,
-                            // Eğer 'kitapVer' yaptıysak undo tipi 'ver' olur, 'kitapAl' ise 'al' olur.
-                            type: actionType === 'kitapVer' ? 'ver' : 'al',
-                            bookCode: islemBarkod,
-                            studentNo: islemOgrNo // Kitap Verirken girdiğimiz no
-                        })
+                if (result.status === 'success') {
+                    playBeep();
+                    let msg = result.message;
+                    if(result.raf) msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div><div style="font-size:0.9rem; margin-top:5px; color:#555;">Lütfen kitabı rafa yerleştiriniz.</div>`;
+
+                    const popup = await Swal.fire({ 
+                        icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981',
+                        showDenyButton: true, denyButtonText: 'Geri Al', denyButtonColor: '#ef4444', allowOutsideClick: false 
                     });
 
-                    const undoRes = await undoResp.json();
-                    if (undoRes.status === 'success') {
-                        Swal.fire('Geri Alındı', undoRes.message, 'info');
-                        // Listeleri güncellemek iyi olur
-                        if(typeof getRecentActivity === 'function') getRecentActivity();
-                        if(typeof getStats === 'function') getStats();
-                    } else {
-                        Swal.fire('Hata', 'Geri alma başarısız oldu: ' + undoRes.message, 'error');
+                    if (popup.isDenied) {
+                        Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
+                        const undoResp = await fetch('/api/undo', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: actionType === 'kitapVer' ? 'ver' : 'al', bookCode: islemBarkod, studentNo: islemOgrNo })
+                        });
+                        const undoRes = await undoResp.json();
+                        if (undoRes.status === 'success') {
+                            Swal.fire('Geri Alındı', undoRes.message, 'info');
+                            getStats(); getOverdueBooks();
+                        } else {
+                            Swal.fire('Hata', undoRes.message, 'error');
+                        }
                     }
-                } catch (undoErr) {
-                    Swal.fire('Hata', 'Sunucu hatası (Undo).', 'error');
+
+                    if(document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
+                    if(document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
+                    getStats(); getOverdueBooks();
+
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
                 }
+            } catch (error) {
+                Swal.fire({ icon: 'error', title: 'Hata', text: error.message });
+            }
+        }
+
+        // --- KAYDETME (ÖĞRENCİ / KİTAP) ---
+        async function kaydet(type) {
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            let data = { schoolCode: code, schoolPass: pass };
+            let endpoint = "";
+
+            if (type === 'student') {
+                const no = document.getElementById("newOgrNo").value;
+                const name = document.getElementById("newOgrAd").value;
+                const cls = document.getElementById("newOgrSinif").value;
+                if (!no || !name || !cls) { Swal.fire('Eksik', 'Tüm alanları doldurunuz.', 'warning'); return; }
+                data.no = no; data.name = name; data.className = cls;
+                endpoint = "/api/addStudent";
+            } else {
+                const bName = document.getElementById("newKitapAd").value;
+                const auth = document.getElementById("newKitapYazar").value;
+                const pg = document.getElementById("newKitapSayfa").value;
+                const typ = document.getElementById("newKitapTur").value;
+                const shlf = document.getElementById("newKitapRaf").value;
+                const qty = document.getElementById("newKitapAdet").value;
+                if (!bName) { Swal.fire('Eksik', 'Kitap Adı zorunludur.', 'warning'); return; }
+                data.name = bName; data.author = auth; data.page = pg; 
+                data.type = typ; data.shelf = shlf; data.quantity = qty;
+                endpoint = "/api/addBook";
             }
 
-            // Inputları temizle
-            if(document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
-            if(document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
-            // Öğrenci numarasını silmek istemeyebilirsin (seri işlem için), istersen alt satırı aktif et:
-            // document.getElementById("verOgrNo").value = ""; 
-
-            // Listeleri güncelle
-            if(typeof getRecentActivity === 'function') getRecentActivity();
-            if(typeof getOverdueBooks === 'function') getOverdueBooks();
-            if(typeof getStats === 'function') getStats();
-
-        } else {
-            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+            Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading() });
+            try {
+                const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                const r = await res.json();
+                if (r.status === 'success') {
+                    // DETAYLI GERİ BİLDİRİM POPUP'I
+                    if (type === 'book') {
+                        Swal.fire({
+                            icon: 'success',
+                            title: '📚 Kitaplar Eklendi',
+                            html: `<div style="text-align:left; font-size:1rem; line-height:1.6;">
+                                    <div><b>Kitap:</b> ${data.name}</div>
+                                    <div><b>Yazar:</b> ${data.author}</div>
+                                    <div><b>Adet:</b> ${data.quantity}</div>
+                                    <div style="margin-top:10px; color:#059669;">Raf: <b>${data.shelf}</b></div>
+                                    <div style="font-size:0.8rem; color:#6b7280; margin-top:5px;">Barkodlar sistem tarafından otomatik tanımlandı.</div>
+                                   </div>`
+                        });
+                    } else {
+                        Swal.fire('Başarılı', r.message, 'success');
+                    }
+                    
+                    // Formları Temizle
+                    document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => { if(i.id!=='newKitapAdet') i.value=''; else i.value='1'; });
+                    getStats();
+                } else { Swal.fire('Hata', r.message, 'error'); }
+            } catch (e) { Swal.fire('Hata', 'Sunucu hatası.', 'error'); }
         }
-    } catch (error) {
-        Swal.fire({ icon: 'error', title: 'Hata', text: error.message });
-    }
-}
-// --- SORGULA FONKSİYONU (TAM VE TEK HALİ) ---
-async function sorgula(incomingType) {
-    console.log("Sorgula Tetiklendi. Gelen Tür:", incomingType); 
 
-    const inputEl = document.getElementById("sorguInput");
-    const resultArea = document.getElementById("sorguSonucAlani");
-    const query = inputEl.value.trim();
+        // --- SORGULA ---
+        async function sorgula(incomingType) {
+            const inputEl = document.getElementById("sorguInput");
+            const resultArea = document.getElementById("sorguSonucAlani");
+            const query = inputEl.value.trim();
+            let searchType = incomingType;
 
-    // 1. KONTROL: Kutu boş mu?
-    if (!query) {
-        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen numara veya barkod yazınız.' });
-        return;
-    }
+            if (!query) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Arama yapın.' }); return; }
+            if (!searchType) {
+                const popup = await Swal.fire({ title: 'Ne arıyorsunuz?', icon: 'question', showDenyButton: true, confirmButtonText: 'Öğrenci', denyButtonText: 'Kitap', confirmButtonColor: '#6366f1', denyButtonColor: '#f59e0b' });
+                if (popup.isConfirmed) searchType = 'student'; else if (popup.isDenied) searchType = 'book'; else return;
+            }
 
-    // 2. TÜR BELİRLEME
-    let searchType = incomingType;
+            resultArea.innerHTML = '<div style="text-align:center; padding:10px;">Aranıyor...</div>';
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
 
-    // Eğer tür gelmediyse (Enter'a basıldıysa), Popup açıp soralım
-    if (!searchType) {
-        const popup = await Swal.fire({
-            title: 'Ne arıyorsunuz?',
-            text: 'Lütfen seçim yapınız:',
-            icon: 'question',
-            showDenyButton: true,
-            confirmButtonText: 'Öğrenci',
-            denyButtonText: 'Kitap',
-            confirmButtonColor: '#6366f1',
-            denyButtonColor: '#f59e0b',
-            allowOutsideClick: false
-        });
-
-        if (popup.isConfirmed) searchType = 'student';
-        else if (popup.isDenied) searchType = 'book';
-        else return; // İptal edildi
-    }
-
-    // 3. API İSTEĞİ
-    resultArea.innerHTML = '<div style="text-align:center; padding:20px; font-weight:bold; color:#6b7280;">Aranıyor...</div>';
-    
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
-    try {
-        const response = await fetch('/api/sorgula', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                schoolCode: code, 
-                schoolPass: pass, 
-                query: query,
-                type: searchType 
-            })
-        });
-        
-        const res = await response.json();
-
-        if (res.status === 'success') {
-            let html = '';
-
-            // A) KİTAP BULUNDU
-            if (res.result.type === 'book') {
-                if(res.result.data.length === 0) {
-                    resultArea.innerHTML = '<div style="text-align:center; color:red; padding:15px;">Kayıt bulunamadı.</div>'; return;
-                }
-                res.result.data.forEach(book => {
-                    const statusClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
-                    const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
-                    const extraInfo = book.status === 'Out' ? `<br><small style="color:#6b7280">Veriliş: ${book.date}</small>` : '';
-
-                    html += `
-                    <div class="result-card" style="border-left: 5px solid #f59e0b;">
-                        <div class="card-header"><span class="material-symbols-rounded" style="vertical-align:middle">menu_book</span> ${book.name}</div>
-                        <div class="card-sub">Barkod: <b>${book.code}</b></div>
-                        <div class="card-sub">${book.author || '-'}</div>
-                        <div style="margin-top:5px;"><span class="badge ${statusClass}">${statusText}</span> ${extraInfo}</div>
-                    </div>`;
+            try {
+                const response = await fetch('/api/sorgula', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schoolCode: code, schoolPass: pass, query: query, type: searchType })
                 });
-            } 
-            // B) ÖĞRENCİ BULUNDU
-            else if (res.result.type === 'student') {
-                const std = res.result.data;
-                html += `
-                <div class="result-card" style="border-left: 5px solid #6366f1;">
-                    <div class="card-header"><span class="material-symbols-rounded" style="vertical-align:middle">person</span> ${std.name}</div>
-                    <div class="card-sub">No: <b>${std.no}</b> | Sınıf: ${std.class}</div>
-                    <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
-                    <strong>Elindeki Kitaplar (${std.books.length}):</strong>
-                `;
-                
-                if (std.books.length > 0) {
-                    std.books.forEach(b => {
-                        html += `
-                        <div class="book-list-item" style="flex-direction:column; gap:2px;">
-                            <div style="font-weight:600;">${b.name}</div>
-                            <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#6b7280;">
-                                <span>${b.code}</span>
-                                <span>${b.date}</span>
-                            </div>
+                const res = await response.json();
+
+                if (res.status === 'success') {
+                    let html = '';
+                    if (res.result.type === 'book') {
+                        if(res.result.data.length === 0) { resultArea.innerHTML = '<div style="color:red; text-align:center;">Bulunamadı.</div>'; return; }
+                        res.result.data.forEach(book => {
+                            const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
+                            const badgeClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
+                            html += `<div class="result-card" style="border-left-color:#f59e0b;">
+                                <div style="font-weight:bold;">${book.name}</div>
+                                <div style="font-size:0.9rem; color:#666;">${book.author} | Barkod: ${book.code}</div>
+                                <div style="margin-top:5px;"><span class="badge ${badgeClass}">${statusText}</span></div>
+                            </div>`;
+                        });
+                    } else {
+                        const std = res.result.data;
+                        html += `<div class="result-card" style="border-left-color:#6366f1;">
+                            <div style="font-weight:bold; color:#4f46e5;">${std.name}</div>
+                            <div style="font-size:0.9rem;">${std.class} - ${std.no}</div>
+                            <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
+                            <div style="font-weight:bold; font-size:0.8rem;">Emanetler (${std.books.length}):</div>`;
+                        if(std.books.length > 0) std.books.forEach(b => html += `<div style="font-size:0.85rem; padding:4px 0;">📚 ${b.name} <span style="color:red; font-size:0.75rem;">(${b.date})</span></div>`);
+                        else html += '<div style="color:green; font-size:0.8rem;">Temiz.</div>';
+                        html += '</div>';
+                    }
+                    resultArea.innerHTML = html;
+                } else { resultArea.innerHTML = `<div style="color:red; text-align:center;">${res.message}</div>`; }
+            } catch (e) { resultArea.innerHTML = 'Hata.'; }
+        }
+
+        // --- İSTATİSTİKLER (DÜZELTİLDİ) ---
+        async function getStats() {
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            document.getElementById("stat-kitap").innerText = "...";
+            try {
+                const response = await fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+                const res = await response.json();
+                if (res.status === 'success') {
+                    // Backend'den gelen veri sırasına güveniyoruz. 
+                    // Eğer Excel'de sayılar ters ise burayı değiştirmen gerekebilir.
+                    document.getElementById("stat-kitap").innerText = res.data.kitap; 
+                    document.getElementById("stat-ogrenci").innerText = res.data.ogrenci;
+                    document.getElementById("stat-emanet").innerText = res.data.emanet;
+                }
+            } catch (error) {}
+        }
+        
+        async function getOverdueBooks() {
+            const listArea = document.getElementById("overdue-list");
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            try {
+                const response = await fetch('/api/overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+                const res = await response.json();
+                if (res.status === 'success' && res.data.length > 0) {
+                    let html = '';
+                    res.data.forEach(item => {
+                        html += `<div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #fee2e2;">
+                            <span class="material-symbols-rounded" style="color:#ef4444;">warning</span>
+                            <div><div style="font-weight:bold; font-size:0.9rem; color:#991b1b;">${item.student}</div>
+                            <div style="font-size:0.8rem; color:#b91c1c;">${item.book} (${item.date})</div></div>
                         </div>`;
                     });
-                } else {
-                    html += '<div style="color:green; margin-top:5px; font-size:0.9rem;">Elinde kitap yok.</div>';
-                }
-                html += '</div>';
+                    listArea.innerHTML = html;
+                } else { listArea.innerHTML = '<div style="text-align:center; color:#059669; padding:10px;">Geciken yok! 👍</div>'; }
+            } catch (e) {}
+        }
+
+        // --- DİĞER ---
+        function handleEnter(e, type) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                if(type === 'sorgu') sorgula(null);
+                else type === 'ver' ? islemYap('kitapVer') : islemYap('kitapAl');
             }
-            resultArea.innerHTML = html;
-        } else {
-            resultArea.innerHTML = `<div style="text-align:center; color:red; padding:15px;">${res.message}</div>`;
         }
-    } catch (error) {
-        console.error("Hata:", error);
-        resultArea.innerHTML = '<div style="text-align:center; color:red;">Bağlantı hatası!</div>';
-    }
-}
-
-// --- ENTER TUŞU YÖNETİMİ ---
-function handleEnter(e, type) {
-    if (e.key === "Enter") {
-        e.preventDefault(); // Sayfa yenilemeyi durdur
-        if(type === 'sorgu') {
-            sorgula(null); // Parametresiz çağır -> Popup açılır
-        } else {
-            type === 'ver' ? islemYap('kitapVer') : islemYap('kitapAl');
+        function playBeep() { const s = document.getElementById("beepSound"); s.currentTime=0; s.play().catch(e=>{}); }
+        
+        // Kamera fonksiyonları (Basitleştirildi)
+        let html5QrCode;
+        function startScanner(inputId) {
+            document.getElementById("scanner-modal").classList.remove("hidden");
+            html5QrCode = new Html5Qrcode("reader");
+            html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => { playBeep(); document.getElementById(inputId).value = decodedText; stopScanner(); },
+                (err) => {}
+            ).catch(err => { Swal.fire('Hata', 'Kamera açılamadı.', 'error'); stopScanner(); });
         }
-    }
-}
-// --- İSTATİSTİKLERİ ÇEK ---
-async function getStats() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-    
-    // Yükleniyor efekti (...)
-    document.getElementById("stat-kitap").innerText = "...";
-    document.getElementById("stat-ogrenci").innerText = "...";
-    document.getElementById("stat-emanet").innerText = "...";
-
-    try {
-        const response = await fetch('/api/stats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
-        });
-        const res = await response.json();
-
-        if (res.status === 'success') {
-            // Sayıları animasyonlu gibi gösterelim
-            document.getElementById("stat-kitap").innerText = res.data.kitap;
-            document.getElementById("stat-ogrenci").innerText = res.data.ogrenci;
-            document.getElementById("stat-emanet").innerText = res.data.emanet;
+        function stopScanner() {
+            if (html5QrCode) html5QrCode.stop().then(() => { document.getElementById("scanner-modal").classList.add("hidden"); html5QrCode.clear(); });
+            else document.getElementById("scanner-modal").classList.add("hidden");
         }
-    } catch (error) {
-        console.error("İstatistik alınamadı");
-    }
-}
-// --- GECİKENLERİ ÇEK ---
-async function getOverdueBooks() {
-    const listArea = document.getElementById("overdue-list");
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
-    try {
-        // Yeni API adresimize istek atıyoruz: /api/overdue
-        const response = await fetch('/api/overdue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass })
-        });
-        const res = await response.json();
-
-        if (res.status === 'success' && res.data.length > 0) {
-            let html = '';
-            // ... getOverdueBooks fonksiyonunun içi ...
-
-            res.data.forEach(item => {
-                html += `
-                <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #fecaca;">
-                    <div style="background:#fee2e2; color:#ef4444; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                        <span class="material-symbols-rounded" style="font-size:20px">priority_high</span>
-                    </div>
-                    <div style="flex:1;">
-                        <div style="font-weight:600; font-size:0.9rem; color:#7f1d1d;">${item.student}</div>
-                        <div style="font-size:0.8rem; color:#b91c1c;">
-                            <span style="font-weight:bold; color:#991b1b;">#${item.code}</span> -  ${item.book}
-                        </div>
-                    </div>
-                    <div style="font-size:0.75rem; color:#ef4444; white-space:nowrap; font-weight:bold;">
-                        ${item.date}
-                    </div>
-                </div>`;
-            });
-
-// ...
-            listArea.innerHTML = html;
-        } else {
-            // Eğer geciken yoksa tebrik mesajı gösterelim :)
-            listArea.innerHTML = `
-                <div style="text-align:center; padding:15px; color:#059669;">
-                    <span class="material-symbols-rounded" style="font-size:32px; display:block; margin-bottom:5px;">thumb_up</span>
-                    Harika! Geciken kitap yok.
-                </div>`;
-        }
-    } catch (error) {
-        console.error("Liste hatası", error);
-        listArea.innerHTML = '<div style="text-align:center; color:red;">Bağlantı hatası.</div>';
-    }
-}
     </script>
 </body>
 </html>
