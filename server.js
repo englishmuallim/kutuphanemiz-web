@@ -219,8 +219,16 @@ app.post('/api/kitapAl', async (req, res) => {
         if (currentCount > 0) { student.active_loans = currentCount - 1; await student.save(); }
     }
 
+    // MESAJI HAZIRLA
     const mesaj = `<b>"${book.book_name}"</b> adlı kitap <b>${student.student_fullname}</b> isimli öğrenciden teslim alındı.`;
-    res.json({ status: 'success', message: mesaj, raf: book.shelf || '?' });
+
+    // CEVABI GÖNDER (Öğrenci Numarasını Ekledik)
+    res.json({ 
+        status: 'success', 
+        message: mesaj, 
+        raf: book.shelf || '?',
+        studentNo: student.student_no  // <--- YENİ EKLENEN SATIR (Geri Al için şart)
+    });
 
   } catch (error) {
     console.error("Kitap Al Hatası:", error.message);
@@ -416,3 +424,53 @@ app.post('/api/overdue', async (req, res) => {
   }
 });
 app.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda çalışıyor.`); });
+
+// --- API: İŞLEMİ GERİ AL (UNDO) ---
+app.post('/api/undo', async (req, res) => {
+  try {
+    const { schoolCode, schoolPass, type, bookCode, studentNo } = req.body;
+
+    const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
+    if (!targetSheetID) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+    const doc = new GoogleSpreadsheet(targetSheetID);
+    await doc.useServiceAccountAuth(getAuthObject());
+    await doc.loadInfo();
+
+    const sheetBooks = doc.sheetsByTitle['Books'];
+    const sheetTrans = doc.sheetsByTitle['Transactions'];
+    
+    const books = await sheetBooks.getRows();
+    const transactions = await sheetTrans.getRows();
+
+    if (type === 'ver') {
+        // VERME İŞLEMİNİ İPTAL ET (Kitabı geri al, kaydı sil)
+        const book = books.find(b => b.code == bookCode);
+        if (book) { book.status = 'In'; book.holder = ''; await book.save(); }
+
+        const transRows = transactions.filter(t => t.code == bookCode && t.student_no == studentNo && t.status === 'Active');
+        if (transRows.length > 0) { await transRows[transRows.length - 1].delete(); }
+
+        return res.json({ status: 'success', message: 'Verme işlemi geri alındı.' });
+    }
+
+    if (type === 'al') {
+        // ALMA İŞLEMİNİ İPTAL ET (Kitabı geri ver, kaydı düzelt)
+        const book = books.find(b => b.code == bookCode);
+        if (book) { book.status = 'Out'; await book.save(); }
+
+        const transRows = transactions.filter(t => t.code == bookCode && t.student_no == studentNo && t.status === 'Completed');
+        if (transRows.length > 0) {
+            const lastTrans = transRows[transRows.length - 1];
+            lastTrans.status = 'Active'; lastTrans.return_date = ''; 
+            await lastTrans.save();
+        }
+
+        return res.json({ status: 'success', message: 'İade işlemi geri alındı.' });
+    }
+
+    res.json({ status: 'error', message: 'Geçersiz işlem.' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});

@@ -61,7 +61,7 @@
     margin: 0;
     font-size: 1.1rem;
     line-height: 1.3;
-    color: #1f2937;
+    color: #ffffff;
     flex: 1; /* İsmin kalan alanı kaplamasını sağlar */
     word-wrap: break-word;
 }
@@ -565,47 +565,135 @@ window.onload = function() {
             event.currentTarget.classList.add("active");
         }
 
-        async function islemYap(actionType) {
-            const code = localStorage.getItem("kutuphane_code");
-            const pass = localStorage.getItem("kutuphane_pass");
-            let data = { schoolCode: code, schoolPass: pass };
-            let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
+        // --- İŞLEM YAP (SENİN ID'LERİNE GÖRE DÜZENLENMİŞ + GERİ AL EKLİ) ---
+async function islemYap(actionType) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    
+    // Verileri topluyoruz
+    let data = { schoolCode: code, schoolPass: pass };
+    let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
 
-            if (actionType === 'kitapVer') {
-                data.ogrNo = document.getElementById("verOgrNo").value;
-                data.barkod = document.getElementById("verBarkod").value;
-                if (!data.ogrNo || !data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); return; }
-            } else {
-                data.barkod = document.getElementById("alBarkod").value;
-                if (!data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); return; }
-            }
+    // Geri alma işleminde kullanmak için bu değerleri saklayalım
+    let islemBarkod = "";
+    let islemOgrNo = "";
 
-            Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
+    if (actionType === 'kitapVer') {
+        data.ogrNo = document.getElementById("verOgrNo").value;
+        data.barkod = document.getElementById("verBarkod").value;
+        
+        islemOgrNo = data.ogrNo; // Sakla
+        islemBarkod = data.barkod; // Sakla
 
-            try {
-                const response = await fetch(endpoint, {
-                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
-                });
-                const result = await response.json();
-
-                if (result.status === 'success') {
-                    playBeep();
-                    let msg = result.message;
-                    if(result.raf) {
-                        msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
-                        msg += `<div style="font-size:0.9rem; margin-top:5px; color:#555;">Lütfen kitabı rafa yerleştiriniz.</div>`;
-                    }
-                    Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', timer: null, allowOutsideClick: false });
-                    document.getElementById("verBarkod").value = "";
-                    document.getElementById("alBarkod").value = "";
-                } else {
-                    Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
-                }
-            } catch (error) {
-                Swal.fire({ icon: 'error', title: 'Hata', text: error.message });
-            }
+        if (!data.ogrNo || !data.barkod) { 
+            Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); 
+            return; 
         }
+    } else {
+        data.barkod = document.getElementById("alBarkod").value;
+        islemBarkod = data.barkod; // Sakla
+        // İade alırken öğrenci nosu girilmediği için boş bırakıyoruz
+        
+        if (!data.barkod) { 
+            Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); 
+            return; 
+        }
+    }
 
+    // Yükleniyor...
+    Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
+
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        // Eğer sunucudan öğrenci numarası geldiyse (Teslim Al işleminde) onu hafızaya al
+        if (result.studentNo) {
+            islemOgrNo = result.studentNo;
+        }
+        // ---------------------
+
+        if (result.status === 'success') {
+            playBeep();
+            
+            // Mesajı hazırla (Raf bilgisi varsa ekle)
+            let msg = result.message;
+            if(result.raf) {
+                msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
+                msg += `<div style="font-size:0.9rem; margin-top:5px; color:#555;">Lütfen kitabı rafa yerleştiriniz.</div>`;
+            }
+
+            // --- POPUP (GERİ AL BUTONU EKLENDİ) ---
+            const popup = await Swal.fire({ 
+                icon: 'success', 
+                title: 'Başarılı', 
+                html: msg, 
+                showConfirmButton: true, 
+                confirmButtonText: 'TAMAM', 
+                confirmButtonColor: '#10b981', 
+                
+                // İPTAL BUTONU AYARLARI
+                showDenyButton: true,
+                denyButtonText: 'Hatalı İşlem - Geri Al',
+                denyButtonColor: '#ef4444',
+                
+                allowOutsideClick: false 
+            });
+
+            // EĞER GERİ AL BUTONUNA BASILIRSA
+            if (popup.isDenied) {
+                Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
+
+                // Backend'deki /api/undo servisine istek atıyoruz
+                try {
+                    const undoResp = await fetch('/api/undo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            schoolCode: code, 
+                            schoolPass: pass,
+                            // Eğer 'kitapVer' yaptıysak undo tipi 'ver' olur, 'kitapAl' ise 'al' olur.
+                            type: actionType === 'kitapVer' ? 'ver' : 'al',
+                            bookCode: islemBarkod,
+                            studentNo: islemOgrNo // Kitap Verirken girdiğimiz no
+                        })
+                    });
+
+                    const undoRes = await undoResp.json();
+                    if (undoRes.status === 'success') {
+                        Swal.fire('Geri Alındı', undoRes.message, 'info');
+                        // Listeleri güncellemek iyi olur
+                        if(typeof getRecentActivity === 'function') getRecentActivity();
+                        if(typeof getStats === 'function') getStats();
+                    } else {
+                        Swal.fire('Hata', 'Geri alma başarısız oldu: ' + undoRes.message, 'error');
+                    }
+                } catch (undoErr) {
+                    Swal.fire('Hata', 'Sunucu hatası (Undo).', 'error');
+                }
+            }
+
+            // Inputları temizle
+            if(document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
+            if(document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
+            // Öğrenci numarasını silmek istemeyebilirsin (seri işlem için), istersen alt satırı aktif et:
+            // document.getElementById("verOgrNo").value = ""; 
+
+            // Listeleri güncelle
+            if(typeof getRecentActivity === 'function') getRecentActivity();
+            if(typeof getOverdueBooks === 'function') getOverdueBooks();
+            if(typeof getStats === 'function') getStats();
+
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Hata', text: error.message });
+    }
+}
 // --- SORGULA FONKSİYONU (TAM VE TEK HALİ) ---
 async function sorgula(incomingType) {
     console.log("Sorgula Tetiklendi. Gelen Tür:", incomingType); 
