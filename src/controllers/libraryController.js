@@ -1,37 +1,7 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { getAuthObject, getSchoolSheetID } = require('../api/googleSheets');
 
-const app = express();
-app.use(express.static(__dirname)); 
-app.use(cors());
-app.use(express.json());
-
-// --- KİMLİK DOĞRULAMA ---
-function getAuthObject() {
-  if (fs.existsSync('./credentials.json')) return require('./credentials.json');
-  if (!process.env.GOOGLE_PRIVATE_KEY) throw new Error("Private Key yok!");
-  const cleanKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, ''); 
-  return { client_email: process.env.GOOGLE_CLIENT_EMAIL, private_key: cleanKey };
-}
-
-async function getSchoolSheetID(schoolCode, schoolPass) {
-  const masterID = process.env.MASTER_SHEET_ID;
-  const doc = new GoogleSpreadsheet(masterID);
-  await doc.useServiceAccountAuth(getAuthObject());
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['Schools'];
-  const rows = await sheet.getRows();
-  const school = rows.find(row => row.school_code == schoolCode && row.school_password == schoolPass);
-  return school ? school.school_sheet_ID : null;
-}
-
-// --- API ENDPOINTLERİ ---
-
-// 1. GİRİŞ
-app.post('/api/login', async (req, res) => {
+exports.login = async (req, res) => {
   try {
     const { schoolCode, schoolPass } = req.body;
     const doc = new GoogleSpreadsheet(process.env.MASTER_SHEET_ID);
@@ -43,10 +13,9 @@ app.post('/api/login', async (req, res) => {
     if (school) res.json({ status: 'success', schoolName: school.school_name || 'Kütüphane' });
     else res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Şifre' });
   } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 2. İSTATİSTİKLER
-app.post('/api/stats', async (req, res) => {
+exports.stats = async (req, res) => {
   try {
     const { schoolCode, schoolPass } = req.body;
     const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -65,10 +34,9 @@ app.post('/api/stats', async (req, res) => {
     });
     res.json({ status: 'success', data: stats });
   } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 3. SINIFLARI GETİR
-app.post('/api/getClasses', async (req, res) => {
+exports.getClasses = async (req, res) => {
     try {
       const { schoolCode, schoolPass } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -82,10 +50,9 @@ app.post('/api/getClasses', async (req, res) => {
       const classes = rows.map(r => r._rawData[0]).filter(c => c); 
       res.json({ status: 'success', data: classes });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 4. KİTAP EKLE
-app.post('/api/addBook', async (req, res) => {
+exports.addBook = async (req, res) => {
     try {
       const { schoolCode, schoolPass, name, author, page, type, shelf, quantity } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -112,10 +79,9 @@ app.post('/api/addBook', async (req, res) => {
       }
       res.json({ status: 'success', message: 'Eklendi', barcodes: assignedBarcodes });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 5. KİTAP VER
-app.post('/api/kitapVer', async (req, res) => {
+exports.kitapVer = async (req, res) => {
     try {
       const { schoolCode, schoolPass, barkod, ogrNo } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -145,10 +111,9 @@ app.post('/api/kitapVer', async (req, res) => {
       book.status = 'Out'; await book.save();
       res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.student_fullname}</b> isimli öğrenciye verildi.` });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 6. KİTAP AL
-app.post('/api/kitapAl', async (req, res) => {
+exports.kitapAl = async (req, res) => {
     try {
       const { schoolCode, schoolPass, barkod } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -179,10 +144,9 @@ app.post('/api/kitapAl', async (req, res) => {
   
       res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.student_fullname}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.` , raf: book.shelf, studentNo: ogrNo });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 7. SORGULA (GÜNCELLENDİ: GEÇMİŞ + DETAY)
-app.post('/api/sorgula', async (req, res) => {
+exports.sorgula = async (req, res) => {
     try {
       const { schoolCode, schoolPass, query, type } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -228,7 +192,6 @@ app.post('/api/sorgula', async (req, res) => {
           const foundStudent = students.find(row => row.student_no == q);
           if (!foundStudent) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
 
-          // Tüm Hareketleri Çek
           const transactions = await sheetTrans.getRows();
           const books = await sheetBooks.getRows();
           
@@ -241,7 +204,7 @@ app.post('/api/sorgula', async (req, res) => {
              const bookInfo = books.find(b => b.code === trans.code);
              if(bookInfo) {
                  const p = parseInt(bookInfo.page) || 0;
-                 if(trans.status === 'Completed') totalPages += p; // Sadece okuyup bitirdiyse topla
+                 if(trans.status === 'Completed') totalPages += p; 
                  history.push({
                      name: bookInfo.book_name,
                      code: trans.code,
@@ -253,7 +216,6 @@ app.post('/api/sorgula', async (req, res) => {
              }
           });
 
-          // Aktif Emanetler
           const active = history.filter(h => h.status === 'Active');
 
           return res.json({ status: 'success', result: { 
@@ -270,10 +232,9 @@ app.post('/api/sorgula', async (req, res) => {
           }});
       }
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 8. ÖĞRENCİ EKLE
-app.post('/api/addStudent', async (req, res) => {
+exports.addStudent = async (req, res) => {
     try {
       const { schoolCode, schoolPass, no, name, className } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -287,10 +248,9 @@ app.post('/api/addStudent', async (req, res) => {
       await sheet.addRow({ student_no: no, student_fullname: name, class: className });
       res.json({ status: 'success', message: 'Öğrenci eklendi.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 9. ÖĞRENCİ GÜNCELLE (YENİ)
-app.post('/api/updateStudent', async (req, res) => {
+exports.updateStudent = async (req, res) => {
     try {
       const { schoolCode, schoolPass, no, newClass } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -309,12 +269,11 @@ app.post('/api/updateStudent', async (req, res) => {
 
       res.json({ status: 'success', message: 'Öğrenci sınıfı güncellendi.', studentName: student.student_fullname });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// 10. RAPOR OLUŞTUR (YENİ - DINAMIK HESAPLAMA)
-app.post('/api/getReport', async (req, res) => {
+exports.getReport = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, filterClass, filterMonth } = req.body; // filterMonth: "01", "02" veya "ALL"
+        const { schoolCode, schoolPass, filterClass, filterMonth } = req.body;
         const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
         if (!targetSheetID) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
         
@@ -330,41 +289,29 @@ app.post('/api/getReport', async (req, res) => {
         const books = await sheetBooks.getRows();
         const students = await sheetStudents.getRows();
 
-        // Kitap bilgilerini hızlı erişim için haritala (Map)
         const bookMap = {};
         books.forEach(b => { bookMap[b.code] = { name: b.book_name, page: parseInt(b.page) || 0 }; });
 
-        // Öğrenci bilgilerini haritala
         const studentMap = {};
         students.forEach(s => { studentMap[s.student_no] = { name: s.student_fullname, class: s.class }; });
 
-        // Rapor Verisi Oluştur
         let reportData = {};
 
         transactions.forEach(t => {
-            // Sadece iade edilmiş veya aktif olanları sayalım mı? Genelde okunan sayfa için 'Completed' bakılır.
-            // Ama şimdilik sadece Completed (okunmuş) olanları sayalım.
             if (t.status === 'Completed') {
-                const borrowDate = t.borrow_date; // örn: 24.02.2025
-                const borrowMonth = borrowDate.split('.')[1]; // 02
+                const borrowDate = t.borrow_date; 
+                const borrowMonth = borrowDate.split('.')[1]; 
                 
-                // 1. Ay Filtresi
                 if (filterMonth !== 'ALL' && borrowMonth !== filterMonth) return;
 
                 const std = studentMap[t.student_no];
                 const book = bookMap[t.code];
 
                 if (std && book) {
-                    // 2. Sınıf Filtresi
                     if (filterClass !== 'ALL' && std.class !== filterClass) return;
 
                     if (!reportData[t.student_no]) {
-                        reportData[t.student_no] = {
-                            name: std.name,
-                            className: std.class,
-                            totalPage: 0,
-                            books: []
-                        };
+                        reportData[t.student_no] = { name: std.name, className: std.class, totalPage: 0, books: [] };
                     }
                     
                     reportData[t.student_no].totalPage += book.page;
@@ -373,16 +320,13 @@ app.post('/api/getReport', async (req, res) => {
             }
         });
 
-        // Diziye çevir ve Sırala (En çok okuyan en üstte)
         let sortedReport = Object.values(reportData).sort((a, b) => b.totalPage - a.totalPage);
-
         res.json({ status: 'success', data: sortedReport });
 
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-// --- DİĞERLERİ (UNDO, OVERDUE) AYNI KALDI ---
-app.post('/api/overdue', async (req, res) => {
+exports.overdue = async (req, res) => {
     try {
       const { schoolCode, schoolPass } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -396,9 +340,9 @@ app.post('/api/overdue', async (req, res) => {
       const list = rows.filter(r => r.overdues === 'Late').map(r => ({ code: r.code, student: r.student_fullname, book: r.book_name, date: r.borrow_date }));
       res.json({ status: 'success', data: list });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
+};
 
-app.post('/api/undo', async (req, res) => {
+exports.undo = async (req, res) => {
     try {
       const { schoolCode, schoolPass, type, bookCode, studentNo } = req.body;
       const targetSheetID = await getSchoolSheetID(schoolCode, schoolPass);
@@ -424,7 +368,4 @@ app.post('/api/undo', async (req, res) => {
       }
       res.json({ status: 'success', message: 'Geri alındı.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda.`); });
+};
