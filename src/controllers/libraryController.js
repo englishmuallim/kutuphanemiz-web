@@ -15,6 +15,64 @@ exports.login = async (req, res) => {
   } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
+const emailService = require('../api/emailService');
+
+function generateOTP() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+exports.forgotPassword = async (req, res) => {
+    try {
+        const { schoolCode } = req.body;
+        const { data: school } = await supabase.from('schools').select('id, school_name, school_email').eq('school_code', schoolCode).single();
+        
+        if (!school) return res.json({ status: 'error', message: 'Bu koda ait bir okul bulunamadı.' });
+        if (!school.school_email) return res.json({ status: 'error', message: 'Bu okul hesabına tanımlı bir e-posta adresi yok. Lütfen sistem yöneticisiyle iletişime geçin.' });
+
+        const resetCode = generateOTP();
+        const { error } = await supabase.from('schools').update({ reset_code: resetCode }).eq('id', school.id);
+        if (error) throw error;
+
+        const emailSent = await emailService.sendResetCodeEmail(school.school_email, school.school_name, resetCode);
+        
+        if (emailSent) {
+            const maskedEmail = school.school_email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + gp3.replace(/./g, '*'));
+            res.json({ status: 'success', message: 'Sıfırlama kodu gönderildi.', maskedEmail: maskedEmail });
+        } else {
+            res.json({ status: 'error', message: 'E-posta gönderilirken bir hata oluştu.' });
+        }
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+exports.verifyResetCode = async (req, res) => {
+    try {
+        const { schoolCode, resetCode } = req.body;
+        const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
+        
+        if (!school || String(school.reset_code) !== String(resetCode)) {
+            return res.json({ status: 'error', message: 'Hatalı veya süresi dolmuş kod.' });
+        }
+
+        res.json({ status: 'success', message: 'Kod doğrulandı.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+exports.updatePassword = async (req, res) => {
+    try {
+        const { schoolCode, resetCode, newPassword } = req.body;
+        const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
+        
+        if (!school || String(school.reset_code) !== String(resetCode)) {
+            return res.json({ status: 'error', message: 'Güvenlik doğrulaması başarısız oldu.' });
+        }
+
+        const { error } = await supabase.from('schools').update({ school_pass: newPassword, reset_code: null }).eq('id', school.id);
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi!' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
 exports.stats = async (req, res) => {
   try {
     const { schoolCode, schoolPass } = req.body;

@@ -5,6 +5,12 @@ const libraryController = require('../controllers/libraryController');
 // Kullanıcı & Oturum İşlemleri
 router.post('/login', libraryController.login);
 
+// Şifre Sıfırlama İşlemleri
+router.post('/forgotPassword', libraryController.forgotPassword);
+router.post('/verifyResetCode', libraryController.verifyResetCode);
+router.put('/updatePassword', libraryController.updatePassword);
+
+
 // İstatistik & Gösterge Paneli
 router.post('/stats', libraryController.stats);
 router.post('/getClasses', libraryController.getClasses);
