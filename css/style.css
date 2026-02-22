@@ -1,0 +1,120 @@
+:root { --primary: #274ae4; --success: #10b981; --warning: #f59e0b; --bg: #f3f4f6; --surface: #ffffff; --text: #1f2937; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg); margin: 0; display: flex; justify-content: center; min-height: 100vh; color: var(--text); overflow: hidden; }
+
+#splash-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column; transition: opacity 0.5s ease-out; }
+#splash-screen img { width: 60%; max-width: 300px; height: auto; } .hidden-splash { opacity: 0; pointer-events: none; }
+
+.app-container { width: 100%; max-width: 450px; background: var(--surface); min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.05); position: relative; }
+.app-header { background: var(--primary); color: white; padding: 15px 20px; border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(39, 74, 228, 0.3); z-index: 10; }
+.app-logo { width: 50px; height: 50px; object-fit: contain; background: white; border-radius: 12px; padding: 2px; }
+.logout-btn { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px; border-radius: 12px; cursor: pointer; }
+
+/* GİRİŞ EKRANI - PC İÇİN GENİŞLİK AYARI */
+#login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--surface); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 10vh; overflow-y:auto; }
+.login-container { width: 100%; max-width: 400px; padding: 20px; } /* Bu kutu PC'de çok yayılmasını engeller */
+.login-logo-img { width: 50%; max-width: 200px; margin: 0 auto 20px auto; display:block; }
+
+.input-group { position: relative; margin-bottom: 15px; display: flex; align-items: center; gap: 5px; width: 100%; }
+.input-icon { position: absolute; left: 15px; z-index: 2; color: #6b7280; }
+input, select { width: 100%; padding: 16px 16px 16px 45px; border: 2px solid #e5e7eb; border-radius: 16px; font-size: 16px; outline: none; transition: 0.3s; background: #f9fafb; appearance: none; }
+input[type="checkbox"] {
+    appearance: auto;
+    width: auto;
+    cursor: pointer;
+    accent-color: var(--primary);
+    margin-right: 8px;
+}
+input:focus, select:focus { border-color: var(--primary); background: white; }
+.scan-btn { background: #e0e7ff; color: var(--primary); border: none; padding: 12px; border-radius: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; height: 54px; width: 54px; }
+.action-btn { width: 100%; padding: 16px; border: none; border-radius: 16px; font-size: 16px; font-weight: 600; cursor: pointer; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; justify-content: center; gap: 8px; }
+.btn-ver { background: var(--success); } .btn-al { background: var(--primary); } .btn-login { background: var(--primary); margin-top: 20px; }
+
+.stats-container { display: flex; gap: 10px; margin: 20px 20px 10px 20px; justify-content: space-between; }
+.stat-card { flex: 1; border-radius: 16px; padding: 15px 5px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
+.stat-val { font-size: 1.4rem; font-weight: bold; margin-bottom: 2px; }
+.stat-label { font-size: 0.75rem; opacity: 0.9; }
+.sc-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); } .sc-green { background: linear-gradient(135deg, #10b981, #059669); } .sc-red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+/* YENİ ANA MENÜ (TABS) TASARIMI */
+.tabs { 
+    background: #ffffff; 
+    padding: 8px; 
+    border-radius: 20px; 
+    display: flex; 
+    margin: 15px 20px; 
+    gap: 8px; 
+    box-shadow: 0 8px 25px rgba(39, 74, 228, 0.15); /* Güçlü bir vurgu gölgesi */
+    border: 1px solid rgba(39, 74, 228, 0.1);
+}
+.tab-btn { 
+    flex: 1; 
+    border: none; 
+    background: #f8fafc; 
+    padding: 12px 5px; 
+    border-radius: 14px; 
+    font-weight: 700; 
+    color: #64748b; 
+    cursor: pointer; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    gap: 5px; 
+    font-size: 0.85rem; 
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.tab-btn span { font-size: 28px; transition: transform 0.2s; }
+
+/* AKTİF OLAN SEKME ÇOK DAHA VURUCU OLACAK */
+.tab-btn.active { 
+    background: var(--primary); 
+    color: white; 
+    transform: translateY(-4px); /* Tıklanınca havaya kalkar */
+    box-shadow: 0 6px 15px rgba(39, 74, 228, 0.4); 
+}
+.tab-btn.active span { transform: scale(1.15); } /* İkonu biraz büyütür */
+
+.content { padding: 0 20px 20px 20px; flex: 1; overflow-y: auto; } .hidden { display: none !important; }
+
+.yonetim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
+.yonetim-card { background: white; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; text-align: center; cursor: pointer; transition: transform 0.1s; display: flex; flex-direction: column; align-items: center; gap: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
+.yonetim-card:active { transform: scale(0.97); }
+.yonetim-card icon { font-family: 'Material Symbols Rounded'; font-size: 32px; color: var(--primary); }
+.yonetim-card.orange icon { color: #f59e0b; }
+.yonetim-card.purple icon { color: #8b5cf6; }
+.yonetim-card.pink icon { color: #ec4899; }
+
+.form-header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; color: #374151; font-weight: bold; font-size: 1.1rem; }
+.back-btn { background: #f3f4f6; border: none; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+
+.result-card { background: white; border-radius: 12px; padding: 15px; margin-top: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid var(--primary); }
+.badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; }
+.badge-raf { background: #d1fae5; color: #065f46; } .badge-out { background: #fee2e2; color: #991b1b; }
+.badge-comp { background: #e0e7ff; color: #3730a3; } /* Okunmuş kitap */
+
+
+/* RAPOR TABLOSU VE YAZDIRMA (KUSURSUZ PDF) */
+@media print {
+    body * { visibility: hidden; }
+    #report-result, #report-result * { visibility: visible !important; opacity: 1 !important; }
+    #report-result { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; height: auto; overflow: visible; }
+    
+    /* Ekranda görünen gereksiz menüleri gizle */
+    .action-btn, .back-btn, .form-header, .input-group, .tabs, .app-header { display: none !important; }
+    
+    /* PDF'te başlığın yanındaki "Detaylar için tıklayın" yazısını gizle */
+    .hide-on-print { display: none !important; }
+    
+    /* Kitap detaylarını açık tut ve sayfada bölünmesini engelle */
+    .book-details { display: block !important; opacity: 1 !important; visibility: visible !important; page-break-inside: avoid; border-left: 2px solid #ccc !important; background: transparent !important; }
+    .report-item { page-break-inside: avoid; }
+}
+.report-item { display:flex; flex-direction: column; padding:10px 0; border-bottom:1px solid #eee; cursor: pointer; }
+.report-header-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.rank-circle { width:24px; height:24px; background:#274ae4; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.8rem; font-weight:bold; flex-shrink: 0; }
+.book-details { display: none; background: #f9fafb; padding: 10px; border-radius: 8px; margin-top: 10px; border-left: 3px solid #ec4899; font-size: 0.85rem; animation: fadeIn 0.3s ease-in-out; }
+.report-item.active .book-details { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+#scanner-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#reader { width: 100%; max-width: 500px; background: black; }
+.close-scan-btn { margin-top: 20px; padding: 10px 30px; background: white; border: none; border-radius: 20px; font-weight: bold; }

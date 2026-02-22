@@ -28,4 +28,8 @@ router.post('/sorgula', libraryController.sorgula);
 router.post('/addStudent', libraryController.addStudent);
 router.post('/updateStudent', libraryController.updateStudent);
 
+router.get('/globalBooks', libraryController.getGlobalBooks);
+router.post('/archive', libraryController.archiveRecord);
+
+
 module.exports = router;

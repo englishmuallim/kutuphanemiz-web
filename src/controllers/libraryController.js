@@ -104,10 +104,9 @@ exports.getClasses = async (req, res) => {
 
 exports.addBook = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, name, author, page, type, shelf, quantity } = req.body;
+      const { schoolCode, schoolPass, name, author, page, type, shelf, quantity, condition } = req.body;
       const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-      
+      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });     
       const loopCount = parseInt(quantity) || 1;
       
       // Barkodları otomatik bul ve oluştur (En büyük barkodu bulup +1 ekler)
@@ -118,13 +117,14 @@ exports.addBook = async (req, res) => {
       let assignedBarcodes = [];
 
       for (let i = 1; i <= loopCount; i++) {
-          let newBarcode = (startBarcode + i).toString();
-          newBooks.push({
-              school_id: schoolId, barcode: newBarcode, book_name: name,
-              author: author, page_count: page, category: type, shelf: shelf, status: 'available'
-          });
-          assignedBarcodes.push(newBarcode);
-      }
+        let newBarcode = (startBarcode + i).toString();
+        newBooks.push({
+            school_id: schoolId, barcode: newBarcode, book_name: name,
+            author: author, page_count: page, category: type, shelf: shelf, status: 'available', condition: condition || 'Yeni'
+        });
+        assignedBarcodes.push(newBarcode);
+    }
+
 
       await supabase.from('books').insert(newBooks);
       res.json({ status: 'success', message: 'Eklendi', barcodes: assignedBarcodes });
@@ -394,5 +394,64 @@ exports.undo = async (req, res) => {
           }
       }
       res.json({ status: 'success', message: 'İşlem başarıyla geri alındı.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+// ==========================================
+// YENİ: GLOBAL KİTAP ÖNERİLERİ
+// ==========================================
+exports.getGlobalBooks = async (req, res) => {
+    try {
+        let allBooks = [];
+        let from = 0;
+        const step = 1000;
+        let fetchMore = true;
+
+        // Supabase'in 1000 satır limitini aşmak için verileri parça parça çekiyoruz
+        while (fetchMore) {
+            const { data } = await supabase
+                .from('books')
+                .select('book_name')
+                .neq('is_active', false)
+                .range(from, from + step - 1);
+
+            if (data && data.length > 0) {
+                allBooks.push(...data);
+                from += step;
+                if (data.length < step) fetchMore = false; // 1000'den az geldiyse son sayfadayız demektir
+            } else {
+                fetchMore = false; // Veri bitti
+            }
+        }
+
+        if (allBooks.length === 0) return res.json({ status: 'success', data: [] });
+        
+        // Node.js üzerinde DISTINCT (Benzersizleştirme) ve sıralama işlemi
+        const uniqueBooks = [...new Set(allBooks.map(b => b.book_name))].sort();
+        res.json({ status: 'success', data: uniqueBooks });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: SOFT-DELETE (ARŞİVLEME)
+// ==========================================
+exports.archiveRecord = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, type, code } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (type === 'book') {
+            const { data: book } = await supabase.from('books').select('status').eq('school_id', schoolId).eq('barcode', code).single();
+            if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı.' });
+            if (book.status === 'borrowed') return res.json({ status: 'error', message: 'Kitap şu an öğrencide, arşive alınamaz!' });
+
+            await supabase.from('books').update({ is_active: false }).eq('school_id', schoolId).eq('barcode', code);
+        } else if (type === 'student') {
+            await supabase.from('students').update({ is_active: false }).eq('school_id', schoolId).eq('student_no', code);
+        } else {
+            return res.json({ status: 'error', message: 'Geçersiz işlem tipi.' });
+        }
+
+        res.json({ status: 'success', message: 'Kayıt başarıyla arşive gönderildi.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
