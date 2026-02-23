@@ -52,10 +52,12 @@
             <button class="logout-btn" onclick="logout()"><span class="material-symbols-rounded">logout</span></button>
         </div>
 
+        
+        
         <div class="stats-container">
-            <div class="stat-card sc-blue"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">library_books</span><div class="stat-val" id="stat-kitap">-</div><div class="stat-label">Kitap</div></div>
-            <div class="stat-card sc-green"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">groups</span><div class="stat-val" id="stat-ogrenci">-</div><div class="stat-label">Öğrenci</div></div>
-            <div class="stat-card sc-red"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">outbound</span><div class="stat-val" id="stat-emanet">-</div><div class="stat-label">Emanet</div></div>
+            <div class="stat-card sc-blue" onclick="showStatDetails('kitap')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">library_books</span><div class="stat-val" id="stat-kitap">-</div><div class="stat-label">Kitap</div></div>
+            <div class="stat-card sc-green" onclick="showStatDetails('ogrenci')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">groups</span><div class="stat-val" id="stat-ogrenci">-</div><div class="stat-label">Öğrenci</div></div>
+            <div class="stat-card sc-red" onclick="showStatDetails('emanet')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">outbound</span><div class="stat-val" id="stat-emanet">-</div><div class="stat-label">Emanet</div></div>
         </div>
        
         <div class="tabs">

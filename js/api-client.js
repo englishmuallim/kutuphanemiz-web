@@ -409,6 +409,141 @@ async function getStats() {
     } catch (error) {}
 }
 
+async function showStatDetails(type) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
+    
+    Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
+
+    try {
+        const response = await fetch('/api/statDetails', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type }) 
+        });
+        const res = await response.json();
+
+        if (res.status === 'success') {
+            if (res.data.length === 0) {
+                return Swal.fire({ icon: 'info', title, text: 'Gösterilecek kayıt bulunamadı.' });
+            }
+
+            let html = `<div style="max-height: 400px; overflow-y: auto; text-align: left; padding-right: 5px;">`;
+            
+            if (type === 'emanet') {
+                res.data.forEach((item, index) => {
+                    let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
+                    html += `<div style="padding: 10px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'}; border-radius: 8px; margin-bottom: 5px;">
+                        <div style="font-weight: bold; color: #b91c1c; font-size: 0.95rem;">📖 ${item.books?.book_name || 'Bilinmeyen'} <span style="font-size: 0.75rem; color: #6b7280; font-weight: normal;">(#${item.books?.barcode || '-'})</span></div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${item.students?.class_name || '-'})</span></div>
+                            <div style="font-size: 0.75rem; color: #4f46e5; font-weight: bold;">${dateStr}</div>
+                        </div>
+                    </div>`;
+                });
+            } else if (type === 'kitap') {
+                res.data.forEach((item, index) => {
+                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
+                        <div style="font-weight: bold; color: #1f2937;">${item.book_name}</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">Barkod: ${item.barcode} | Raf: ${item.shelf || '?'} | Durum: ${item.condition || 'Yeni'}</div>
+                    </div>`;
+                });
+            } else if (type === 'ogrenci') {
+                res.data.forEach((item, index) => {
+                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
+                        <div style="font-weight: bold; color: #1f2937;">${item.full_name}</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">Sınıf: ${item.class_name} | No: ${item.student_no}</div>
+                    </div>`;
+                });
+            }
+            html += `</div>`;
+
+            Swal.fire({
+                title: title + ` (${res.data.length})`,
+                html: html,
+                width: 500,
+                showCloseButton: true,
+                confirmButtonText: 'Kapat',
+                confirmButtonColor: '#4f46e5'
+            });
+        } else {
+            Swal.fire('Hata', res.message, 'error');
+        }
+    } catch (error) {
+        Swal.fire('Hata', 'Bağlantı sorunu oluştu.', 'error');
+    }
+}
+
+
+
+
+async function showStatDetails(type) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
+    
+    Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
+
+    try {
+        const response = await fetch('/api/statDetails', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type }) 
+        });
+        const res = await response.json();
+
+        if (res.status === 'success') {
+            if (res.data.length === 0) {
+                return Swal.fire({ icon: 'info', title, text: 'Gösterilecek kayıt bulunamadı.' });
+            }
+
+            let html = `<div style="max-height: 400px; overflow-y: auto; text-align: left; padding-right: 5px;">`;
+            
+            if (type === 'emanet') {
+                res.data.forEach((item, index) => {
+                    let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
+                    html += `<div style="padding: 10px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'}; border-radius: 8px; margin-bottom: 5px;">
+                        <div style="font-weight: bold; color: #b91c1c; font-size: 0.95rem;">📖 ${item.books?.book_name || 'Bilinmeyen'} <span style="font-size: 0.75rem; color: #6b7280; font-weight: normal;">(#${item.books?.barcode || '-'})</span></div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${item.students?.class_name || '-'})</span></div>
+                            <div style="font-size: 0.75rem; color: #4f46e5; font-weight: bold;">${dateStr}</div>
+                        </div>
+                    </div>`;
+                });
+            } else if (type === 'kitap') {
+                res.data.forEach((item, index) => {
+                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
+                        <div style="font-weight: bold; color: #1f2937;">${item.book_name}</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">Barkod: ${item.barcode} | Raf: ${item.shelf || '?'} | Durum: ${item.condition || 'Yeni'}</div>
+                    </div>`;
+                });
+            } else if (type === 'ogrenci') {
+                res.data.forEach((item, index) => {
+                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
+                        <div style="font-weight: bold; color: #1f2937;">${item.full_name}</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">Sınıf: ${item.class_name} | No: ${item.student_no}</div>
+                    </div>`;
+                });
+            }
+            html += `</div>`;
+
+            Swal.fire({
+                title: title + ` (${res.data.length})`,
+                html: html,
+                width: 500,
+                showCloseButton: true,
+                confirmButtonText: 'Kapat',
+                confirmButtonColor: '#4f46e5'
+            });
+        } else {
+            Swal.fire('Hata', res.message, 'error');
+        }
+    } catch (error) {
+        Swal.fire('Hata', 'Bağlantı sorunu oluştu.', 'error');
+    }
+}
+
 async function getLeaderboard() {
     const listEl = document.getElementById("leaderboard-list");
     const code = localStorage.getItem("kutuphane_code");

@@ -90,6 +90,71 @@ exports.stats = async (req, res) => {
   } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
+
+
+exports.statDetails = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, type } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        let data = [];
+        if (type === 'emanet') {
+            const { data: trans } = await supabase.from('transactions')
+                .select('borrow_date, students(student_no, full_name, class_name), books(barcode, book_name)')
+                .eq('school_id', schoolId).eq('status', 'borrowed')
+                .order('borrow_date', { ascending: false });
+            data = trans || [];
+        } else if (type === 'kitap') {
+            const { data: books } = await supabase.from('books')
+                .select('barcode, book_name, author, shelf, condition')
+                .eq('school_id', schoolId).eq('is_active', true)
+                .order('book_name', { ascending: true });
+            data = books || [];
+        } else if (type === 'ogrenci') {
+            const { data: students } = await supabase.from('students')
+                .select('student_no, full_name, class_name')
+                .eq('school_id', schoolId).eq('is_active', true)
+                .order('class_name', { ascending: true });
+            data = students || [];
+        }
+
+        res.json({ status: 'success', data });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+exports.getClasses = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, type } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        let data = [];
+        if (type === 'emanet') {
+            // İstenilen SQL JOIN mantığı (Öğrenci ve Kitap bilgileri tek seferde çekilir)
+            const { data: trans } = await supabase.from('transactions')
+                .select('borrow_date, students(student_no, full_name, class_name), books(barcode, book_name)')
+                .eq('school_id', schoolId).eq('status', 'borrowed')
+                .order('borrow_date', { ascending: false });
+            data = trans || [];
+        } else if (type === 'kitap') {
+            const { data: books } = await supabase.from('books')
+                .select('barcode, book_name, author, shelf, condition')
+                .eq('school_id', schoolId).eq('is_active', true)
+                .order('book_name', { ascending: true });
+            data = books || [];
+        } else if (type === 'ogrenci') {
+            const { data: students } = await supabase.from('students')
+                .select('student_no, full_name, class_name')
+                .eq('school_id', schoolId).eq('is_active', true)
+                .order('class_name', { ascending: true });
+            data = students || [];
+        }
+
+        res.json({ status: 'success', data });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
 exports.getClasses = async (req, res) => {
     try {
       const { schoolCode, schoolPass } = req.body;
