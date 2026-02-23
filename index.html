@@ -73,8 +73,19 @@
                     <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'ver')">
                     <button class="scan-btn" onclick="startScanner('verBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
-                <button class="action-btn btn-ver" onclick="islemYap('kitapVer')">Kitabı Ver</button>
 
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">info</span>
+                    <select id="verKitapDurum" style="flex: 1; border: none; outline: none; background: transparent; font-size: 1rem; color: #1f2937;">
+                        <option value="">Durum Güncelle (İsteğe Bağlı)</option>
+                        <option value="Yeni">Yeni</option>
+                        <option value="İyi">İyi</option>
+                        <option value="Yıpranmış">Yıpranmış</option>
+                        <option value="Hasarlı">Hasarlı</option>
+                    </select>
+                </div>
+
+                <button class="action-btn btn-ver" onclick="islemYap('kitapVer')">Kitabı Ver</button>
                 <div id="leaderboard-section" style="background: var(--surface); border-radius: 16px; padding: 15px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--primary); font-weight: bold; font-size: 1.1rem;">
                         <span class="material-symbols-rounded">emoji_events</span> Ayın Şampiyonları
@@ -97,9 +108,20 @@
                     <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'al')">
                     <button class="scan-btn" onclick="startScanner('alBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
+
+                <div class="input-group">
+                    <span class="material-symbols-rounded input-icon">info</span>
+                    <select id="alKitapDurum" style="flex: 1; border: none; outline: none; background: transparent; font-size: 1rem; color: #1f2937;">
+                        <option value="">Durum Güncelle (İsteğe Bağlı)</option>
+                        <option value="Yeni">Yeni</option>
+                        <option value="İyi">İyi</option>
+                        <option value="Yıpranmış">Yıpranmış</option>
+                        <option value="Hasarlı">Hasarlı</option>
+                    </select>
+                </div>
+
                 <button class="action-btn btn-al" onclick="islemYap('kitapAl')">Teslim Al</button>
-            </div>
-            
+            </div> 
             <div id="tab-sorgu" class="tab-content hidden">
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">search</span>

@@ -169,10 +169,12 @@ async function islemYap(actionType) {
     if (actionType === 'kitapVer') {
         data.ogrNo = document.getElementById("verOgrNo").value;
         data.barkod = document.getElementById("verBarkod").value;
+        data.condition = document.getElementById("verKitapDurum").value; // YENİ EKLENDİ
         islemOgrNo = data.ogrNo; islemBarkod = data.barkod;
         if (!data.ogrNo || !data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); return; }
     } else {
         data.barkod = document.getElementById("alBarkod").value;
+        data.condition = document.getElementById("alKitapDurum").value; // YENİ EKLENDİ
         islemBarkod = data.barkod;
         if (!data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); return; }
     }
@@ -227,12 +229,17 @@ async function sorgula(incomingType) {
                 res.result.data.forEach(book => {
                     const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
                     const badgeClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
+                    const condColor = book.condition === 'Hasarlı' || book.condition === 'Yıpranmış' ? '#ef4444' : '#059669'; // YENİ
                     html += `<div class="result-card" style="border-left-color:#f59e0b;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div style="font-weight:bold;">${book.name}</div>
                                     <button onclick="archiveRecord('${book.code}', 'book')" style="background:none; border:none; color:#ef4444; cursor:pointer;" title="Arşive Gönder"><span class="material-symbols-rounded">delete</span></button>
                                 </div>
-                                <div style="font-size:0.9rem; color:#666;">${book.author} | Barkod: ${book.code}</div><div style="margin-top:5px;"><span class="badge ${badgeClass}">${statusText}</span></div>
+                                <div style="font-size:0.9rem; color:#666;">${book.author} | Barkod: ${book.code}</div>
+                                <div style="margin-top:5px; display:flex; gap:5px;">
+                                    <span class="badge ${badgeClass}">${statusText}</span>
+                                    <span class="badge" style="background:${condColor}; color:white;">Durum: ${book.condition || 'Yeni'}</span>
+                                </div>
                             </div>`;
                 });
             } else {
@@ -250,7 +257,7 @@ async function sorgula(incomingType) {
                     <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
                     <div style="font-weight:bold; font-size:0.8rem; margin-bottom:5px;">Elindeki Kitaplar:</div>`;
                 
-                if(std.activeBooks.length > 0) std.activeBooks.forEach(b => html += `<div style="font-size:0.85rem; padding:4px 0; color:#b91c1c;">📕 ${b.name} (${b.code}) <br><small>${b.date}</small></div>`);
+                if(std.activeBooks.length > 0) std.activeBooks.forEach(b => html += `<div style="font-size:0.85rem; padding:4px 0; color:#b91c1c;">📕 ${b.name} (${b.code}) <br><small>${b.date} - Durum: <b>${b.condition || 'Yeni'}</b></small></div>`);
                 else html += '<div style="color:green; font-size:0.8rem;">Temiz.</div>';
                 
                 html += `<div style="margin-top:10px; text-align:center;"><button onclick="document.getElementById('history-${std.no}').classList.toggle('hidden')" style="background:none; border:none; color:#6366f1; cursor:pointer; font-weight:bold; font-size:0.8rem;">Geçmişi Göster ▼</button></div>

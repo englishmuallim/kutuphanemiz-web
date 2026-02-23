@@ -133,7 +133,7 @@ exports.addBook = async (req, res) => {
 
 exports.kitapVer = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, barkod, ogrNo } = req.body;
+      const { schoolCode, schoolPass, barkod, ogrNo, condition } = req.body;
       const schoolId = await getSchoolId(schoolCode, schoolPass);
       if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
@@ -158,18 +158,23 @@ exports.kitapVer = async (req, res) => {
       const startYear = currentMonth < 7 ? currentYear - 1 : currentYear;
       const academicYear = `${startYear}-${startYear + 1}`;
 
+      // Eğer formdan durum geldiyse (seçildiyse) ekle
+      let updateData = { status: 'borrowed' };
+      if (condition) updateData.condition = condition;
+
       await Promise.all([
           supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear }]),
-          supabase.from('books').update({ status: 'borrowed' }).eq('id', book.id)
+          supabase.from('books').update(updateData).eq('id', book.id)
       ]);
 
       res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.full_name}</b> isimli öğrenciye verildi.` });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
+
 exports.kitapAl = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, barkod } = req.body;
+      const { schoolCode, schoolPass, barkod, condition } = req.body;
       const schoolId = await getSchoolId(schoolCode, schoolPass);
       if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
@@ -182,9 +187,12 @@ exports.kitapAl = async (req, res) => {
       
       const today = new Date().toISOString();
 
+      let updateData = { status: 'available' };
+      if (condition) updateData.condition = condition;
+
       await Promise.all([
           supabase.from('transactions').update({ status: 'returned', return_date: today }).eq('id', trans.id),
-          supabase.from('books').update({ status: 'available' }).eq('id', book.id)
+          supabase.from('books').update(updateData).eq('id', book.id)
       ]);
 
       res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no });
@@ -228,13 +236,13 @@ exports.sorgula = async (req, res) => {
       const q = query.trim();
   
       if (type === 'book') {
-          const { data: book } = await supabase.from('books').select('*').eq('school_id', schoolId).eq('barcode', q).single();
-          if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı.' });
+        const { data: book } = await supabase.from('books').select('*').eq('school_id', schoolId).eq('barcode', q).single();
+        if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı.' });
 
-          let detail = {
-              name: book.book_name, code: book.barcode, author: book.author,
-              status: book.status === 'borrowed' ? 'Out' : 'In', shelf: book.shelf, holder: null, holderNo: null, date: null
-          };
+        let detail = {
+            name: book.book_name, code: book.barcode, author: book.author,
+            status: book.status === 'borrowed' ? 'Out' : 'In', shelf: book.shelf, condition: book.condition, holder: null, holderNo: null, date: null
+        };
 
           if (book.status === 'borrowed') {
               // JOIN işlemi: Kitap kimdeyse o öğrencinin bilgilerini de getir!
@@ -256,7 +264,7 @@ exports.sorgula = async (req, res) => {
 
           // JOIN İşlemi: Öğrencinin tüm işlemlerini ve okuduğu kitapların isimlerini/sayfalarını tek seferde çek!
           const { data: transactions } = await supabase.from('transactions')
-              .select('borrow_date, return_date, status, books(barcode, book_name, page_count)')
+              .select('borrow_date, return_date, status, books(barcode, book_name, page_count, condition)')
               .eq('student_id', student.id);
           
           let history = []; let activeBooks = []; let totalPages = 0;
@@ -268,13 +276,13 @@ exports.sorgula = async (req, res) => {
                  if (isCompleted) totalPages += p; 
                  
                  const record = {
-                     name: t.books.book_name, code: t.books.barcode,
-                     date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
-                     returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
-                     status: isCompleted ? 'Completed' : 'Active', pages: p
-                 };
-                 history.push(record);
-                 if (!isCompleted) activeBooks.push(record);
+                    name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
+                    date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
+                    returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
+                    status: isCompleted ? 'Completed' : 'Active', pages: p
+                };
+                history.push(record);
+                if (!isCompleted) activeBooks.push(record);
               });
           }
 
