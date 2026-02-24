@@ -16,21 +16,41 @@ function logout() {
         cancelButtonText: 'Hayır' 
     }).then((res) => { 
         if (res.isConfirmed) { 
+            // 1. LocalStorage temizliği
             localStorage.removeItem("kutuphane_code"); 
             localStorage.removeItem("kutuphane_pass"); 
-            location.reload(); 
+            localStorage.removeItem("beni_hatirla");
+            localStorage.removeItem("okul_ismi");
+            
+            // 2. SPA Mimarisi: Sayfayı yenilemek yerine sadece UI'ı değiştiriyoruz
+            document.getElementById("dashboard").classList.add("hidden"); 
+            document.getElementById("login-screen").classList.remove("hidden"); 
+            
+            // 3. Giriş formunu sıfırlama
+            document.getElementById("schoolCode").value = "";
+            document.getElementById("schoolPass").value = "";
+            document.getElementById("beniHatirla").checked = false;
         } 
     }); 
 }
 
 window.onload = function() {
-    // Beni Hatırla Kontrolü
-    if (localStorage.getItem("beni_hatirla") === "true") {
-        document.getElementById("schoolCode").value = localStorage.getItem("kutuphane_code");
-        document.getElementById("schoolPass").value = localStorage.getItem("kutuphane_pass");
-        document.getElementById("beniHatirla").checked = true;
+    const savedCode = localStorage.getItem("kutuphane_code");
+    const savedPass = localStorage.getItem("kutuphane_pass");
+
+    // Eğer veriler varsa form inputlarına yaz ve login'i otomatik tetikle
+    if (savedCode && savedPass) {
+        document.getElementById("schoolCode").value = savedCode;
+        document.getElementById("schoolPass").value = savedPass;
+        document.getElementById("beniHatirla").checked = (localStorage.getItem("beni_hatirla") === "true");
+        
+        if(localStorage.getItem("okul_ismi")) {
+            document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
+        }
+        
+        // api-client.js içindeki mevcut giriş fonksiyonunu çağırarak auto-login yap
+        login(); 
     }
-    if(localStorage.getItem("okul_ismi")) document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
 };
 
 // --- TAB & NAVİGASYON ---
