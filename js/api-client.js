@@ -192,13 +192,12 @@ async function islemYap(actionType) {
             const popup = await Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', showDenyButton: true, denyButtonText: 'Geri Al', denyButtonColor: '#ef4444', allowOutsideClick: false });
             if (popup.isDenied) {
                 Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
-                const undoResp = await fetch('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: actionType === 'kitapVer' ? 'ver' : 'al', bookCode: islemBarkod, studentNo: islemOgrNo }) });
                 const undoRes = await undoResp.json();
-                if (undoRes.status === 'success') { Swal.fire('Geri Alındı', undoRes.message, 'info'); getStats(); getOverdueBooks(); } else { Swal.fire('Hata', undoRes.message, 'error'); }
+                if (undoRes.status === 'success') { Swal.fire('Geri Alındı', undoRes.message, 'info'); getStats(); getOverdueBooks(); getLeaderboard(); } else { Swal.fire('Hata', undoRes.message, 'error'); }
             }
             if(document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
             if(document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
-            getStats(); getOverdueBooks();
+            getStats(); getOverdueBooks(); getLeaderboard();
         } else { Swal.fire({ icon: 'error', title: 'Hata', text: result.message }); }
     } catch (error) { Swal.fire({ icon: 'error', title: 'Hata', text: error.message }); }
 }
@@ -345,6 +344,10 @@ async function getReport() {
     const cls = clsSelect.value;
     const mon = monSelect.value;
     const resDiv = document.getElementById("report-result");
+    const printBtn = document.getElementById("printBtn"); // YENİ EKLENDİ
+
+    // Rapor çekilmeye başlarken veya yeni sorguda butonu pasif et
+    if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = "0.5"; printBtn.style.cursor = "not-allowed"; }
 
     resDiv.innerHTML = '<div style="text-align:center;">Hesaplanıyor...</div>';
     try {
@@ -395,6 +398,10 @@ async function getReport() {
             });
             
             resDiv.innerHTML = html;
+            
+            // Rapor başarıyla basıldı, PDF butonunu aktif et
+            if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = "1"; printBtn.style.cursor = "pointer"; }
+            
         } else resDiv.innerHTML = 'Hata.';
     } catch (e) { resDiv.innerHTML = 'Sunucu Hatası.'; }
 }
@@ -558,13 +565,26 @@ async function getLeaderboard() {
             const top3 = result.data.slice(0, 3);
             const medals = ['🥇', '🥈', '🥉'];
             
+            // Sıralama değişimi tespiti için önceki listeyi DOM'da güvenle saklıyoruz
+            const prevTopNames = listEl.dataset.prevList ? JSON.parse(listEl.dataset.prevList) : null;
+            listEl.dataset.prevList = JSON.stringify(top3.map(i => i.name));
+            
             if (top3.length === 0) {
                 listEl.innerHTML = `<div style="text-align:center; color:#9ca3af; font-size:0.9rem; padding:10px;">Henüz veri yok. İlk kitabı sen oku!</div>`;
                 return;
             }
 
-            listEl.innerHTML = top3.map((item, index) => `
-                <div style="display: flex; align-items: center; justify-content: space-between; background: #f9fafb; padding: 10px 15px; border-radius: 12px; border: 1px solid #f3f4f6;">
+            // Animasyon stilini dinamik olarak inject ediyoruz
+            const styleTag = `<style>@keyframes flashHighlight { 0% { background-color: #fef08a; transform: scale(1.02); } 100% { background-color: #f9fafb; transform: scale(1); } }</style>`;
+
+            listEl.innerHTML = styleTag + top3.map((item, index) => {
+                // Öğrenci önceden yoksa veya daha düşük sıradaysa animasyon stilini ekle
+                const prevRank = prevTopNames ? prevTopNames.indexOf(item.name) : index;
+                const isRankUp = prevTopNames !== null && (prevRank === -1 || prevRank > index);
+                const animStyle = isRankUp ? "animation: flashHighlight 2.5s ease-out;" : "";
+
+                return `
+                <div style="display: flex; align-items: center; justify-content: space-between; background: #f9fafb; padding: 10px 15px; border-radius: 12px; border: 1px solid #f3f4f6; transition: all 0.3s; ${animStyle}">
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 1.4rem;">${medals[index] || '🏅'}</span>
                         <div>
@@ -576,8 +596,8 @@ async function getLeaderboard() {
                         <div style="font-weight: bold; color: #4f46e5; font-size: 1.1rem;">${item.totalPage}</div>
                         <div style="font-size: 0.7rem; color: #9ca3af; font-weight: bold;">SAYFA</div>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
     } catch (err) {
         listEl.innerHTML = `<div style="color:red; text-align:center; font-size:0.8rem;">Yüklenemedi.</div>`;
@@ -592,11 +612,19 @@ async function getOverdueBooks() {
         const response = await fetch('/api/overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
         const res = await response.json();
         if (res.status === 'success' && res.data.length > 0) {
-            let html = '';
-            res.data.forEach(item => {
-                html += `<div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #fee2e2;"><span class="material-symbols-rounded" style="color:#ef4444;">warning</span><div><div style="font-weight:bold; font-size:0.9rem; color:#991b1b;">${item.student}</div><div style="font-size:0.8rem; color:#b91c1c;"><span style="font-weight:bold;">#${item.code}</span> - ${item.book} (${item.date})</div></div></div>`;
-            });
-            listArea.innerHTML = html;
+            
+            listArea.innerHTML = res.data.map(item => `
+                <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #fee2e2;">
+                    <span class="material-symbols-rounded" style="color:#ef4444;">warning</span>
+                    <div>
+                        <div style="font-weight:bold; font-size:0.9rem; color:#991b1b;">${item.student}</div>
+                        <div style="font-size:0.8rem; color:#b91c1c;">
+                            <span style="font-weight:bold;">#${item.code}</span> - ${item.book} (${item.date})
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
         } else { listArea.innerHTML = '<div style="text-align:center; color:#059669; padding:10px;">Geciken yok! 👍</div>'; }
     } catch (e) {}
 }

@@ -203,9 +203,11 @@
                             <option value="09">Eylül</option><option value="10">Ekim</option><option value="11">Kasım</option><option value="12">Aralık</option>
                         </select>
                     </div>
-                    <button class="action-btn" style="background:#ec4899;" onclick="getReport()">Rapor Oluştur</button>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="action-btn" style="background:#ec4899; flex: 1;" onclick="getReport()">Rapor Oluştur</button>
+                        <button id="printBtn" class="action-btn" style="background:#6b7280; flex: 1; opacity: 0.5; cursor: not-allowed;" onclick="window.print()" disabled><span class="material-symbols-rounded">print</span> PDF / Yazdır</button>
+                    </div>
                     <div id="report-result" style="margin-top:20px;"></div>
-                    <button class="action-btn" style="background:#6b7280; margin-top:10px;" onclick="window.print()"><span class="material-symbols-rounded">print</span> PDF / Yazdır</button>
                 </div>
             </div>
         </div>
