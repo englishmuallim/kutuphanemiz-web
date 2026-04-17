@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html lang="tr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Kütüphanemiz</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" href="app_logo.png">
-    
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
+
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <link rel="stylesheet" href="css/style.css">
-    
+
 </head>
+
 <body>
 
     <div id="splash-screen"><img src="startup.gif" alt="Yükleniyor..."></div>
@@ -20,76 +23,97 @@
     <div id="login-screen">
         <div class="login-container">
             <img src="app_logo.png" alt="Logo" class="login-logo-img">
-            
+
             <div class="input-group">
                 <span class="material-symbols-rounded input-icon">vpn_key</span>
                 <input type="text" id="schoolCode" placeholder="Okul Kodu">
             </div>
-            
+
             <div class="input-group">
                 <span class="material-symbols-rounded input-icon">lock</span>
                 <input type="password" id="schoolPass" placeholder="Şifre" onkeydown="if(event.key==='Enter') login()">
             </div>
-            
+
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px;">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <input type="checkbox" id="beniHatirla" style="width:20px; height:20px; margin:0;">
                     <label for="beniHatirla" style="color:#4b5563; font-size:0.95rem;">Beni Hatırla</label>
                 </div>
-                <a href="#" onclick="forgotPassword()" style="color:#4b5563; font-size:0.95rem; text-decoration:underline; cursor:pointer;">Şifremi Unuttum</a>
+                <a href="#" onclick="forgotPassword()"
+                    style="color:#4b5563; font-size:0.95rem; text-decoration:underline; cursor:pointer;">Şifremi
+                    Unuttum</a>
             </div>
-            
+
             <button class="action-btn btn-login" onclick="login()">Giriş Yap</button>
         </div>
     </div>
 
     <div id="dashboard" class="app-container hidden">
-        <div class="app-header"> 
+        <div class="app-header">
             <div style="display:flex; align-items:center; gap:15px;">
-                <img src="app_logo.png" alt="Logo" class="app-logo"> 
+                <img src="app_logo.png" alt="Logo" class="app-logo">
                 <h2 id="headerTitle" style="margin:0; font-size:1.1rem; line-height:1.2; font-weight:600;">Panel</h2>
             </div>
             <button class="logout-btn" onclick="logout()"><span class="material-symbols-rounded">logout</span></button>
         </div>
 
-        
-        
+
+
         <div class="stats-container">
-            <div class="stat-card sc-blue" onclick="showStatDetails('kitap')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">library_books</span><div class="stat-val" id="stat-kitap">-</div><div class="stat-label">Kitap</div></div>
-            <div class="stat-card sc-green" onclick="showStatDetails('ogrenci')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">groups</span><div class="stat-val" id="stat-ogrenci">-</div><div class="stat-label">Öğrenci</div></div>
-            <div class="stat-card sc-red" onclick="showStatDetails('emanet')"><span class="material-symbols-rounded" style="font-size:24px; margin-bottom:5px;">outbound</span><div class="stat-val" id="stat-emanet">-</div><div class="stat-label">Emanet</div></div>
+            <div class="stat-card sc-blue" onclick="showStatDetails('kitap')"><span class="material-symbols-rounded"
+                    style="font-size:24px; margin-bottom:5px;">library_books</span>
+                <div class="stat-val" id="stat-kitap">-</div>
+                <div class="stat-label">Kitap</div>
+            </div>
+            <div class="stat-card sc-green" onclick="showStatDetails('ogrenci')"><span class="material-symbols-rounded"
+                    style="font-size:24px; margin-bottom:5px;">groups</span>
+                <div class="stat-val" id="stat-ogrenci">-</div>
+                <div class="stat-label">Öğrenci</div>
+            </div>
+            <div class="stat-card sc-red" onclick="showStatDetails('emanet')"><span class="material-symbols-rounded"
+                    style="font-size:24px; margin-bottom:5px;">outbound</span>
+                <div class="stat-val" id="stat-emanet">-</div>
+                <div class="stat-label">Emanet</div>
+            </div>
         </div>
-       
+
         <div class="tabs">
-            <button class="tab-btn active" onclick="showTab('ver')"><span class="material-symbols-rounded">upload</span> Ver</button>
-            <button class="tab-btn" onclick="showTab('al')"><span class="material-symbols-rounded">download</span> Al</button>
-            <button class="tab-btn" onclick="showTab('sorgu')"><span class="material-symbols-rounded">search</span> Sorgu</button>
-            <button class="tab-btn" onclick="showTab('yonetim')"><span class="material-symbols-rounded">settings</span> Yönetim</button>
+            <button class="tab-btn active" onclick="showTab('ver')"><span class="material-symbols-rounded">upload</span>
+                Ver</button>
+            <button class="tab-btn" onclick="showTab('al')"><span class="material-symbols-rounded">download</span>
+                Al</button>
+            <button class="tab-btn" onclick="showTab('sorgu')"><span class="material-symbols-rounded">search</span>
+                Sorgu</button>
+            <button class="tab-btn" onclick="showTab('yonetim')"><span class="material-symbols-rounded">settings</span>
+                Yönetim</button>
         </div>
 
         <div class="content">
             <div id="tab-ver" class="tab-content">
-                <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input type="number" id="verOgrNo" placeholder="Öğrenci No"></div>
+                <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input
+                        type="number" id="verOgrNo" placeholder="Öğrenci No"></div>
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">barcode_reader</span>
-                    <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'ver')">
-                    <button class="scan-btn" onclick="startScanner('verBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
+                    <input type="tel" inputmode="numeric" id="verBarkod" placeholder="Barkod Okut/Yaz"
+                        onkeydown="handleEnter(event, 'ver')">
+                    <button class="scan-btn" onclick="startScanner('verBarkod')"><span
+                            class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
 
-                <div class="input-group">
-                    <span class="material-symbols-rounded input-icon">info</span>
-                    <select id="verKitapDurum" style="flex: 1; border: none; outline: none; background: transparent; font-size: 1rem; color: #1f2937;">
-                        <option value="">Durum Güncelle (İsteğe Bağlı)</option>
-                        <option value="Yeni">Yeni</option>
-                        <option value="İyi">İyi</option>
-                        <option value="Yıpranmış">Yıpranmış</option>
-                        <option value="Hasarlı">Hasarlı</option>
-                    </select>
-                </div>
+                <select id="verKitapDurum"
+                    style="width:100%; border:1px solid #d1d5db; padding:12px; border-radius:8px; background:#fff; margin-bottom:15px; font-size:1rem; outline:none; cursor:pointer;">
+                    <option value="">Durum Güncelle (İsteğe Bağlı)</option>
+                    <option value="Yeni">Yeni</option>
+                    <option value="İyi">İyi</option>
+                    <option value="Yıpranmış">Yıpranmış</option>
+                    <option value="Hasarlı">Hasarlı</option>
+                </select>
 
                 <button class="action-btn btn-ver" onclick="islemYap('kitapVer')">Kitabı Ver</button>
-                <div id="leaderboard-section" style="background: var(--surface); border-radius: 16px; padding: 15px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--primary); font-weight: bold; font-size: 1.1rem;">
+                <div id="leaderboard-section"
+                    style="background: var(--surface); border-radius: 16px; padding: 15px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+                    <div
+                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--primary); font-weight: bold; font-size: 1.1rem;">
                         <span class="material-symbols-rounded">emoji_events</span> Ayın Şampiyonları
                     </div>
                     <div id="leaderboard-list" style="display: flex; flex-direction: column; gap: 10px;">
@@ -97,126 +121,331 @@
                     </div>
                 </div>
 
-                <div style="margin-top:20px; background: #fef2f2; border:1px solid #fee2e2; border-radius:12px; padding:15px;">
-                    <div style="font-weight:bold; color:#991b1b; border-bottom:1px solid #fecaca; padding-bottom:5px; margin-bottom:10px; display:flex; gap:5px;"><span class="material-symbols-rounded">warning</span> Gecikenler</div>
-                    <div id="overdue-list" style="max-height: 150px; overflow-y: auto;"><div style="text-align:center; color:#9ca3af; font-size:0.9rem;">Yükleniyor...</div></div>
+                <div
+                    style="margin-top:20px; background: #fef2f2; border:1px solid #fee2e2; border-radius:12px; padding:15px;">
+                    <div
+                        style="font-weight:bold; color:#991b1b; border-bottom:1px solid #fecaca; padding-bottom:5px; margin-bottom:10px; display:flex; gap:5px;">
+                        <span class="material-symbols-rounded">warning</span> Gecikenler
+                    </div>
+                    <div id="overdue-list" style="max-height: 150px; overflow-y: auto;">
+                        <div style="text-align:center; color:#9ca3af; font-size:0.9rem;">Yükleniyor...</div>
+                    </div>
                 </div>
             </div>
 
             <div id="tab-al" class="tab-content hidden">
-                <div style="text-align:center; padding:20px; color:#6b7280;"><span class="material-symbols-rounded" style="font-size:48px;">assignment_return</span><br>İade için okutun</div>
+                <div style="text-align:center; padding:20px; color:#6b7280;"><span class="material-symbols-rounded"
+                        style="font-size:48px;">assignment_return</span><br>İade için okutun</div>
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">barcode_reader</span>
-                    <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Barkod Okut/Yaz" onkeydown="handleEnter(event, 'al')">
-                    <button class="scan-btn" onclick="startScanner('alBarkod')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
+                    <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Barkod Okut/Yaz"
+                        onkeydown="handleEnter(event, 'al')">
+                    <button class="scan-btn" onclick="startScanner('alBarkod')"><span
+                            class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
 
-                <div class="input-group">
-                    <span class="material-symbols-rounded input-icon">info</span>
-                    <select id="alKitapDurum" style="flex: 1; border: none; outline: none; background: transparent; font-size: 1rem; color: #1f2937;">
-                        <option value="">Durum Güncelle (İsteğe Bağlı)</option>
-                        <option value="Yeni">Yeni</option>
-                        <option value="İyi">İyi</option>
-                        <option value="Yıpranmış">Yıpranmış</option>
-                        <option value="Hasarlı">Hasarlı</option>
-                    </select>
-                </div>
+                <select id="alKitapDurum"
+                    style="width:100%; border:1px solid #d1d5db; padding:12px; border-radius:8px; background:#fff; margin-bottom:15px; font-size:1rem; outline:none; cursor:pointer;">
+                    <option value="">Durum Güncelle (İsteğe Bağlı)</option>
+                    <option value="Yeni">Yeni</option>
+                    <option value="İyi">İyi</option>
+                    <option value="Yıpranmış">Yıpranmış</option>
+                    <option value="Hasarlı">Hasarlı</option>
+                </select>
 
                 <button class="action-btn btn-al" onclick="islemYap('kitapAl')">Teslim Al</button>
-            </div> 
+            </div>
             <div id="tab-sorgu" class="tab-content hidden">
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">search</span>
-                    <input type="text" id="sorguInput" placeholder="No veya Barkod..." onkeydown="handleEnter(event, 'sorgu')">
-                    <button class="scan-btn" onclick="startScanner('sorguInput')"><span class="material-symbols-rounded">qr_code_scanner</span></button>
+                    <input type="text" id="sorguInput" placeholder="No veya Barkod..."
+                        onkeydown="handleEnter(event, 'sorgu')">
+                    <button class="scan-btn" onclick="startScanner('sorguInput')"><span
+                            class="material-symbols-rounded">qr_code_scanner</span></button>
                 </div>
                 <div style="display:flex; gap:10px; margin-bottom:15px;">
-                    <button type="button" class="action-btn" style="background:#6366f1; font-size:0.9rem; padding:12px;" onclick="sorgula('student')">Öğrenci</button>
-                    <button type="button" class="action-btn" style="background:#f59e0b; font-size:0.9rem; padding:12px;" onclick="sorgula('book')">Kitap</button>
+                    <button type="button" class="action-btn" style="background:#6366f1; font-size:0.9rem; padding:12px;"
+                        onclick="sorgula('student')">Öğrenci</button>
+                    <button type="button" class="action-btn" style="background:#f59e0b; font-size:0.9rem; padding:12px;"
+                        onclick="sorgula('book')">Kitap</button>
                 </div>
                 <div id="sorguSonucAlani"></div>
             </div>
 
             <div id="tab-yonetim" class="tab-content hidden">
                 <div id="yonetim-menu" class="yonetim-grid">
-                    <div class="yonetim-card" onclick="showYonetimForm('student')"><icon>person_add</icon><span>Öğrenci Ekle</span></div>
-                    <div class="yonetim-card purple" onclick="showYonetimForm('studentUpdate')"><icon>manage_accounts</icon><span>Öğrenci Güncelle</span></div>
-                    <div class="yonetim-card orange" onclick="showYonetimForm('book')"><icon>library_add</icon><span>Kitap Ekle</span></div>
-                    <div class="yonetim-card pink" onclick="showYonetimForm('report')"><icon>bar_chart</icon><span>Rapor Al</span></div>
+                    <div class="yonetim-card" onclick="showYonetimForm('student')">
+                        <icon>person_add</icon><span>Öğrenci Ekle</span>
+                    </div>
+                    <div class="yonetim-card purple" onclick="showYonetimForm('studentUpdate')">
+                        <icon>manage_accounts</icon><span>Öğrenci Güncelle</span>
+                    </div>
+                    <div class="yonetim-card orange" onclick="showYonetimForm('book')">
+                        <icon>library_add</icon><span>Kitap Ekle</span>
+                    </div>
+                    <div class="yonetim-card pink" onclick="showYonetimForm('report')">
+                        <icon>bar_chart</icon><span>Rapor Al</span>
+                    </div>
+                    <div class="yonetim-card" onclick="showYonetimForm('logs')">
+                        <icon>history</icon><span>İşlem Geçmişi</span>
+                    </div>
+                    <div class="yonetim-card blue" onclick="showYonetimForm('settings_general')">
+                        <icon>settings</icon><span>Genel Ayarlar</span>
+                    </div>
+                    <div class="yonetim-card green" onclick="showYonetimForm('settings_staff')">
+                        <icon>admin_panel_settings</icon><span>Görevli Ayarları</span>
+                    </div>
                 </div>
 
                 <div id="yonetim-form-student" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>Öğrenci Kaydı</div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input type="number" id="newOgrNo" placeholder="Okul No"></div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input type="text" id="newOgrAd" placeholder="Ad Soyad"></div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">school</span><select id="newOgrSinif" class="class-selector"><option value="">Sınıf Seçiniz...</option></select></div>
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Öğrenci Kaydı</div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
+                            type="number" id="newOgrNo" placeholder="Okul No"></div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input
+                            type="text" id="newOgrAd" placeholder="Ad Soyad"></div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">numbers</span><select id="newOgrKademe"
+                                class="grade-selector">
+                                <option value="">Kademe</option>
+                            </select></div>
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">school</span><select id="newOgrSube"
+                                class="class-selector">
+                                <option value="">Şube</option>
+                            </select></div>
+                    </div>
                     <button class="action-btn" style="background:#4f46e5;" onclick="kaydet('student')">Kaydet</button>
                 </div>
 
                 <div id="yonetim-form-studentUpdate" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>Sınıf Değiştir</div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input type="number" id="updateOgrNo" placeholder="Öğrenci No"></div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">school</span><select id="updateOgrSinif" class="class-selector"><option value="">Yeni Sınıf...</option></select></div>
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Sınıf Değiştir</div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
+                            type="number" id="updateOgrNo" placeholder="Öğrenci No"></div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">numbers</span><select id="updateOgrKademe"
+                                class="grade-selector">
+                                <option value="">Kademe</option>
+                            </select></div>
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">school</span><select id="updateOgrSube"
+                                class="class-selector">
+                                <option value="">Şube</option>
+                            </select></div>
+                    </div>
                     <button class="action-btn" style="background:#8b5cf6;" onclick="updateStudent()">Güncelle</button>
                 </div>
 
+
                 <div id="yonetim-form-book" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>Kitap Kaydı</div>
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Kitap Kaydı</div>
                     <div class="input-group">
                         <span class="material-symbols-rounded input-icon">menu_book</span>
                         <input type="text" id="newKitapAd" placeholder="Kitap Adı" list="bookSuggestions">
                         <datalist id="bookSuggestions"></datalist>
                     </div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">edit_note</span><input type="text" id="newKitapYazar" placeholder="Yazar"></div>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">edit_note</span><input
+                            type="text" id="newKitapYazar" placeholder="Yazar"></div>
                     <div style="display:flex; gap:10px;">
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">numbers</span><input type="number" id="newKitapSayfa" placeholder="Sayfa"></div>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">category</span><input type="text" id="newKitapTur" placeholder="Tür"></div>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">numbers</span><input
+                                type="number" id="newKitapSayfa" placeholder="Sayfa"></div>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">category</span><input
+                                type="text" id="newKitapTur" placeholder="Tür"></div>
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">shelves</span><input type="text" id="newKitapRaf" placeholder="Raf"></div>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">library_books</span><input type="number" id="newKitapAdet" placeholder="Adet" value="1" style="font-weight:bold; border:2px solid #f59e0b;"></div>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">shelves</span><input
+                                type="text" id="newKitapRaf" placeholder="Raf"></div>
+                        <div class="input-group"><span
+                                class="material-symbols-rounded input-icon">library_books</span><input type="number"
+                                id="newKitapAdet" placeholder="Adet" value="1"
+                                style="font-weight:bold; border:2px solid #f59e0b;"></div>
                     </div>
 
-                    <div class="input-group">
-                        <span class="material-symbols-rounded input-icon">info</span>
-                        <select id="newKitapDurum" style="flex: 1; border: none; outline: none; background: transparent; font-size: 1rem; color: #1f2937;">
-                            <option value="Yeni">Yeni</option>
-                            <option value="İyi">İyi</option>
-                            <option value="Yıpranmış">Yıpranmış</option>
-                            <option value="Hasarlı">Hasarlı</option>
-                            
-                        </select>
-                    </div>
+                    <select id="newKitapDurum"
+                        style="width:100%; border:1px solid #d1d5db; padding:12px; border-radius:8px; background:#fff; margin-bottom:15px; font-size:1rem; outline:none; cursor:pointer;">
+                        <option value="Yeni">Yeni</option>
+                        <option value="İyi">İyi</option>
+                        <option value="Yıpranmış">Yıpranmış</option>
+                        <option value="Hasarlı">Hasarlı</option>
+                    </select>
 
                     <div style="font-size:0.8rem; color:#6b7280; text-align:center; margin-bottom:10px;"></div>
                     <button class="action-btn" style="background:#f59e0b;" onclick="kaydet('book')">Kaydet</button>
                 </div>
 
                 <div id="yonetim-form-report" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span class="material-symbols-rounded">arrow_back</span></button>Rapor Al</div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">school</span><select id="reportClass" class="class-selector"><option value="ALL">Tüm Okul</option></select></div>
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Rapor Al</div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">school</span><select id="reportGrade"
+                                class="grade-selector">
+                                <option value="ALL">Tüm Kademeler</option>
+                            </select></div>
+                        <div class="input-group" style="flex:1;"><span
+                                class="material-symbols-rounded input-icon">school</span><select id="reportClass"
+                                class="class-selector">
+                                <option value="ALL">Tüm Şubeler</option>
+                            </select></div>
+                    </div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">calendar_month</span>
                         <select id="reportMonth">
                             <option value="ALL">Tüm Zamanlar</option>
-                            <option value="01">Ocak</option><option value="02">Şubat</option><option value="03">Mart</option>
-                            <option value="04">Nisan</option><option value="05">Mayıs</option><option value="06">Haziran</option>
-                            <option value="09">Eylül</option><option value="10">Ekim</option><option value="11">Kasım</option><option value="12">Aralık</option>
+                            <option value="01">Ocak</option>
+                            <option value="02">Şubat</option>
+                            <option value="03">Mart</option>
+                            <option value="04">Nisan</option>
+                            <option value="05">Mayıs</option>
+                            <option value="06">Haziran</option>
+                            <option value="09">Eylül</option>
+                            <option value="10">Ekim</option>
+                            <option value="11">Kasım</option>
+                            <option value="12">Aralık</option>
                         </select>
                     </div>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button class="action-btn" style="background:#ec4899; flex: 1;" onclick="getReport()">Rapor Oluştur</button>
-                        <button id="printBtn" class="action-btn" style="background:#6b7280; flex: 1; opacity: 0.5; cursor: not-allowed;" onclick="window.print()" disabled><span class="material-symbols-rounded">print</span> PDF / Yazdır</button>
+                        <button class="action-btn" style="background:#ec4899; flex: 1;" onclick="getReport()">Rapor
+                            Oluştur</button>
+                        <button id="printBtn" class="action-btn"
+                            style="background:#6b7280; flex: 1; opacity: 0.5; cursor: not-allowed;"
+                            onclick="window.print()" disabled><span class="material-symbols-rounded">print</span> PDF /
+                            Yazdır</button>
                     </div>
                     <div id="report-result" style="margin-top:20px;"></div>
+                </div>
+
+                <div id="yonetim-form-logs" class="hidden" style="margin-top:10px;">
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>İşlem Geçmişi</div>
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
+                        <div class="input-group" style="flex:1; margin-bottom:0; border-color:#0f766e;">
+                            <span class="material-symbols-rounded input-icon"
+                                style="color:#0f766e;">calendar_month</span>
+                            <input type="date" id="logDateFilter" onchange="loadLogs()">
+                        </div>
+                        <div class="input-group" style="flex:2; margin-bottom:0; border-color:#0f766e;">
+                            <span class="material-symbols-rounded input-icon" style="color:#0f766e;">search</span>
+                            <input type="text" id="logSearchInput" placeholder="Ad, No, Sınıf, Barkod..."
+                                onkeyup="filterLogs()">
+                        </div>
+
+                    </div>
+                    <div id="logs-list"
+                        style="display:flex; flex-direction:column; gap:10px; max-height:400px; overflow-y:auto; padding-right:5px;">
+                        <!-- JS ile dolacak -->
+                    </div>
+                </div>
+
+                <div id="yonetim-form-settings_general" class="hidden" style="margin-top:10px;">
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Genel Ayarlar</div>
+
+                    <label class="text-sm text-gray-500 mb-1 block"
+                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Öğrenci
+                        Kitap Limiti (Maks)</label>
+                    <div class="input-group"><span
+                            class="material-symbols-rounded input-icon">library_books</span><input type="number"
+                            id="setting_max_borrow_limit" placeholder="Örn: 2"></div>
+
+                    <label class="text-sm text-gray-500 mb-1 block"
+                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Maksimum
+                        Okuma Günü</label>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">date_range</span><input
+                            type="number" id="setting_max_borrow_days" placeholder="Örn: 15"></div>
+
+                    <label class="text-sm text-gray-500 mb-1 block"
+                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Minimum
+                        İade Günü (Erken getirme engeli)</label>
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">update</span><input
+                            type="number" id="setting_min_borrow_days" placeholder="Örn: 1"></div>
+
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;">
+                            <label class="text-sm text-gray-500 mb-1 block"
+                                style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Açılış
+                                Saati</label>
+                            <div class="input-group"><span
+                                    class="material-symbols-rounded input-icon">schedule</span><input type="time"
+                                    id="setting_lib_open_time"></div>
+                        </div>
+                        <div style="flex:1;">
+                            <label class="text-sm text-gray-500 mb-1 block"
+                                style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Kapanış
+                                Saati</label>
+                            <div class="input-group"><span
+                                    class="material-symbols-rounded input-icon">schedule</span><input type="time"
+                                    id="setting_lib_close_time"></div>
+                        </div>
+                    </div>
+                    <button class="action-btn" style="background:#3b82f6;" onclick="saveSettings('general')">Ayarları
+                        Kaydet</button>
+                </div>
+
+                <div id="yonetim-form-settings_staff" class="hidden" style="margin-top:10px;">
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Görevli Ayarları</div>
+
+                    <label class="text-sm text-gray-500 mb-1 block"
+                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Çalışma
+                        Modu</label>
+                    <select id="setting_staff_pass_mode" onchange="toggleStaffGroups()"
+                        style="width:100%; border:1px solid #d1d5db; padding:12px; border-radius:8px; background:#fff; margin-bottom:15px; font-size:1rem; outline:none; cursor:pointer;">
+                        <option value="fixed">Sabit Görevli</option>
+                        <option value="daily">Günlük Nöbetçi</option>
+                    </select>
+
+                    <div id="fixedStaffGroup">
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Ad
+                            Soyad (Sabit Görevli)</label>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input
+                                type="text" id="setting_fixed_staff_name" placeholder="Görevli Adı"></div>
+
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Görevli
+                            Şifresi</label>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">lock</span><input
+                                type="text" id="setting_staff_password" placeholder="Şifre Belirleyin"></div>
+                    </div>
+
+                    <div id="dailyStaffGroup" style="display:none;">
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Nöbetçi/Görevli
+                            Öğrenciler</label>
+                        <div style="display:flex; gap:10px; margin-bottom: 10px; align-items:stretch;">
+                            <div class="input-group" style="flex:1; margin-bottom:0;">
+                                <span class="material-symbols-rounded input-icon">tag</span>
+                                <input type="number" id="setting_staff_add_no" placeholder="Öğrenci No"
+                                    onkeydown="if(event.key==='Enter') { addStaffStudent(); event.preventDefault(); }">
+                            </div>
+                            <button class="action-btn"
+                                style="background:#4f46e5; margin:0; padding:0 20px; width:auto; border-radius:8px; display:flex; align-items:center; justify-content:center; box-sizing:border-box;"
+                                onclick="addStaffStudent()">EKLE</button>
+                        </div>
+                        <ul id="setting_staff_list"
+                            style="list-style:none; padding:0; margin:0 0 15px 0; max-height:150px; overflow-y:auto;">
+                            <!-- Dinamik Yüklenir -->
+                        </ul>
+                    </div>
+
+                    <button class="action-btn" style="background:#10b981;" onclick="saveSettings('staff')">Ayarları
+                        Kaydet</button>
                 </div>
             </div>
         </div>
     </div>
-    
-    <div id="scanner-modal" class="hidden"><div id="reader"></div><button class="close-scan-btn" onclick="stopScanner()">Kapat</button></div>
+
+    <div id="scanner-modal" class="hidden">
+        <div id="reader"></div><button class="close-scan-btn" onclick="stopScanner()">Kapat</button>
+    </div>
     <audio id="beepSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
-    
+
     <script src="js/ui.js"></script>
     <script src="js/api-client.js"></script>
 </body>
+
 </html>

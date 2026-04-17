@@ -1,18 +1,62 @@
 const supabase = require('../api/supabase');
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
+async function getSchoolAuth(code, pass) {
+    const { data } = await supabase.from('schools')
+        .select('id, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings')
+        .eq('school_code', code)
+        .single();
+
+    if (!data) return null;
+
+    const settings = data.kt_settings || {};
+    let role = null;
+
+    if (data.kt_pass === pass) {
+        role = 'admin';
+    } else if (data.kt_settings?.staff_password === pass) {
+        role = 'staff';
+        if (data.kt_settings?.staff_pass_mode === 'daily') {
+            const d = new Date();
+            const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            if (data.kt_settings?.staff_pass_date !== todayStr) {
+                throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
+            }
+        }
+    } else {
+        return null;
+    }
+
+    if (data.kt_status !== 'active') throw new Error('Abonelik süreniz dolmuştur. Uygulamayı kullanmak için lütfen aboneliğinizi yenileyiniz.');
+    
+    const today = new Date();
+    const startDate = new Date(data.kt_start_date);
+    const endDate = new Date(data.kt_end_date);
+    endDate.setHours(23, 59, 59, 999);
+    if (today < startDate || today > endDate) throw new Error('Abonelik süreniz dolmuştur.');
+
+    return { id: data.id, role, settings };
+}
+
 async function getSchoolId(code, pass) {
-    const { data } = await supabase.from('schools').select('id').eq('school_code', code).eq('school_pass', pass).single();
-    return data ? data.id : null;
+    const auth = await getSchoolAuth(code, pass);
+    return auth ? auth.id : null;
 }
 
 exports.login = async (req, res) => {
-  try {
-    const { schoolCode, schoolPass } = req.body;
-    const { data: school } = await supabase.from('schools').select('school_name').eq('school_code', schoolCode).eq('school_pass', schoolPass).single();
-    if (school) res.json({ status: 'success', schoolName: school.school_name });
-    else res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Şifre' });
-  } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Şifre' });
+
+        const { data: school } = await supabase.from('schools')
+            .select('school_name')
+            .eq('id', auth.id)
+            .single();
+        return res.json({ status: 'success', schoolName: school.school_name, role: auth.role });
+    } catch (error) {
+        return res.status(401).json({ status: 'error', message: error.message });
+    }
 };
 
 const emailService = require('../api/emailService');
@@ -25,7 +69,7 @@ exports.forgotPassword = async (req, res) => {
     try {
         const { schoolCode } = req.body;
         const { data: school } = await supabase.from('schools').select('id, school_name, school_email').eq('school_code', schoolCode).single();
-        
+
         if (!school) return res.json({ status: 'error', message: 'Bu koda ait bir okul bulunamadı.' });
         if (!school.school_email) return res.json({ status: 'error', message: 'Bu okul hesabına tanımlı bir e-posta adresi yok. Lütfen sistem yöneticisiyle iletişime geçin.' });
 
@@ -34,7 +78,7 @@ exports.forgotPassword = async (req, res) => {
         if (error) throw error;
 
         const emailSent = await emailService.sendResetCodeEmail(school.school_email, school.school_name, resetCode);
-        
+
         if (emailSent) {
             const maskedEmail = school.school_email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + gp3.replace(/./g, '*'));
             res.json({ status: 'success', message: 'Sıfırlama kodu gönderildi.', maskedEmail: maskedEmail });
@@ -48,7 +92,7 @@ exports.verifyResetCode = async (req, res) => {
     try {
         const { schoolCode, resetCode } = req.body;
         const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
-        
+
         if (!school || String(school.reset_code) !== String(resetCode)) {
             return res.json({ status: 'error', message: 'Hatalı veya süresi dolmuş kod.' });
         }
@@ -61,12 +105,12 @@ exports.updatePassword = async (req, res) => {
     try {
         const { schoolCode, resetCode, newPassword } = req.body;
         const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
-        
+
         if (!school || String(school.reset_code) !== String(resetCode)) {
             return res.json({ status: 'error', message: 'Güvenlik doğrulaması başarısız oldu.' });
         }
 
-        const { error } = await supabase.from('schools').update({ school_pass: newPassword, reset_code: null }).eq('id', school.id);
+        const { error } = await supabase.from('schools').update({ kt_pass: newPassword, reset_code: null }).eq('id', school.id);
         if (error) throw error;
 
         res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi!' });
@@ -74,25 +118,25 @@ exports.updatePassword = async (req, res) => {
 };
 
 exports.stats = async (req, res) => {
-  try {
-    const { schoolCode, schoolPass } = req.body;
-    const schoolId = await getSchoolId(schoolCode, schoolPass);
-    if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-    // 3 istatistiği aynı anda ve sadece sayı (count) olarak çekiyoruz! Çok hızlı!
-    const [books, students, loans] = await Promise.all([
-        supabase.from('books').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true),
-        supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true),
-        supabase.from('transactions').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'borrowed')
-    ]);
+        // 3 istatistiği aynı anda ve sadece sayı (count) olarak çekiyoruz! Çok hızlı!
+        const [books, students, loans] = await Promise.all([
+            supabase.from('books').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true),
+            supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true),
+            supabase.from('transactions').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'borrowed')
+        ]);
 
-    // KRİTİK: Herhangi bir sorguda Supabase hatası varsa yakala ve catch bloğuna fırlat
-    if (books.error) throw books.error;
-    if (students.error) throw students.error;
-    if (loans.error) throw loans.error;
+        // KRİTİK: Herhangi bir sorguda Supabase hatası varsa yakala ve catch bloğuna fırlat
+        if (books.error) throw books.error;
+        if (students.error) throw students.error;
+        if (loans.error) throw loans.error;
 
-    res.json({ status: 'success', data: { kitap: books.count || 0, ogrenci: students.count || 0, emanet: loans.count || 0 } });
-  } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+        res.json({ status: 'success', data: { kitap: books.count || 0, ogrenci: students.count || 0, emanet: loans.count || 0 } });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 
@@ -194,235 +238,291 @@ exports.getClasses = async (req, res) => {
 
 exports.getClasses = async (req, res) => {
     try {
-      const { schoolCode, schoolPass } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-      
-      const { data } = await supabase.from('students').select('class_name').eq('school_id', schoolId).eq('is_active', true);
-      const classes = [...new Set(data.map(s => s.class_name))]; // Benzersiz sınıfları ayıklar
-      res.json({ status: 'success', data: classes.sort() });
+        const { schoolCode, schoolPass } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const { data } = await supabase.from('students').select('grade, class_name').eq('school_id', schoolId).eq('is_active', true);
+
+        const grades = [...new Set(data.map(s => s.grade).filter(Boolean))].sort((a, b) => a - b);
+        const classes = [...new Set(data.map(s => s.class_name).filter(Boolean))].sort();
+
+        res.json({ status: 'success', data: { grades, classes } });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 exports.addBook = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, name, author, page, type, shelf, quantity, condition } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });     
-      const loopCount = parseInt(quantity) || 1;
-      
-      // Barkodları otomatik bul ve oluştur (En büyük barkodu bulup +1 ekler)
-      const { data: lastBook } = await supabase.from('books').select('barcode').eq('school_id', schoolId).order('barcode', { ascending: false }).limit(1).single();
-      
-      let startBarcode = lastBook && lastBook.barcode ? parseInt(lastBook.barcode) : 10000;
-      let newBooks = [];
-      let assignedBarcodes = [];
+        const { schoolCode, schoolPass, name, author, page, type, shelf, quantity, condition } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const loopCount = parseInt(quantity) || 1;
 
-      for (let i = 1; i <= loopCount; i++) {
-        let newBarcode = (startBarcode + i).toString();
-        newBooks.push({
-            school_id: schoolId, barcode: newBarcode, book_name: name,
-            author: author, page_count: page, category: type, shelf: shelf, status: 'available', condition: condition || 'Yeni'
-        });
-        assignedBarcodes.push(newBarcode);
-    }
+        // Barkodları otomatik bul ve oluştur (En büyük barkodu bulup +1 ekler)
+        const { data: lastBook } = await supabase.from('books').select('barcode').eq('school_id', schoolId).order('barcode', { ascending: false }).limit(1).single();
+
+        let startBarcode = lastBook && lastBook.barcode ? parseInt(lastBook.barcode) : 10000;
+        let newBooks = [];
+        let assignedBarcodes = [];
+
+        for (let i = 1; i <= loopCount; i++) {
+            let newBarcode = (startBarcode + i).toString();
+            newBooks.push({
+                school_id: schoolId, barcode: newBarcode, book_name: name,
+                author: author, page_count: page, category: type, shelf: shelf, status: 'available', condition: condition || 'Yeni'
+            });
+            assignedBarcodes.push(newBarcode);
+        }
 
 
-      await supabase.from('books').insert(newBooks);
-      res.json({ status: 'success', message: 'Eklendi', barcodes: assignedBarcodes });
+        await supabase.from('books').insert(newBooks);
+        res.json({ status: 'success', message: 'Eklendi', barcodes: assignedBarcodes });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 exports.kitapVer = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, barkod, ogrNo, condition } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const { schoolCode, schoolPass, barkod, ogrNo, condition } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
+        const settings = auth.settings;
 
-      const [bookRes, studentRes] = await Promise.all([
-          supabase.from('books').select('id, book_name, status').eq('school_id', schoolId).eq('barcode', barkod).single(),
-          supabase.from('students').select('id, full_name').eq('school_id', schoolId).eq('student_no', ogrNo).single()
-      ]);
+        if (settings.lib_open_time && settings.lib_close_time) {
+            const now = new Date();
+            const currentHourStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+            if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
+                return res.json({ status: 'error', message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` });
+            }
+        }
 
-      const book = bookRes.data;
-      const student = studentRes.data;
+        const [bookRes, studentRes] = await Promise.all([
+            supabase.from('books').select('id, book_name, status').eq('school_id', schoolId).eq('barcode', barkod).single(),
+            supabase.from('students').select('id, full_name').eq('school_id', schoolId).eq('student_no', ogrNo).single()
+        ]);
 
-      if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
-      if (book.status === 'borrowed') return res.json({ status: 'error', message: 'Kitap başkasında!' });
-      if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı' });
+        const book = bookRes.data;
+        const student = studentRes.data;
 
-      const now = new Date();
-      const today = now.toISOString();
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth(); // 0=Ocak, 1=Şubat, ..., 8=Eylül
-      
-      // Eğer şu an Ağustos'tan (7) önce bir aydaysak, eğitim yılı geçen sene başlamıştır.
-      const startYear = currentMonth < 7 ? currentYear - 1 : currentYear;
-      const academicYear = `${startYear}-${startYear + 1}`;
+        if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
+        if (book.status === 'borrowed') return res.json({ status: 'error', message: 'Kitap başkasında!' });
+        if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı' });
 
-      // Eğer formdan durum geldiyse (seçildiyse) ekle
-      let updateData = { status: 'borrowed' };
-      if (condition) updateData.condition = condition;
+        const { count: activeCount } = await supabase.from('transactions')
+            .select('id', { count: 'exact', head: true })
+            .eq('school_id', schoolId)
+            .eq('student_id', student.id)
+            .eq('status', 'borrowed');
 
-      const [transRes, bookUpdRes] = await Promise.all([
-          supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear }]),
-          supabase.from('books').update(updateData).eq('id', book.id)
-      ]);
+        const limit = settings.max_borrow_limit !== undefined ? settings.max_borrow_limit : 2;
+        if (activeCount >= limit) {
+            return res.json({ status: 'error', message: `Öğrenci kitap alma sınırını aşmıştır. (Maksimum: ${limit})` });
+        }
 
-      // KRİTİK: Yazma işlemlerinden biri bile hata verirse sistemi try/catch'e düşür
-      if (transRes.error) throw transRes.error;
-      if (bookUpdRes.error) throw bookUpdRes.error;
+        const now = new Date();
+        const today = now.toISOString();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth(); // 0=Ocak, 1=Şubat, ..., 8=Eylül
 
-      res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.full_name}</b> isimli öğrenciye verildi.` });
+        // Eğer şu an Ağustos'tan (7) önce bir aydaysak, eğitim yılı geçen sene başlamıştır.
+        const startYear = currentMonth < 7 ? currentYear - 1 : currentYear;
+        const academicYear = `${startYear}-${startYear + 1}`;
+        
+        let processedBy = 'Admin';
+        if (auth.role === 'staff' && settings.staff_names) {
+            processedBy = settings.staff_names;
+        }
+
+        // Eğer formdan durum geldiyse (seçildiyse) ekle
+        let updateData = { status: 'borrowed' };
+        if (condition) updateData.condition = condition;
+
+        const [transRes, bookUpdRes] = await Promise.all([
+            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: processedBy }]),
+            supabase.from('books').update(updateData).eq('id', book.id)
+        ]);
+
+        // KRİTİK: Yazma işlemlerinden biri bile hata verirse sistemi try/catch'e düşür
+        if (transRes.error) throw transRes.error;
+        if (bookUpdRes.error) throw bookUpdRes.error;
+
+        res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.full_name}</b> isimli öğrenciye verildi.` });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 
 exports.kitapAl = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, barkod, condition } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const { schoolCode, schoolPass, barkod, condition } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
+        const settings = auth.settings;
 
-      const { data: book } = await supabase.from('books').select('id, book_name, shelf, status').eq('school_id', schoolId).eq('barcode', barkod).single();
-      if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
-      if (book.status === 'available') return res.json({ status: 'error', message: 'Bu kitap zaten rafta.' });
+        if (settings.lib_open_time && settings.lib_close_time) {
+            const currentHourStr = String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0');
+            if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
+                return res.json({ status: 'error', message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` });
+            }
+        }
 
-      // Aktif işlemi ve öğrenciyi bul
-      const { data: trans } = await supabase.from('transactions').select('id, student_id, students(student_no, full_name)').eq('book_id', book.id).eq('status', 'borrowed').single();
-      
-      const today = new Date().toISOString();
+        const { data: book } = await supabase.from('books').select('id, book_name, shelf, status').eq('school_id', schoolId).eq('barcode', barkod).single();
+        if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
+        if (book.status === 'available') return res.json({ status: 'error', message: 'Bu kitap zaten rafta.' });
 
-      let updateData = { status: 'available' };
-      if (condition) updateData.condition = condition;
+        // Aktif işlemi ve öğrenciyi bul
+        const { data: trans } = await supabase.from('transactions').select('id, borrow_date, student_id, students(student_no, full_name)').eq('book_id', book.id).eq('status', 'borrowed').single();
 
-      const [transRes, bookUpdRes] = await Promise.all([
-          supabase.from('transactions').update({ status: 'returned', return_date: today }).eq('id', trans.id),
-          supabase.from('books').update(updateData).eq('id', book.id)
-      ]);
+        if (!trans) return res.json({ status: 'error', message: 'Aktif bir ödünç işlemi bulunamadı.' });
 
-      // KRİTİK: Yazma işlemlerinden biri bile hata verirse sistemi try/catch'e düşür
-      if (transRes.error) throw transRes.error;
-      if (bookUpdRes.error) throw bookUpdRes.error;
+        const minDays = settings.min_borrow_days !== undefined ? settings.min_borrow_days : 1;
+        const bDate = new Date(trans.borrow_date);
+        const diffDays = Math.floor(Math.abs(new Date() - bDate) / (1000 * 60 * 60 * 24));
+        if (diffDays < minDays) {
+            return res.json({ status: 'error', message: `Bu kitabı henüz iade edemezsiniz, okumak için daha fazla zaman ayırın. (En az ${minDays} gün okunmalı)` });
+        }
 
-      res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no });
+        const today = new Date().toISOString();
+
+        let processedBy = 'Admin';
+        if (auth.role === 'staff' && settings.staff_names) {
+            processedBy = settings.staff_names;
+        }
+
+        let updateData = { status: 'available' };
+        if (condition) updateData.condition = condition;
+
+        // Transaction tablosunda "received_by" güncellenerek teslim edenin adı loglanır.
+        const [transRes, bookUpdRes] = await Promise.all([
+            supabase.from('transactions').update({ status: 'returned', return_date: today, received_by: processedBy }).eq('id', trans.id),
+            supabase.from('books').update(updateData).eq('id', book.id)
+        ]);
+
+        // KRİTİK: Yazma işlemlerinden biri bile hata verirse sistemi try/catch'e düşür
+        if (transRes.error) throw transRes.error;
+        if (bookUpdRes.error) throw bookUpdRes.error;
+
+        res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 exports.addStudent = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, no, name, className } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-      
-      const { error } = await supabase.from('students').insert([{ school_id: schoolId, student_no: no, full_name: name, class_name: className }]);
-      if (error && error.code === '23505') return res.json({ status: 'error', message: 'Öğrenci zaten var!' }); // Unique hatası
-      
-      res.json({ status: 'success', message: 'Öğrenci eklendi.' });
+        const { schoolCode, schoolPass, no, name, grade, className } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const { error } = await supabase.from('students').insert([{ school_id: schoolId, student_no: no, full_name: name, grade: grade, class_name: className }]);
+        if (error && error.code === '23505') return res.json({ status: 'error', message: 'Öğrenci zaten var!' }); // Unique hatası
+
+        res.json({ status: 'success', message: 'Öğrenci eklendi.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 exports.updateStudent = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, no, newClass } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-      
-      const { data, error } = await supabase.from('students').update({ class_name: newClass }).eq('school_id', schoolId).eq('student_no', no).select().single();
-      if (!data) return res.json({ status: 'error', message: 'Öğrenci bulunamadı!' });
-      
-      res.json({ status: 'success', message: 'Öğrenci sınıfı güncellendi.', studentName: data.full_name });
+        const { schoolCode, schoolPass, no, newGrade, newClass } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const { data, error } = await supabase.from('students').update({ grade: newGrade, class_name: newClass }).eq('school_id', schoolId).eq('student_no', no).select().single();
+        if (!data) return res.json({ status: 'error', message: 'Öğrenci bulunamadı!' });
+
+        res.json({ status: 'success', message: 'Öğrenci sınıfı güncellendi.', studentName: data.full_name });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
-// ==========================================
-// SORGULA (Kitap ve Öğrenci Detayları)
-// ==========================================
 exports.sorgula = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, query, type } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-      const q = query.trim();
-  
-      if (type === 'book') {
-        const { data: book } = await supabase.from('books').select('*').eq('school_id', schoolId).eq('barcode', q).single();
-        if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı.' });
+        const { schoolCode, schoolPass, query, type } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const q = query.trim();
 
-        let detail = {
-            name: book.book_name, code: book.barcode, author: book.author,
-            status: book.status === 'borrowed' ? 'Out' : 'In', shelf: book.shelf, condition: book.condition, holder: null, holderNo: null, date: null
-        };
+        if (type === 'book') {
+            const { data: book } = await supabase.from('books').select('*').eq('school_id', schoolId).eq('barcode', q).single();
+            if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı.' });
 
-          if (book.status === 'borrowed') {
-              // JOIN işlemi: Kitap kimdeyse o öğrencinin bilgilerini de getir!
-              const { data: trans } = await supabase.from('transactions')
-                  .select('borrow_date, students(student_no, full_name)')
-                  .eq('book_id', book.id).eq('status', 'borrowed').single();
-              if (trans) {
-                  detail.holder = trans.students.full_name;
-                  detail.holderNo = trans.students.student_no;
-                  detail.date = new Date(trans.borrow_date).toLocaleDateString("tr-TR");
-              }
-          }
-          return res.json({ status: 'success', result: { type: 'book', data: [detail] } });
-      }
-  
-      if (type === 'student') {
-          const { data: student } = await supabase.from('students').select('*').eq('school_id', schoolId).eq('student_no', q).single();
-          if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
+            let detail = {
+                name: book.book_name, code: book.barcode, author: book.author,
+                status: book.status === 'borrowed' ? 'Out' : 'In', shelf: book.shelf, condition: book.condition, holder: null, holderNo: null, date: null
+            };
 
-          // JOIN İşlemi: Öğrencinin tüm işlemlerini ve okuduğu kitapların isimlerini/sayfalarını tek seferde çek!
-          const { data: transactions } = await supabase.from('transactions')
-              .select('borrow_date, return_date, status, books(barcode, book_name, page_count, condition)')
-              .eq('student_id', student.id);
-          
-          let history = []; let activeBooks = []; let totalPages = 0;
+            if (book.status === 'borrowed') {
+                // JOIN işlemi: Kitap kimdeyse o öğrencinin bilgilerini de getir!
+                const { data: trans } = await supabase.from('transactions')
+                    .select('borrow_date, students(student_no, full_name)')
+                    .eq('book_id', book.id).eq('status', 'borrowed').single();
+                if (trans) {
+                    detail.holder = trans.students.full_name;
+                    detail.holderNo = trans.students.student_no;
+                    detail.date = new Date(trans.borrow_date).toLocaleDateString("tr-TR");
+                }
+            }
+            return res.json({ status: 'success', result: { type: 'book', data: [detail] } });
+        }
 
-          if (transactions) {
-              transactions.forEach(t => {
-                 const p = t.books.page_count || 0;
-                 const isCompleted = t.status === 'returned';
-                 if (isCompleted) totalPages += p; 
-                 
-                 const record = {
-                    name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
-                    date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
-                    returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
-                    status: isCompleted ? 'Completed' : 'Active', pages: p
-                };
-                history.push(record);
-                if (!isCompleted) activeBooks.push(record);
-              });
-          }
+        if (type === 'student') {
+            const { data: student } = await supabase.from('students').select('*').eq('school_id', schoolId).eq('student_no', q).single();
+            if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
 
-          return res.json({ status: 'success', result: { 
-              type: 'student', 
-              data: {
-                  name: student.full_name, no: student.student_no, class: student.class_name,
-                  activeBooks: activeBooks, history: history,
-                  totalReadPages: totalPages, totalReadCount: history.filter(h => h.status === 'Completed').length
-              }
-          }});
-      }
+            // JOIN İşlemi: Öğrencinin tüm işlemlerini ve okuduğu kitapların isimlerini/sayfalarını tek seferde çek!
+            const { data: transactions } = await supabase.from('transactions')
+                .select('borrow_date, return_date, status, books(barcode, book_name, page_count, condition)')
+                .eq('student_id', student.id);
+
+            let history = []; let activeBooks = []; let totalPages = 0;
+
+            if (transactions) {
+                transactions.forEach(t => {
+                    const p = t.books.page_count || 0;
+                    const isCompleted = t.status === 'returned';
+                    if (isCompleted) totalPages += p;
+
+                    const record = {
+                        name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
+                        date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
+                        returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
+                        status: isCompleted ? 'Completed' : 'Active', pages: p
+                    };
+                    history.push(record);
+                    if (!isCompleted) activeBooks.push(record);
+                });
+            }
+
+            return res.json({
+                status: 'success', result: {
+                    type: 'student',
+                    data: {
+                        name: student.full_name, no: student.student_no,
+                        grade: student.grade, className: student.class_name,
+                        activeBooks: activeBooks, history: history,
+                        totalReadPages: totalPages, totalReadCount: history.filter(h => h.status === 'Completed').length
+                    }
+                }
+            });
+        }
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
+
+
 
 // ==========================================
 // RAPORLAR (Şampiyonlar Ligi)
 // ==========================================
 exports.getReport = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, filterClass, filterMonth } = req.body;
+        const { schoolCode, schoolPass, filterGrade, filterClass, filterMonth } = req.body;
         const schoolId = await getSchoolId(schoolCode, schoolPass);
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-        
+
         // Mükemmel SQL Sorgusu: Sadece teslim edilmiş kitapları, öğrenci ve kitap bilgileriyle getir
         let query = supabase.from('transactions')
-            .select('borrow_date, students!inner(student_no, full_name, class_name), books!inner(book_name, page_count)')
+            .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'returned');
 
-        if (filterClass !== 'ALL') query = query.eq('students.class_name', filterClass);
+        if (filterGrade && filterGrade !== 'ALL') query = query.eq('students.grade', filterGrade);
+        if (filterClass && filterClass !== 'ALL') query = query.eq('students.class_name', filterClass);
 
         const { data: transactions, error } = await query;
         if (error) throw error; // KRİTİK: Supabase veritabanı hatalarını try/catch bloğuna düşürür
@@ -438,13 +538,14 @@ exports.getReport = async (req, res) => {
 
                 const sNo = t.students.student_no;
                 if (!acc[sNo]) {
-                    acc[sNo] = { name: t.students.full_name, className: t.students.class_name, totalPage: 0, books: [] };
+                    const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
+                    acc[sNo] = { name: t.students.full_name, className: cName, totalPage: 0, books: [] };
                 }
-                
+
                 const p = t.books.page_count || 0;
                 acc[sNo].totalPage += p;
                 acc[sNo].books.push({ name: t.books.book_name, page: p });
-                
+
                 return acc;
             }, {});
         }
@@ -463,29 +564,30 @@ exports.overdue = async (req, res) => {
         const { schoolCode, schoolPass } = req.body;
         const schoolId = await getSchoolId(schoolCode, schoolPass);
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-        
+
         const { data: activeTrans, error } = await supabase.from('transactions')
-            .select('borrow_date, students!inner(full_name), books!inner(barcode, book_name)')
+            .select('borrow_date, students!inner(full_name, grade, class_name), books!inner(barcode, book_name)')
             .eq('school_id', schoolId).eq('status', 'borrowed');
-  
+
         if (error) throw error; // KRİTİK: Supabase hatalarını yakala ve try/catch'e düşür
-  
+
         const now = new Date();
         let list = [];
-  
+
         if (activeTrans && activeTrans.length > 0) {
             list = activeTrans.reduce((acc, t) => {
                 const bDate = new Date(t.borrow_date);
-                const diffDays = Math.ceil(Math.abs(now - bDate) / (1000 * 60 * 60 * 24)); 
-                
+                const diffDays = Math.ceil(Math.abs(now - bDate) / (1000 * 60 * 60 * 24));
+
                 if (diffDays > 15) { // 15 gün sınırı
-                    acc.push({ code: t.books.barcode, student: t.students.full_name, book: t.books.book_name, date: bDate.toLocaleDateString("tr-TR") });
+                    const sName = t.students.grade ? `${t.students.full_name} (${t.students.grade}/${t.students.class_name})` : t.students.full_name;
+                    acc.push({ code: t.books.barcode, student: sName, book: t.books.book_name, date: bDate.toLocaleDateString("tr-TR") });
                 }
                 return acc;
             }, []);
         }
         res.json({ status: 'success', data: list });
-      } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 // ==========================================
@@ -493,32 +595,32 @@ exports.overdue = async (req, res) => {
 // ==========================================
 exports.undo = async (req, res) => {
     try {
-      const { schoolCode, schoolPass, type, bookCode, studentNo } = req.body;
-      const schoolId = await getSchoolId(schoolCode, schoolPass);
-      if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const { schoolCode, schoolPass, type, bookCode, studentNo } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-      const { data: book } = await supabase.from('books').select('id').eq('school_id', schoolId).eq('barcode', bookCode).single();
-      const { data: student } = await supabase.from('students').select('id').eq('school_id', schoolId).eq('student_no', studentNo).single();
+        const { data: book } = await supabase.from('books').select('id').eq('school_id', schoolId).eq('barcode', bookCode).single();
+        const { data: student } = await supabase.from('students').select('id').eq('school_id', schoolId).eq('student_no', studentNo).single();
 
-      if (!book || !student) return res.json({ status: 'error', message: 'Kitap veya öğrenci bulunamadı.' });
+        if (!book || !student) return res.json({ status: 'error', message: 'Kitap veya öğrenci bulunamadı.' });
 
-      if (type === 'ver') {
-          // Kitap verme işlemini iptal et: İşlemi sil, kitabı 'available' yap
-          const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'borrowed').single();
-          if (trans) {
-              await supabase.from('transactions').delete().eq('id', trans.id);
-              await supabase.from('books').update({ status: 'available' }).eq('id', book.id);
-          }
-      } 
-      else if (type === 'al') {
-          // Kitap alma işlemini iptal et: En son teslimi bul, tekrar 'borrowed' yap
-          const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'returned').order('return_date', { ascending: false }).limit(1).single();
-          if (trans) {
-              await supabase.from('transactions').update({ status: 'borrowed', return_date: null }).eq('id', trans.id);
-              await supabase.from('books').update({ status: 'borrowed' }).eq('id', book.id);
-          }
-      }
-      res.json({ status: 'success', message: 'İşlem başarıyla geri alındı.' });
+        if (type === 'ver') {
+            // Kitap verme işlemini iptal et: İşlemi sil, kitabı 'available' yap
+            const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'borrowed').single();
+            if (trans) {
+                await supabase.from('transactions').delete().eq('id', trans.id);
+                await supabase.from('books').update({ status: 'available' }).eq('id', book.id);
+            }
+        }
+        else if (type === 'al') {
+            // Kitap alma işlemini iptal et: En son teslimi bul, tekrar 'borrowed' yap
+            const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'returned').order('return_date', { ascending: false }).limit(1).single();
+            if (trans) {
+                await supabase.from('transactions').update({ status: 'borrowed', return_date: null }).eq('id', trans.id);
+                await supabase.from('books').update({ status: 'borrowed' }).eq('id', book.id);
+            }
+        }
+        res.json({ status: 'success', message: 'İşlem başarıyla geri alındı.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 // ==========================================
@@ -549,7 +651,7 @@ exports.getGlobalBooks = async (req, res) => {
         }
 
         if (allBooks.length === 0) return res.json({ status: 'success', data: [] });
-        
+
         // Node.js üzerinde DISTINCT (Benzersizleştirme) ve sıralama işlemi
         const uniqueBooks = [...new Set(allBooks.map(b => b.book_name))].sort();
         res.json({ status: 'success', data: uniqueBooks });
@@ -578,5 +680,88 @@ exports.archiveRecord = async (req, res) => {
         }
 
         res.json({ status: 'success', message: 'Kayıt başarıyla arşive gönderildi.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// AYARLAR (YÖNETİM PANELİ)
+// ==========================================
+exports.getSettings = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        res.json({ status: 'success', data: auth.settings });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+exports.updateSettings = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, settings } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (auth.role !== 'admin') {
+            return res.json({ status: 'error', message: 'Bu işlem için yetkiniz yok.' });
+        }
+
+        const updatedSettings = { ...auth.settings, ...settings };
+        
+        Object.keys(updatedSettings).forEach(key => {
+            if (updatedSettings[key] === null) delete updatedSettings[key];
+        });
+
+        const { error } = await supabase.from('schools').update({ kt_settings: updatedSettings }).eq('id', auth.id);
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Ayarlar güncellendi.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: ÖĞRENCİ NUMARASI İLE BULMA (NÖBETÇİ İÇİN)
+// ==========================================
+exports.getStudentByNo = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, studentNo } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const { data: student } = await supabase.from('students')
+            .select('full_name')
+            .eq('school_id', auth.id)
+            .eq('student_no', studentNo)
+            .single();
+
+        if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
+
+        res.json({ status: 'success', data: student });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: İŞLEM GEÇMİŞİ LOGLARI (OMNI-SEARCH İÇİN)
+// ==========================================
+exports.getLogs = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, filterDate } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass);
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        let query = supabase.from('transactions')
+            .select('id, created_at, borrow_date, return_date, status, handed_by, received_by, academic_year, students(student_no, full_name, grade, class_name), books(barcode, book_name)')
+            .eq('school_id', schoolId)
+            .order('created_at', { ascending: false })
+            .limit(100);
+
+        if (filterDate) {
+            query = query.gte('created_at', `${filterDate}T00:00:00`).lte('created_at', `${filterDate}T23:59:59`);
+        }
+
+        const { data: logs, error } = await query;
+        if (error) throw error;
+
+        res.json({ status: 'success', data: logs || [] });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };

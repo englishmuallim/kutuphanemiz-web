@@ -5,13 +5,18 @@ async function loadClasses() {
     try {
         const res = await fetch('/api/getClasses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
         const r = await res.json();
-        if (r.status === 'success' && r.data.length > 0) {
-            const selectors = document.querySelectorAll(".class-selector");
-            selectors.forEach(sel => {
-                const existing = sel.innerHTML;
-                let options = "";
-                r.data.forEach(cls => { options += `<option value="${cls}">${cls}</option>`; });
-                sel.innerHTML = existing + options;
+        if (r.status === 'success' && r.data) {
+            document.querySelectorAll(".class-selector").forEach(sel => {
+                const defaultOpt = sel.firstElementChild ? sel.firstElementChild.outerHTML : '<option value="">Şube</option>';
+                let options = defaultOpt;
+                if (r.data.classes) r.data.classes.forEach(cls => { options += `<option value="${cls}">${cls}</option>`; });
+                sel.innerHTML = options;
+            });
+            document.querySelectorAll(".grade-selector").forEach(sel => {
+                const defaultOpt = sel.firstElementChild ? sel.firstElementChild.outerHTML : '<option value="">Kademe</option>';
+                let options = defaultOpt;
+                if (r.data.grades) r.data.grades.forEach(g => { options += `<option value="${g}">${g}. Sınıf</option>`; });
+                sel.innerHTML = options;
             });
         }
     } catch (error) { console.error("Sınıflar yüklenirken hata oluştu:", error); }
@@ -23,7 +28,7 @@ async function login() {
     const remember = document.getElementById("beniHatirla").checked;
     const btn = document.querySelector(".btn-login");
 
-    if (!code || !pass) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri doldurun'}); return; }
+    if (!code || !pass) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Bilgileri doldurun' }); return; }
     btn.innerText = "Giriş yapılıyor.."; btn.disabled = true;
 
     try {
@@ -31,8 +36,18 @@ async function login() {
         const result = await response.json();
         if (result.status === 'success') {
             localStorage.setItem("okul_ismi", result.schoolName);
+            localStorage.setItem("user_role", result.role);
             document.getElementById("headerTitle").innerText = result.schoolName;
-            
+
+            const yonetimTabBtn = document.querySelector(".tab-btn[onclick=\"showTab('yonetim')\"]");
+            if (result.role === 'staff' && yonetimTabBtn) {
+                yonetimTabBtn.style.display = 'none';
+                const yonetimPanel = document.getElementById("tab-yonetim");
+                if (yonetimPanel) yonetimPanel.remove();
+            } else if (yonetimTabBtn) {
+                yonetimTabBtn.style.display = 'inline-block';
+            }
+
             if (remember) {
                 localStorage.setItem("kutuphane_code", code);
                 localStorage.setItem("kutuphane_pass", pass);
@@ -46,10 +61,10 @@ async function login() {
             Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
             document.getElementById("login-screen").classList.add("hidden");
             document.getElementById("dashboard").classList.remove("hidden");
-            getStats(); getOverdueBooks(); loadClasses(); getLeaderboard(); 
-            loadBookSuggestions(); 
-        } else { Swal.fire({icon:'error', title:'Hata', text: result.message}); }
-    } catch (error) { Swal.fire({icon:'error', title:'Hata', text:'Sunucu hatası'}); } finally { btn.innerText = "Giriş Yap"; btn.disabled = false; }
+            getStats(); getOverdueBooks(); loadClasses(); getLeaderboard();
+            loadBookSuggestions();
+        } else { Swal.fire({ icon: 'error', title: 'Hata', text: result.message }); }
+    } catch (error) { Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucu hatası' }); } finally { btn.innerText = "Giriş Yap"; btn.disabled = false; }
 }
 
 async function forgotPassword() {
@@ -66,7 +81,7 @@ async function forgotPassword() {
         }
     });
 
-    if (!schoolCode) return; 
+    if (!schoolCode) return;
 
     Swal.fire({ title: 'Kontrol Ediliyor...', html: 'E-posta adresinize kod gönderiliyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
@@ -124,7 +139,7 @@ async function forgotPassword() {
             preConfirm: () => {
                 const pass1 = document.getElementById('swal-pass1').value;
                 const pass2 = document.getElementById('swal-pass2').value;
-                
+
                 if (!pass1 || pass1.length < 4) {
                     Swal.showValidationMessage('Güvenliğiniz için şifre en az 4 karakter olmalıdır!');
                     return false;
@@ -133,7 +148,7 @@ async function forgotPassword() {
                     Swal.showValidationMessage('Şifreler birbiriyle uyuşmuyor! Lütfen kontrol edin.');
                     return false;
                 }
-                return pass1; 
+                return pass1;
             }
         });
 
@@ -171,12 +186,12 @@ async function islemYap(actionType) {
         data.barkod = document.getElementById("verBarkod").value;
         data.condition = document.getElementById("verKitapDurum").value; // YENİ EKLENDİ
         islemOgrNo = data.ogrNo; islemBarkod = data.barkod;
-        if (!data.ogrNo || !data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Bilgileri giriniz'}); return; }
+        if (!data.ogrNo || !data.barkod) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Bilgileri giriniz' }); return; }
     } else {
         data.barkod = document.getElementById("alBarkod").value;
         data.condition = document.getElementById("alKitapDurum").value; // YENİ EKLENDİ
         islemBarkod = data.barkod;
-        if (!data.barkod) { Swal.fire({icon:'warning', title:'Eksik', text:'Barkod okutunuz'}); return; }
+        if (!data.barkod) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Barkod okutunuz' }); return; }
     }
 
     Swal.fire({ title: 'İşleniyor...', didOpen: () => Swal.showLoading() });
@@ -188,15 +203,15 @@ async function islemYap(actionType) {
         if (result.status === 'success') {
             playBeep();
             let msg = result.message;
-            if(result.raf) msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
+            if (result.raf) msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
             const popup = await Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', showDenyButton: true, denyButtonText: 'Geri Al', denyButtonColor: '#ef4444', allowOutsideClick: false });
             if (popup.isDenied) {
                 Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
                 const undoRes = await undoResp.json();
                 if (undoRes.status === 'success') { Swal.fire('Geri Alındı', undoRes.message, 'info'); getStats(); getOverdueBooks(); getLeaderboard(); } else { Swal.fire('Hata', undoRes.message, 'error'); }
             }
-            if(document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
-            if(document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
+            if (document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
+            if (document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
             getStats(); getOverdueBooks(); getLeaderboard();
         } else { Swal.fire({ icon: 'error', title: 'Hata', text: result.message }); }
     } catch (error) { Swal.fire({ icon: 'error', title: 'Hata', text: error.message }); }
@@ -224,11 +239,11 @@ async function sorgula(incomingType) {
         if (res.status === 'success') {
             let html = '';
             if (res.result.type === 'book') {
-                if(res.result.data.length === 0) { resultArea.innerHTML = '<div style="color:red; text-align:center;">Bulunamadı.</div>'; return; }
+                if (res.result.data.length === 0) { resultArea.innerHTML = '<div style="color:red; text-align:center;">Bulunamadı.</div>'; return; }
                 res.result.data.forEach(book => {
                     const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
                     const badgeClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
-                    const condColor = book.condition === 'Hasarlı' || book.condition === 'Yıpranmış' ? '#ef4444' : '#059669'; // YENİ
+                    const condColor = book.condition === 'Hasarlı' || book.condition === 'Yıpranmış' ? '#ef4444' : '#059669';
                     html += `<div class="result-card" style="border-left-color:#f59e0b;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div style="font-weight:bold;">${book.name}</div>
@@ -248,22 +263,22 @@ async function sorgula(incomingType) {
                         <div style="font-weight:bold; color:#4f46e5; font-size:1.1rem;">${std.name}</div>
                         <button onclick="archiveRecord('${std.no}', 'student')" style="background:none; border:none; color:#ef4444; cursor:pointer;" title="Arşive Gönder"><span class="material-symbols-rounded">delete</span></button>
                     </div>
-                    <div style="font-size:0.9rem;">${std.class} - ${std.no}</div>
+                    <div style="font-size:0.9rem;">${std.grade}/${std.className} - ${std.no}</div>
                     <div style="display:flex; gap:10px; margin-top:10px; padding:10px; background:#f9fafb; border-radius:8px;">
                         <div style="flex:1; text-align:center;"><div style="font-weight:bold; color:#3730a3;">${std.totalReadPages}</div><div style="font-size:0.7rem;">Toplam Sayfa</div></div>
                         <div style="flex:1; text-align:center;"><div style="font-weight:bold; color:#059669;">${std.totalReadCount}</div><div style="font-size:0.7rem;">Okuduğu</div></div>
                     </div>
                     <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
                     <div style="font-weight:bold; font-size:0.8rem; margin-bottom:5px;">Elindeki Kitaplar:</div>`;
-                
-                if(std.activeBooks.length > 0) std.activeBooks.forEach(b => html += `<div style="font-size:0.85rem; padding:4px 0; color:#b91c1c;">📕 ${b.name} (${b.code}) <br><small>${b.date} - Durum: <b>${b.condition || 'Yeni'}</b></small></div>`);
+
+                if (std.activeBooks.length > 0) std.activeBooks.forEach(b => html += `<div style="font-size:0.85rem; padding:4px 0; color:#b91c1c;">📕 ${b.name} (${b.code}) <br><small>${b.date} - Durum: <b>${b.condition || 'Yeni'}</b></small></div>`);
                 else html += '<div style="color:green; font-size:0.8rem;">Temiz.</div>';
-                
+
                 html += `<div style="margin-top:10px; text-align:center;"><button onclick="document.getElementById('history-${std.no}').classList.toggle('hidden')" style="background:none; border:none; color:#6366f1; cursor:pointer; font-weight:bold; font-size:0.8rem;">Geçmişi Göster ▼</button></div>
                 <div id="history-${std.no}" class="hidden" style="margin-top:10px; max-height:150px; overflow-y:auto;">`;
-                
+
                 std.history.forEach(h => {
-                    if(h.status === 'Completed') {
+                    if (h.status === 'Completed') {
                         html += `<div style="font-size:0.8rem; padding:5px 0; border-bottom:1px solid #f3f4f6;">✅ ${h.name} <span style="color:#6b7280;">(${h.pages} syf)</span></div>`;
                     }
                 });
@@ -283,9 +298,10 @@ async function kaydet(type) {
     if (type === 'student') {
         const no = document.getElementById("newOgrNo").value;
         const name = document.getElementById("newOgrAd").value;
-        const cls = document.getElementById("newOgrSinif").value;
-        if (!no || !name || !cls) { Swal.fire('Eksik', 'Bilgileri doldurunuz.', 'warning'); return; }
-        data.no = no; data.name = name; data.className = cls;
+        const grade = document.getElementById("newOgrKademe").value;
+        const sube = document.getElementById("newOgrSube").value;
+        if (!no || !name || !grade || !sube) { Swal.fire('Eksik', 'Bilgileri doldurunuz.', 'warning'); return; }
+        data.no = no; data.name = name; data.grade = grade; data.className = sube;
         endpoint = "/api/addStudent";
     } else {
         const bName = document.getElementById("newKitapAd").value;
@@ -306,10 +322,10 @@ async function kaydet(type) {
         const r = await res.json();
         if (r.status === 'success' || r.status === 'partial') {
             if (type === 'book') {
-                let barcodesHtml = r.barcodes && r.barcodes.length > 5 ? `Barkod: ${r.barcodes[0]} - ${r.barcodes[r.barcodes.length-1]}` : `Barkod: ${r.barcodes.join(', ')}`;
+                let barcodesHtml = r.barcodes && r.barcodes.length > 5 ? `Barkod: ${r.barcodes[0]} - ${r.barcodes[r.barcodes.length - 1]}` : `Barkod: ${r.barcodes.join(', ')}`;
                 Swal.fire({ icon: 'success', title: '📚 Kitaplar Eklendi', html: `<div><b>${data.name}</b> (${data.quantity} adet)</div><div style="color:#059669; font-weight:bold;">${barcodesHtml}</div>` });
             } else { Swal.fire('Başarılı', r.message, 'success'); }
-            document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => { if(i.id!=='newKitapAdet') i.value=''; else i.value='1'; });
+            document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => { if (i.id !== 'newKitapAdet') i.value = ''; else i.value = '1'; });
         } else { Swal.fire('Hata', r.message, 'error'); }
     } catch (e) { Swal.fire('Hata', 'Sunucu hatası.', 'error'); }
 }
@@ -318,31 +334,37 @@ async function updateStudent() {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     const no = document.getElementById("updateOgrNo").value;
-    const newClass = document.getElementById("updateOgrSinif").value;
-    if(!no || !newClass) { Swal.fire('Eksik', 'Bilgileri doldurun', 'warning'); return; }
-    
+    const newGrade = document.getElementById("updateOgrKademe").value;
+    const newClass = document.getElementById("updateOgrSube").value;
+    if (!no || !newGrade || !newClass) { Swal.fire('Eksik', 'Bilgileri doldurun', 'warning'); return; }
+
     Swal.fire({ title: 'Güncelleniyor...', didOpen: () => Swal.showLoading() });
     try {
         const res = await fetch('/api/updateStudent', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, no: no, newClass: newClass })
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, no: no, newGrade: newGrade, newClass: newClass })
         });
         const r = await res.json();
-        if(r.status === 'success') {
-            Swal.fire('Başarılı', `${r.studentName} artık ${newClass} sınıfında.`, 'success');
+        if (r.status === 'success') {
+            Swal.fire('Başarılı', `${r.studentName} artık ${newGrade}/${newClass} sınıfında.`, 'success');
             document.getElementById("updateOgrNo").value = "";
         } else Swal.fire('Hata', r.message, 'error');
     } catch (e) { Swal.fire('Hata', 'Sunucu hatası', 'error'); }
 }
 
+
 async function getReport() {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
-    
+
+    const grdSelect = document.getElementById("reportGrade");
     const clsSelect = document.getElementById("reportClass");
     const monSelect = document.getElementById("reportMonth");
+    
+    const grd = grdSelect.value;
     const cls = clsSelect.value;
     const mon = monSelect.value;
+    
     const resDiv = document.getElementById("report-result");
     const printBtn = document.getElementById("printBtn"); // YENİ EKLENDİ
 
@@ -353,39 +375,54 @@ async function getReport() {
     try {
         const res = await fetch('/api/getReport', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterClass: cls, filterMonth: mon })
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: grd, filterClass: cls, filterMonth: mon })
         });
         const r = await res.json();
-        if(r.status === 'success') {
-            if(r.data.length === 0) { resDiv.innerHTML = '<div style="text-align:center; color:red;">Kayıt yok.</div>'; return; }
-            
-            const clsText = clsSelect.options[clsSelect.selectedIndex].text; 
-            const monText = monSelect.options[monSelect.selectedIndex].text; 
-            
-            let titleClass = cls === 'ALL' ? 'TÜM OKUL' : `${clsText} SINIFI`;
+        if (r.status === 'success') {
+            if (r.data.length === 0) { resDiv.innerHTML = '<div style="text-align:center; color:red;">Kayıt yok.</div>'; return; }
+
+            const grdText = grdSelect.options[grdSelect.selectedIndex].text;
+            const clsText = clsSelect.options[clsSelect.selectedIndex].text;
+            const monText = monSelect.options[monSelect.selectedIndex].text;
+
+            let titleClass = '';
+            const gradeMatch = grdText.match(/\d+/);
+            const gradeNum = gradeMatch ? gradeMatch[0] : grdText;
+
+            if (grd === 'ALL' && cls === 'ALL') {
+                titleClass = 'TÜM OKUL';
+            } else if (grd !== 'ALL' && cls === 'ALL') {
+                titleClass = `${gradeNum}. SINIFLAR`;
+            } else if (grd === 'ALL' && cls !== 'ALL') {
+                titleClass = `${clsText} ŞUBELERİ`;
+            } else {
+                titleClass = `${gradeNum}/${clsText} SINIFI`;
+            }
+
             let titleMonth = mon === 'ALL' ? 'TÜM ZAMANLAR' : `${monText.toLocaleUpperCase('tr-TR')} AYI`;
             let reportTitle = `${titleClass} ${titleMonth} OKUMA RAPORU`;
-            
+
+
             let html = `
             <div style="text-align:center; margin-bottom:20px; padding-bottom:10px; border-bottom:2px solid #274ae4; page-break-after: avoid;">
                 <h2 style="margin:0; font-size:1.3rem; color:#1f2937;">${reportTitle}</h2>
             </div>
             <div style="font-weight:bold; margin-bottom:10px;">Sonuçlar (${r.data.length} Öğrenci): <span style="font-size:0.8rem; font-weight:normal; color:#6b7280; display:inline-block;" class="hide-on-print">(Detaylar için tıklayın)</span></div>`;
-            
-            r.data.slice(0, 50).forEach((item, index) => { 
+
+            r.data.slice(0, 50).forEach((item, index) => {
                 let booksHtml = "";
-                if(item.books && item.books.length > 0) {
+                if (item.books && item.books.length > 0) {
                     item.books.forEach(b => {
                         booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">📕 ${b.name} <span style="color:#6b7280; float:right;">${b.page} syf</span></div>`;
                     });
-                } else { 
-                    booksHtml = `<div style="color:#9ca3af;">Veri yok.</div>`; 
+                } else {
+                    booksHtml = `<div style="color:#9ca3af;">Veri yok.</div>`;
                 }
 
                 html += `<div class="report-item" onclick="this.classList.toggle('active')">
                     <div class="report-header-row">
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <div class="rank-circle">${index+1}</div>
+                            <div class="rank-circle">${index + 1}</div>
                             <div><div style="font-weight:bold; color:#1f2937;">${item.name}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className}</div></div>
                         </div>
                         <div style="font-weight:bold; color:#4f46e5; text-align:right;">${item.totalPage} syf <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span></div>
@@ -396,12 +433,12 @@ async function getReport() {
                     </div>
                 </div>`;
             });
-            
+
             resDiv.innerHTML = html;
-            
+
             // Rapor başarıyla basıldı, PDF butonunu aktif et
             if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = "1"; printBtn.style.cursor = "pointer"; }
-            
+
         } else resDiv.innerHTML = 'Hata.';
     } catch (e) { resDiv.innerHTML = 'Sunucu Hatası.'; }
 }
@@ -413,21 +450,21 @@ async function getStats() {
         const response = await fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
         const res = await response.json();
         if (res.status === 'success') { document.getElementById("stat-kitap").innerText = res.data.kitap; document.getElementById("stat-ogrenci").innerText = res.data.ogrenci; document.getElementById("stat-emanet").innerText = res.data.emanet; }
-    } catch (error) {}
+    } catch (error) { }
 }
 
 async function showStatDetails(type) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
-    
+
     Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
 
     try {
-        const response = await fetch('/api/statDetails', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type }) 
+        const response = await fetch('/api/statDetails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type })
         });
         const res = await response.json();
 
@@ -437,7 +474,7 @@ async function showStatDetails(type) {
             }
 
             let html = `<div style="max-height: 400px; overflow-y: auto; text-align: left; padding-right: 5px;">`;
-            
+
             if (type === 'emanet') {
                 res.data.forEach((item, index) => {
                     let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
@@ -489,14 +526,14 @@ async function showStatDetails(type) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
-    
+
     Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
 
     try {
-        const response = await fetch('/api/statDetails', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type }) 
+        const response = await fetch('/api/statDetails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type })
         });
         const res = await response.json();
 
@@ -506,7 +543,7 @@ async function showStatDetails(type) {
             }
 
             let html = `<div style="max-height: 400px; overflow-y: auto; text-align: left; padding-right: 5px;">`;
-            
+
             if (type === 'emanet') {
                 res.data.forEach((item, index) => {
                     let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
@@ -558,17 +595,17 @@ async function getLeaderboard() {
     try {
         const response = await fetch('/api/getReport', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterClass: 'ALL', filterMonth: 'ALL' })
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: 'ALL', filterClass: 'ALL', filterMonth: 'ALL' })
         });
         const result = await response.json();
         if (result.status === 'success') {
             const top3 = result.data.slice(0, 3);
             const medals = ['🥇', '🥈', '🥉'];
-            
+
             // Sıralama değişimi tespiti için önceki listeyi DOM'da güvenle saklıyoruz
             const prevTopNames = listEl.dataset.prevList ? JSON.parse(listEl.dataset.prevList) : null;
             listEl.dataset.prevList = JSON.stringify(top3.map(i => i.name));
-            
+
             if (top3.length === 0) {
                 listEl.innerHTML = `<div style="text-align:center; color:#9ca3af; font-size:0.9rem; padding:10px;">Henüz veri yok. İlk kitabı sen oku!</div>`;
                 return;
@@ -612,7 +649,7 @@ async function getOverdueBooks() {
         const response = await fetch('/api/overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
         const res = await response.json();
         if (res.status === 'success' && res.data.length > 0) {
-            
+
             listArea.innerHTML = res.data.map(item => `
                 <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #fee2e2;">
                     <span class="material-symbols-rounded" style="color:#ef4444;">warning</span>
@@ -626,7 +663,7 @@ async function getOverdueBooks() {
             `).join('');
 
         } else { listArea.innerHTML = '<div style="text-align:center; color:#059669; padding:10px;">Geciken yok! 👍</div>'; }
-    } catch (e) {}
+    } catch (e) { }
 }
 
 async function loadBookSuggestions() {
@@ -658,7 +695,7 @@ async function archiveRecord(code, type) {
 
     const schoolCode = localStorage.getItem("kutuphane_code");
     const schoolPass = localStorage.getItem("kutuphane_pass");
-    
+
     Swal.fire({ title: 'Arşivleniyor...', didOpen: () => Swal.showLoading() });
     try {
         const res = await fetch('/api/archive', {
@@ -667,7 +704,7 @@ async function archiveRecord(code, type) {
             body: JSON.stringify({ schoolCode, schoolPass, code, type })
         });
         const result = await res.json();
-        
+
         if (result.status === 'success') {
             Swal.fire('Başarılı', result.message, 'success');
             document.getElementById("sorguSonucAlani").innerHTML = ""; // Temizle
@@ -678,4 +715,265 @@ async function archiveRecord(code, type) {
     } catch (error) {
         Swal.fire('Hata', 'Sunucu hatası', 'error');
     }
+}
+
+async function loadSettings() {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    try {
+        const response = await fetch('/api/getSettings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const res = await response.json();
+        if (res.status === 'success') {
+            const s = res.data || {};
+            document.getElementById("setting_max_borrow_limit").value = s.max_borrow_limit || '';
+            document.getElementById("setting_max_borrow_days").value = s.max_borrow_days || '';
+            document.getElementById("setting_min_borrow_days").value = s.min_borrow_days || '';
+            document.getElementById("setting_lib_open_time").value = s.lib_open_time || '';
+            document.getElementById("setting_lib_close_time").value = s.lib_close_time || '';
+
+            document.getElementById("setting_staff_pass_mode").value = s.staff_pass_mode || 'fixed';
+            if (s.staff_pass_mode === 'fixed') {
+                document.getElementById("setting_fixed_staff_name").value = s.staff_names || '';
+                document.getElementById("setting_staff_password").value = s.staff_password || '';
+                currentStaffNames = [];
+            } else {
+                document.getElementById("setting_fixed_staff_name").value = '';
+                document.getElementById("setting_staff_password").value = '';
+                currentStaffNames = s.staff_names ? s.staff_names.split(',').map(n => n.trim()).filter(Boolean) : [];
+            }
+            renderStaffList();
+            if (typeof toggleStaffGroups === 'function') toggleStaffGroups();
+        }
+    } catch (e) { console.error("Ayarlar yüklenemedi", e); }
+}
+
+async function saveSettings(type) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    
+    let settingsPayload = {};
+    if (type === 'general') {
+        settingsPayload = {
+            max_borrow_limit: document.getElementById("setting_max_borrow_limit").value ? parseInt(document.getElementById("setting_max_borrow_limit").value) : null,
+            max_borrow_days: document.getElementById("setting_max_borrow_days").value ? parseInt(document.getElementById("setting_max_borrow_days").value) : null,
+            min_borrow_days: document.getElementById("setting_min_borrow_days").value ? parseInt(document.getElementById("setting_min_borrow_days").value) : null,
+            lib_open_time: document.getElementById("setting_lib_open_time").value || null,
+            lib_close_time: document.getElementById("setting_lib_close_time").value || null
+        };
+    } else if (type === 'staff') {
+        const mode = document.getElementById("setting_staff_pass_mode").value;
+        if (mode === 'daily') {
+            const randomPass = Math.floor(100000 + Math.random() * 900000).toString();
+            const d = new Date();
+            
+            settingsPayload = {
+                staff_pass_mode: mode,
+                staff_password: randomPass,
+                staff_names: currentStaffNames.join(', ') || null,
+                staff_pass_date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+            };
+        } else {
+            settingsPayload = {
+                staff_pass_mode: mode,
+                staff_password: document.getElementById("setting_staff_password").value || null,
+                staff_names: document.getElementById("setting_fixed_staff_name").value || null,
+                staff_pass_date: null
+            };
+        }
+    }
+
+    Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/updateSettings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, settings: settingsPayload })
+        });
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            if (type === 'staff') {
+                const mode = document.getElementById("setting_staff_pass_mode").value;
+                if (mode === 'daily') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Nöbetçiler Kaydedildi',
+                        html: `Günün nöbetçileri: <b>${currentStaffNames.join(', ')}</b><br><br><div style="font-size:1.5rem; color:#4f46e5; padding:10px; background:#f3f4f6; border-radius:8px; display:inline-block; font-weight:bold; letter-spacing:2px;">Günlük Şifre: ${settingsPayload.staff_password}</div>`
+                    });
+                } else {
+                    Swal.fire('Başarılı', 'Sabit görevli ayarları kaydedildi.', 'success');
+                }
+            } else {
+                Swal.fire('Başarılı', 'Ayarlar Kaydedildi', 'success');
+            }
+        } else {
+            Swal.fire('Hata', result.message, 'error');
+        }
+    } catch (error) {
+        Swal.fire('Hata', 'Sunucu hatası', 'error');
+    }
+}
+
+// Global dizi
+let currentStaffNames = [];
+
+async function addStaffStudent() {
+    const no = document.getElementById("setting_staff_add_no").value.trim();
+    if (!no) return;
+
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    Swal.fire({ title: 'Aranıyor...', didOpen: () => Swal.showLoading() });
+
+    try {
+        const response = await fetch('/api/getStudentByNo', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, studentNo: no }) 
+        });
+        const res = await response.json();
+        
+        if (res.status === 'success' && res.data) {
+            Swal.close();
+            const fullName = res.data.full_name;
+            if (!currentStaffNames.includes(fullName)) {
+                currentStaffNames.push(fullName);
+                renderStaffList();
+            } else {
+                Swal.fire('Bilgi', 'Öğrenci zaten listede.', 'info');
+            }
+            document.getElementById("setting_staff_add_no").value = '';
+        } else {
+            Swal.fire('Hata', 'Öğrenci bulunamadı', 'error');
+        }
+    } catch (e) {
+        Swal.fire('Hata', 'Sunucu Hatası', 'error');
+    }
+}
+
+function removeStaffStudent(index) {
+    currentStaffNames.splice(index, 1);
+    renderStaffList();
+}
+
+function renderStaffList() {
+    const listEl = document.getElementById("setting_staff_list");
+    if (!listEl) return;
+    
+    if (currentStaffNames.length === 0) {
+        listEl.innerHTML = '<li style="text-align:center; color:#9ca3af; font-size:0.8rem; padding:10px;">Henüz görevli eklenmedi.</li>';
+        return;
+    }
+
+    listEl.innerHTML = currentStaffNames.map((name, idx) => `
+        <li style="display:flex; justify-content:space-between; align-items:center; background:#f9fafb; padding:10px 15px; border:1px solid #e5e7eb; border-radius:8px; margin-bottom:5px;">
+            <span style="font-weight:600; color:#1f2937;">${name}</span>
+            <button onclick="removeStaffStudent(${idx})" style="background:none; border:none; cursor:pointer; color:#ef4444;"><span class="material-symbols-rounded" style="font-size:20px;">close</span></button>
+        </li>
+    `).join('');
+}
+
+// ==========================================
+// İŞLEM GEÇMİŞİ (LOGS) & OMNI-SEARCH
+// ==========================================
+let allLogs = [];
+
+async function loadLogs() {
+    const listArea = document.getElementById("logs-list");
+    listArea.innerHTML = '<div style="text-align:center;">Yükleniyor...</div>';
+    
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    const filterDate = document.getElementById("logDateFilter")?.value || null;
+    
+    try {
+        const response = await fetch('/api/getLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterDate: filterDate })
+        });
+        const res = await response.json();
+        
+        if (res.status === 'success') {
+            allLogs = res.data || [];
+            renderLogs(allLogs);
+        } else {
+            listArea.innerHTML = `<div style="text-align:center; color:red;">${res.message}</div>`;
+        }
+    } catch (e) {
+        listArea.innerHTML = `<div style="text-align:center; color:red;">Bağlantı hatası</div>`;
+    }
+}
+
+function renderLogs(logs) {
+    const listArea = document.getElementById("logs-list");
+    if (logs.length === 0) {
+        listArea.innerHTML = '<div style="text-align:center; padding:10px; color:#6b7280;">Kayıt bulunamadı.</div>';
+        return;
+    }
+    
+    listArea.innerHTML = logs.map((log, idx) => {
+        const isCompleted = log.status === 'returned';
+        const borderColor = isCompleted ? '#10b981' : '#ef4444';
+        
+        const formatDate = (dateString) => {
+            if (!dateString) return '-';
+            const d = new Date(dateString);
+            return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'});
+        };
+        
+        let dateHTML = `<span class="text-red-600" style="color:#dc2626;">⬆️ Veriliş: ${formatDate(log.borrow_date)}</span>`;
+        if (isCompleted && log.return_date) {
+            dateHTML += `<br> <span class="text-green-600" style="color:#16a34a;">⬇️ İade: ${formatDate(log.return_date)}</span>`;
+        }
+        
+        let handlerText = `Veren: <b style="color:#1f2937;">${log.handed_by || '-'}</b>`;
+        if (isCompleted) {
+            handlerText += ` | Alan: <b style="color:#1f2937;">${log.received_by || '-'}</b>`;
+        }
+        
+        const g = log.students?.grade || '';
+        const c = log.students?.class_name || '';
+        const gradeClass = (g && c) ? `${g}/${c}` : 'Sınıf Yok';
+        const fullName = log.students?.full_name || 'Bilinmeyen Öğrenci';
+        const studentNo = log.students?.student_no || '?';
+        const stText = `${fullName} (${gradeClass} - No: ${studentNo})`;
+
+        return `
+        <div style="background:#f9fafb; border:1px solid #e5e7eb; border-left:4px solid ${borderColor}; padding:10px 15px; border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <div style="font-weight:bold; color:#1f2937;">${stText}</div>
+                <div style="font-size:0.8rem; color:#6b7280; text-align:right;">${dateHTML}</div>
+            </div>
+            <div style="font-size:0.85rem; color:#4f46e5; margin-bottom:5px; font-weight:600;">
+                📕 ${log.books?.book_name || '?'} <span style="font-size:0.75rem; color:#6b7280;">[${log.books?.barcode || '?'}]</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#6b7280; align-items:center;">
+                <div>Durum: <b style="color:${borderColor}">${isCompleted ? 'Alındı' : 'Verildi'}</b></div>
+                <div style="background:#e5e7eb; padding:2px 8px; border-radius:12px; color:#374151;">${handlerText}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function filterLogs() {
+    const searchTerm = document.getElementById("logSearchInput").value.trim();
+    if (!searchTerm) {
+        renderLogs(allLogs);
+        return;
+    }
+    const q = searchTerm.toLowerCase();
+    
+    const filtered = allLogs.filter(log => {
+        return (log.students?.full_name || '').toLowerCase().includes(q) ||
+               (log.students?.student_no?.toString() || '').includes(q) ||
+               ((log.students?.grade || '') + '/' + (log.students?.class_name || '')).toLowerCase().includes(q) ||
+               (log.books?.book_name || '').toLowerCase().includes(q) ||
+               (log.books?.barcode?.toString() || '').includes(q) ||
+               (log.handed_by || '').toLowerCase().includes(q) ||
+               (log.received_by || '').toLowerCase().includes(q);
+    });
+    
+    renderLogs(filtered);
 }

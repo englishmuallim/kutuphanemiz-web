@@ -35,4 +35,13 @@ router.get('/globalBooks', libraryController.getGlobalBooks);
 router.post('/archive', libraryController.archiveRecord);
 
 
+// Ayarlar
+router.post('/getSettings', libraryController.getSettings);
+router.post('/updateSettings', libraryController.updateSettings);
+
+router.post('/getStudentByNo', libraryController.getStudentByNo);
+
+// İşlem Geçmişi
+router.post('/getLogs', libraryController.getLogs);
+
 module.exports = router;

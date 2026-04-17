@@ -59,18 +59,38 @@ function showTab(tabName) {
     document.getElementById("tab-" + tabName).classList.remove("hidden");
     document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
     event.currentTarget.classList.add("active");
-    if(tabName === 'yonetim') closeYonetimForm();
+    if(tabName === 'yonetim') {
+        closeYonetimForm();
+        if (typeof loadSettings === 'function') loadSettings();
+    }
 }
 
 function showYonetimForm(type) { 
     document.getElementById("yonetim-menu").classList.add("hidden"); 
     document.getElementById("yonetim-form-" + type).classList.remove("hidden"); 
+
+    if (type === 'logs') {
+        const dateInput = document.getElementById('logDateFilter');
+        if (dateInput) dateInput.value = '';
+        if (typeof loadLogs === 'function') loadLogs();
+    }
 }
 
 function closeYonetimForm() { 
     document.querySelectorAll("[id^='yonetim-form-']").forEach(el => el.classList.add("hidden")); 
     document.getElementById("yonetim-menu").classList.remove("hidden"); 
     document.getElementById("report-result").innerHTML = ""; 
+}
+
+function toggleStaffGroups() {
+    const mode = document.getElementById("setting_staff_pass_mode").value;
+    if (mode === "fixed") {
+        document.getElementById("fixedStaffGroup").style.display = "block";
+        document.getElementById("dailyStaffGroup").style.display = "none";
+    } else {
+        document.getElementById("fixedStaffGroup").style.display = "none";
+        document.getElementById("dailyStaffGroup").style.display = "block";
+    }
 }
 
 // --- YARDIMCI FONKSİYONLAR ---

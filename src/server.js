@@ -8,7 +8,7 @@ const app = express();
 
 // --- MIDDLEWARE ---
 // Statik dosyaların klasörünü src/ dizininden bir üst dizine (kök dizine) ayarladık
-app.use(express.static(path.join(__dirname, '../'))); 
+app.use(express.static(path.join(__dirname, '../')));
 app.use(cors());
 app.use(express.json());
 
@@ -16,7 +16,7 @@ app.use(express.json());
 app.use('/api', apiRoutes);
 
 // --- SUNUCUYU BAŞLAT ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { 
-  console.log(`Sunucu ${PORT} portunda çalışıyor.`); 
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Sunucu ${PORT} portunda çalışıyor.`);
 });
