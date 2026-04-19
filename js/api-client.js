@@ -18,6 +18,9 @@ async function loadClasses() {
                 if (r.data.grades) r.data.grades.forEach(g => { options += `<option value="${g}">${g}. Sınıf</option>`; });
                 sel.innerHTML = options;
             });
+
+            // YENİ: Sınıf listesi doldurulduktan sonra applyPermissions çalışsın ki filtreleri uygulasın
+            if (typeof applyPermissions === 'function') applyPermissions();
         }
     } catch (error) { console.error("Sınıflar yüklenirken hata oluştu:", error); }
 }
@@ -25,38 +28,53 @@ async function loadClasses() {
 async function login() {
     const code = document.getElementById("schoolCode").value;
     const pass = document.getElementById("schoolPass").value;
+    const identity = document.getElementById("teacherIdentity").value;
     const remember = document.getElementById("beniHatirla").checked;
     const btn = document.querySelector(".btn-login");
 
-    if (!code || !pass) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Bilgileri doldurun' }); return; }
+    const loginType = window.currentLoginType || 'duty';
+
+    if (!code || !pass || (loginType === 'staff' && !identity)) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen tüm giriş bilgilerini doldurun' });
+        return;
+    }
     btn.innerText = "Giriş yapılıyor.."; btn.disabled = true;
 
     try {
-        const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const payload = { schoolCode: code, schoolPass: pass, loginType: loginType };
+        if (loginType === 'staff') {
+            const identityInput = document.getElementById('teacherIdentity');
+            if (identityInput) {
+                payload.identity = identityInput.value.trim();
+            }
+        }
+
+        const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (result.status === 'success') {
             localStorage.setItem("okul_ismi", result.schoolName);
             localStorage.setItem("user_role", result.role);
+            localStorage.setItem("kt_role", result.kt_role || result.role);
+            localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
             document.getElementById("headerTitle").innerText = result.schoolName;
-
-            const yonetimTabBtn = document.querySelector(".tab-btn[onclick=\"showTab('yonetim')\"]");
-            if (result.role === 'staff' && yonetimTabBtn) {
-                yonetimTabBtn.style.display = 'none';
-                const yonetimPanel = document.getElementById("tab-yonetim");
-                if (yonetimPanel) yonetimPanel.remove();
-            } else if (yonetimTabBtn) {
-                yonetimTabBtn.style.display = 'inline-block';
-            }
 
             if (remember) {
                 localStorage.setItem("kutuphane_code", code);
                 localStorage.setItem("kutuphane_pass", pass);
                 localStorage.setItem("beni_hatirla", "true");
+
+                if (loginType === 'staff') localStorage.setItem("kutuphane_identity", identity.trim());
+                localStorage.setItem("kutuphane_login_type", loginType);
             } else {
                 localStorage.setItem("kutuphane_code", code);
                 localStorage.setItem("kutuphane_pass", pass);
                 localStorage.removeItem("beni_hatirla");
+                localStorage.removeItem("kutuphane_identity");
+                localStorage.removeItem("kutuphane_login_type");
             }
+
+            // Gerekli yetkilendirmeleri yap:
+            if (typeof applyPermissions === 'function') applyPermissions();
 
             Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
             document.getElementById("login-screen").classList.add("hidden");
@@ -360,11 +378,11 @@ async function getReport() {
     const grdSelect = document.getElementById("reportGrade");
     const clsSelect = document.getElementById("reportClass");
     const monSelect = document.getElementById("reportMonth");
-    
+
     const grd = grdSelect.value;
     const cls = clsSelect.value;
     const mon = monSelect.value;
-    
+
     const resDiv = document.getElementById("report-result");
     const printBtn = document.getElementById("printBtn"); // YENİ EKLENDİ
 
@@ -478,10 +496,13 @@ async function showStatDetails(type) {
             if (type === 'emanet') {
                 res.data.forEach((item, index) => {
                     let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
+                    // Kademe ve Şubeyi akıllıca birleştir
+                    let sinifBilgisi = (item.students?.grade ? item.students.grade + '/' : '') + (item.students?.class_name || '-');
+
                     html += `<div style="padding: 10px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'}; border-radius: 8px; margin-bottom: 5px;">
                         <div style="font-weight: bold; color: #b91c1c; font-size: 0.95rem;">📖 ${item.books?.book_name || 'Bilinmeyen'} <span style="font-size: 0.75rem; color: #6b7280; font-weight: normal;">(#${item.books?.barcode || '-'})</span></div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
-                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${item.students?.class_name || '-'})</span></div>
+                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${sinifBilgisi})</span></div>
                             <div style="font-size: 0.75rem; color: #4f46e5; font-weight: bold;">${dateStr}</div>
                         </div>
                     </div>`;
@@ -495,78 +516,12 @@ async function showStatDetails(type) {
                 });
             } else if (type === 'ogrenci') {
                 res.data.forEach((item, index) => {
+                    // Kademe ve Şubeyi akıllıca birleştir
+                    let sinifBilgisi = (item.grade ? item.grade + '/' : '') + (item.class_name || '-');
+
                     html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
                         <div style="font-weight: bold; color: #1f2937;">${item.full_name}</div>
-                        <div style="font-size: 0.8rem; color: #6b7280;">Sınıf: ${item.class_name} | No: ${item.student_no}</div>
-                    </div>`;
-                });
-            }
-            html += `</div>`;
-
-            Swal.fire({
-                title: title + ` (${res.data.length})`,
-                html: html,
-                width: 500,
-                showCloseButton: true,
-                confirmButtonText: 'Kapat',
-                confirmButtonColor: '#4f46e5'
-            });
-        } else {
-            Swal.fire('Hata', res.message, 'error');
-        }
-    } catch (error) {
-        Swal.fire('Hata', 'Bağlantı sorunu oluştu.', 'error');
-    }
-}
-
-
-
-
-async function showStatDetails(type) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-    let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
-
-    Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
-
-    try {
-        const response = await fetch('/api/statDetails', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type })
-        });
-        const res = await response.json();
-
-        if (res.status === 'success') {
-            if (res.data.length === 0) {
-                return Swal.fire({ icon: 'info', title, text: 'Gösterilecek kayıt bulunamadı.' });
-            }
-
-            let html = `<div style="max-height: 400px; overflow-y: auto; text-align: left; padding-right: 5px;">`;
-
-            if (type === 'emanet') {
-                res.data.forEach((item, index) => {
-                    let dateStr = new Date(item.borrow_date).toLocaleDateString("tr-TR");
-                    html += `<div style="padding: 10px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'}; border-radius: 8px; margin-bottom: 5px;">
-                        <div style="font-weight: bold; color: #b91c1c; font-size: 0.95rem;">📖 ${item.books?.book_name || 'Bilinmeyen'} <span style="font-size: 0.75rem; color: #6b7280; font-weight: normal;">(#${item.books?.barcode || '-'})</span></div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
-                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${item.students?.class_name || '-'})</span></div>
-                            <div style="font-size: 0.75rem; color: #4f46e5; font-weight: bold;">${dateStr}</div>
-                        </div>
-                    </div>`;
-                });
-            } else if (type === 'kitap') {
-                res.data.forEach((item, index) => {
-                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
-                        <div style="font-weight: bold; color: #1f2937;">${item.book_name}</div>
-                        <div style="font-size: 0.8rem; color: #6b7280;">Barkod: ${item.barcode} | Raf: ${item.shelf || '?'} | Durum: ${item.condition || 'Yeni'}</div>
-                    </div>`;
-                });
-            } else if (type === 'ogrenci') {
-                res.data.forEach((item, index) => {
-                    html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
-                        <div style="font-weight: bold; color: #1f2937;">${item.full_name}</div>
-                        <div style="font-size: 0.8rem; color: #6b7280;">Sınıf: ${item.class_name} | No: ${item.student_no}</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">Sınıf: ${sinifBilgisi} | No: ${item.student_no}</div>
                     </div>`;
                 });
             }
@@ -750,7 +705,7 @@ async function loadSettings() {
 async function saveSettings(type) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
-    
+
     let settingsPayload = {};
     if (type === 'general') {
         settingsPayload = {
@@ -765,7 +720,7 @@ async function saveSettings(type) {
         if (mode === 'daily') {
             const randomPass = Math.floor(100000 + Math.random() * 900000).toString();
             const d = new Date();
-            
+
             settingsPayload = {
                 staff_pass_mode: mode,
                 staff_password: randomPass,
@@ -790,7 +745,7 @@ async function saveSettings(type) {
             body: JSON.stringify({ schoolCode: code, schoolPass: pass, settings: settingsPayload })
         });
         const result = await res.json();
-        
+
         if (result.status === 'success') {
             if (type === 'staff') {
                 const mode = document.getElementById("setting_staff_pass_mode").value;
@@ -827,13 +782,13 @@ async function addStaffStudent() {
     Swal.fire({ title: 'Aranıyor...', didOpen: () => Swal.showLoading() });
 
     try {
-        const response = await fetch('/api/getStudentByNo', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, studentNo: no }) 
+        const response = await fetch('/api/getStudentByNo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, studentNo: no })
         });
         const res = await response.json();
-        
+
         if (res.status === 'success' && res.data) {
             Swal.close();
             const fullName = res.data.full_name;
@@ -860,7 +815,7 @@ function removeStaffStudent(index) {
 function renderStaffList() {
     const listEl = document.getElementById("setting_staff_list");
     if (!listEl) return;
-    
+
     if (currentStaffNames.length === 0) {
         listEl.innerHTML = '<li style="text-align:center; color:#9ca3af; font-size:0.8rem; padding:10px;">Henüz görevli eklenmedi.</li>';
         return;
@@ -882,11 +837,11 @@ let allLogs = [];
 async function loadLogs() {
     const listArea = document.getElementById("logs-list");
     listArea.innerHTML = '<div style="text-align:center;">Yükleniyor...</div>';
-    
+
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     const filterDate = document.getElementById("logDateFilter")?.value || null;
-    
+
     try {
         const response = await fetch('/api/getLogs', {
             method: 'POST',
@@ -894,7 +849,7 @@ async function loadLogs() {
             body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterDate: filterDate })
         });
         const res = await response.json();
-        
+
         if (res.status === 'success') {
             allLogs = res.data || [];
             renderLogs(allLogs);
@@ -912,27 +867,27 @@ function renderLogs(logs) {
         listArea.innerHTML = '<div style="text-align:center; padding:10px; color:#6b7280;">Kayıt bulunamadı.</div>';
         return;
     }
-    
+
     listArea.innerHTML = logs.map((log, idx) => {
         const isCompleted = log.status === 'returned';
         const borderColor = isCompleted ? '#10b981' : '#ef4444';
-        
+
         const formatDate = (dateString) => {
             if (!dateString) return '-';
             const d = new Date(dateString);
-            return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'});
+            return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
         };
-        
-        let dateHTML = `<span class="text-red-600" style="color:#dc2626;">⬆️ Veriliş: ${formatDate(log.borrow_date)}</span>`;
+
+        let dateHTML = `<span class="text-red-600" style="color:#dc2626;">⬆ Veriliş: ${formatDate(log.borrow_date)}</span>`;
         if (isCompleted && log.return_date) {
-            dateHTML += `<br> <span class="text-green-600" style="color:#16a34a;">⬇️ İade: ${formatDate(log.return_date)}</span>`;
+            dateHTML += `<br> <span class="text-green-600" style="color:#16a34a;">⬇ İade: ${formatDate(log.return_date)}</span>`;
         }
-        
+
         let handlerText = `Veren: <b style="color:#1f2937;">${log.handed_by || '-'}</b>`;
         if (isCompleted) {
             handlerText += ` | Alan: <b style="color:#1f2937;">${log.received_by || '-'}</b>`;
         }
-        
+
         const g = log.students?.grade || '';
         const c = log.students?.class_name || '';
         const gradeClass = (g && c) ? `${g}/${c}` : 'Sınıf Yok';
@@ -964,16 +919,216 @@ function filterLogs() {
         return;
     }
     const q = searchTerm.toLowerCase();
-    
+
     const filtered = allLogs.filter(log => {
         return (log.students?.full_name || '').toLowerCase().includes(q) ||
-               (log.students?.student_no?.toString() || '').includes(q) ||
-               ((log.students?.grade || '') + '/' + (log.students?.class_name || '')).toLowerCase().includes(q) ||
-               (log.books?.book_name || '').toLowerCase().includes(q) ||
-               (log.books?.barcode?.toString() || '').includes(q) ||
-               (log.handed_by || '').toLowerCase().includes(q) ||
-               (log.received_by || '').toLowerCase().includes(q);
+            (log.students?.student_no?.toString() || '').includes(q) ||
+            ((log.students?.grade || '') + '/' + (log.students?.class_name || '')).toLowerCase().includes(q) ||
+            (log.books?.book_name || '').toLowerCase().includes(q) ||
+            (log.books?.barcode?.toString() || '').includes(q) ||
+            (log.handed_by || '').toLowerCase().includes(q) ||
+            (log.received_by || '').toLowerCase().includes(q);
     });
-    
+
     renderLogs(filtered);
+}
+
+async function changePassword() {
+    const oldPass = document.getElementById("setting_old_password").value;
+    const newPass = document.getElementById("setting_new_password").value;
+    const confirmPass = document.getElementById("setting_confirm_password").value;
+
+    if (!oldPass || !newPass || !confirmPass) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Tüm alanları doldurun.' });
+        return;
+    }
+
+    if (newPass !== confirmPass) {
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Yeni şifreler eşleşmiyor!' });
+        return;
+    }
+
+    if (newPass.length < 4) {
+        Swal.fire({ icon: 'warning', title: 'Hata', text: 'Yeni şifre en az 4 karakter olmalıdır.' });
+        return;
+    }
+
+    const code = localStorage.getItem("kutuphane_code");
+    const sessionPass = localStorage.getItem("kutuphane_pass");
+
+    Swal.fire({ title: 'Güncelleniyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/changePassword', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: sessionPass, oldPassword: oldPass, newPassword: newPass })
+        });
+        const result = await res.json();
+
+        if (result.status === 'success') {
+            document.getElementById("setting_old_password").value = '';
+            document.getElementById("setting_new_password").value = '';
+            document.getElementById("setting_confirm_password").value = '';
+
+            await Swal.fire({ icon: 'success', title: 'Başarılı', text: 'Şifreniz başarıyla güncellendi, lütfen yeni şifrenizle giriş yapın.' });
+
+            localStorage.removeItem("kutuphane_code");
+            localStorage.removeItem("kutuphane_pass");
+            localStorage.removeItem("beni_hatirla");
+            localStorage.removeItem("okul_ismi");
+
+            document.getElementById("dashboard").classList.add("hidden");
+            document.getElementById("login-screen").classList.remove("hidden");
+            document.getElementById("schoolCode").value = "";
+            document.getElementById("schoolPass").value = "";
+            document.getElementById("beniHatirla").checked = false;
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucu hatası' });
+    }
+}
+
+function downloadExcelTemplate(type) {
+    let headers = [];
+    let filename = "";
+    if (type === 'student') {
+        headers = [["Öğrenci No", "Ad Soyad", "Kademe", "Şube"]];
+        filename = "Ogrenci_Sablonu.xlsx";
+    } else {
+        headers = [["Barkod", "Kitap Adı", "Yazar(İsteğe Bağlı)", "Yayınevi(İsteğe Bağlı)", "Tür(İsteğe Bağlı)", "Sayfa Sayısı", "Raf", "Durum (Yeni/Yıpranmış)"]];
+        filename = "Kitap_Sablonu.xlsx";
+    }
+
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(headers);
+    XLSX.utils.book_append_sheet(wb, ws, "Şablon");
+    XLSX.writeFile(wb, filename);
+}
+
+function handleExcelUpload(event, type) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const firstSheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+            if (!jsonData || jsonData.length === 0) {
+                Swal.fire('Hata', 'Excel dosyası boş veya biçimi hatalı.', 'error');
+                return;
+            }
+
+            let mappedData = [];
+            if (type === 'student') {
+                mappedData = jsonData.map(row => ({
+                    student_no: row["Öğrenci No"] || '',
+                    full_name: row["Ad Soyad"] || '',
+                    grade: row["Kademe"] ? String(row["Kademe"]) : '',
+                    class_name: row["Şube"] || ''
+                })).filter(item => item.student_no && item.full_name);
+            } else {
+                mappedData = jsonData.map(row => ({
+                    barcode: row["Barkod"] || '',
+                    book_name: row["Kitap Adı"] || '',
+                    author: row["Yazar"] || '',
+                    publisher: row["Yayınevi"] || '',
+                    category: row["Tür"] || '',
+                    page_count: parseInt(row["Sayfa Sayısı"]) || 0,
+                    shelf: row["Raf"] || '',
+                    condition: row["Durum (Yeni/Yıpranmış)"] || 'Yeni'
+                })).filter(item => item.barcode && item.book_name);
+            }
+
+            if (mappedData.length === 0) {
+                Swal.fire('Hata', 'Geçerli veri bulunamadı. Sütun başlıklarının şablonla tam eşleştiğinden emin olun.', 'error');
+                return;
+            }
+
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+            const payload = { schoolCode: code, schoolPass: pass, data: mappedData };
+            const endpoint = type === 'student' ? '/api/students/bulk' : '/api/books/bulk';
+
+            Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> kayıt işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+
+            if (result.status === 'success') {
+                Swal.fire('Başarılı', `${mappedData.length} kayıt başarıyla eklendi!`, 'success');
+                if (typeof getStats === 'function') getStats();
+            } else {
+                Swal.fire('Hata', result.message || 'Yükleme başarısız', 'error');
+            }
+        } catch (error) {
+            Swal.fire('Hata', 'Dosya okunurken bir hata oluştu.', 'error');
+        } finally {
+            event.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// --- ÖĞRETMEN YETKİ İŞLEMLERİ ---
+async function fetchTeachers(schoolCode, schoolPass) {
+    try {
+        const res = await fetch('/api/getTeachers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode, schoolPass })
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("fetchTeachers error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
+}
+
+async function saveTeacher(payload) {
+    try {
+        const res = await fetch('/api/saveTeacher', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("saveTeacher error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
+}
+
+async function deleteTeacherAPI(payload) {
+    try {
+        const res = await fetch('/api/deleteTeacher', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("deleteTeacherAPI error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
 }

@@ -9,6 +9,7 @@ router.post('/login', libraryController.login);
 router.post('/forgotPassword', libraryController.forgotPassword);
 router.post('/verifyResetCode', libraryController.verifyResetCode);
 router.put('/updatePassword', libraryController.updatePassword);
+router.post('/changePassword', libraryController.changePassword);
 
 
 // İstatistik & Gösterge Paneli
@@ -29,15 +30,22 @@ router.post('/sorgula', libraryController.sorgula);
 
 // Öğrenci İşlemleri
 router.post('/addStudent', libraryController.addStudent);
+router.post('/students/bulk', libraryController.bulkAddStudents);
 router.post('/updateStudent', libraryController.updateStudent);
 
 router.get('/globalBooks', libraryController.getGlobalBooks);
+router.post('/books/bulk', libraryController.bulkAddBooks);
 router.post('/archive', libraryController.archiveRecord);
 
 
 // Ayarlar
 router.post('/getSettings', libraryController.getSettings);
 router.post('/updateSettings', libraryController.updateSettings);
+
+// Öğretmen İşlemleri Modülü
+router.post('/getTeachers', libraryController.getTeachers);
+router.post('/saveTeacher', libraryController.saveTeacher);
+router.post('/deleteTeacher', libraryController.deleteTeacher);
 
 router.post('/getStudentByNo', libraryController.getStudentByNo);
 

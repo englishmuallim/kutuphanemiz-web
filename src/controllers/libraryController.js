@@ -15,7 +15,7 @@ async function getSchoolAuth(code, pass) {
     if (data.kt_pass === pass) {
         role = 'admin';
     } else if (data.kt_settings?.staff_password === pass) {
-        role = 'staff';
+        role = 'duty';
         if (data.kt_settings?.staff_pass_mode === 'daily') {
             const d = new Date();
             const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -24,11 +24,21 @@ async function getSchoolAuth(code, pass) {
             }
         }
     } else {
-        return null;
+        // Personel/Yönetici users tablosundan kontrol
+        const { data: user } = await supabase.from('users')
+            .select('id, role')
+            .eq('school_id', data.id)
+            .eq('password', pass)
+            .limit(1);
+        if (user && user.length > 0) {
+            role = user[0].role; // 'admin' veya 'teacher' vb
+        } else {
+            return null;
+        }
     }
 
     if (data.kt_status !== 'active') throw new Error('Abonelik süreniz dolmuştur. Uygulamayı kullanmak için lütfen aboneliğinizi yenileyiniz.');
-    
+
     const today = new Date();
     const startDate = new Date(data.kt_start_date);
     const endDate = new Date(data.kt_end_date);
@@ -45,15 +55,112 @@ async function getSchoolId(code, pass) {
 
 exports.login = async (req, res) => {
     try {
-        const { schoolCode, schoolPass } = req.body;
-        const auth = await getSchoolAuth(schoolCode, schoolPass);
-        if (!auth) return res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Şifre' });
+        // Frontend'in ne gönderdiğini görmek için HER ŞEYİ logluyoruz:
+        console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
 
-        const { data: school } = await supabase.from('schools')
-            .select('school_name')
-            .eq('id', auth.id)
-            .single();
-        return res.json({ status: 'success', schoolName: school.school_name, role: auth.role });
+        const { schoolCode, schoolPass, loginType } = req.body;
+
+        // Eğer frontend "identity" yerine "username" veya "email" gönderiyorsa onu da yakala:
+        const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
+
+        // -------------------------
+        // 1. NÖBETÇİ GİRİŞİ (DUTY)
+        // -------------------------
+        if (loginType === 'duty') {
+            const auth = await getSchoolAuth(schoolCode, schoolPass);
+            if (!auth || auth.role !== 'duty') return res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Nöbetçi Şifresi' });
+
+            const { data: school } = await supabase.from('schools')
+                .select('school_name')
+                .eq('id', auth.id)
+                .single();
+
+            return res.json({
+                status: 'success',
+                schoolName: school.school_name,
+                role: 'duty',
+                kt_role: 'duty',
+                kt_classes: ['ALL']
+            });
+        }
+
+        // -------------------------
+        // 2. PERSONEL GİRİŞİ (STAFF) - GÜNCELLENMİŞ VE LOGLU
+        // -------------------------
+        if (loginType === 'staff') {
+            const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
+            console.log("🔍 GİRİŞ DENEMESİ - Kimlik:", identity, "Okul:", schoolCode);
+
+            const { data: school } = await supabase.from('schools')
+                .select('id, school_name, kt_status, kt_start_date, kt_end_date')
+                .eq('school_code', schoolCode)
+                .maybeSingle();
+
+            if (!school) return res.json({ status: 'error', message: 'Geçersiz Okul Kodu.' });
+
+            const { data: users, error } = await supabase.from('users')
+                .select('*')
+                .eq('school_id', school.id)
+                .eq('password', schoolPass);
+
+            if (error) throw error;
+
+            const user = users?.find(u =>
+                u.email === identity ||
+                u.username === identity ||
+                (identity.replace(/\D/g, '') && u.phone === identity.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, ''))
+            );
+
+            if (user) {
+                // --- KRİTİK LOGLAMA BAŞLADI ---
+                console.log("✅ KULLANICI BULUNDU:", user.full_name);
+                console.log("📊 ANA ROL (user.role):", user.role);
+                console.log("📦 HAM APP_ROLES:", user.app_roles);
+
+                let appRoles = user.app_roles;
+                if (typeof appRoles === 'string') {
+                    try { appRoles = JSON.parse(appRoles); } catch (e) {
+                        console.error("❌ JSON PARSE HATASI:", e.message);
+                        appRoles = {};
+                    }
+                }
+                appRoles = appRoles || {};
+
+                const ktRole = appRoles.kutuphanemiz?.role;
+                const ktClasses = appRoles.kutuphanemiz?.classes || [];
+
+                console.log("🔑 KUTUPHANEMİZ ROLÜ:", ktRole);
+                console.log("🏫 YETKİLİ SINIFLAR:", ktClasses);
+                // --- KRİTİK LOGLAMA BİTTİ ---
+
+                if (user.role === 'admin' || ktRole === 'admin') {
+                    console.log("⭐ SONUÇ: ADMIN OLARAK ALINIYOR");
+                    return res.json({
+                        status: 'success',
+                        schoolName: school.school_name,
+                        role: user.role,
+                        kt_role: 'admin',
+                        kt_classes: ['ALL']
+                    });
+                } else if (ktRole === 'teacher') {
+                    console.log("📝 SONUÇ: ÖĞRETMEN OLARAK ALINIYOR");
+                    return res.json({
+                        status: 'success',
+                        schoolName: school.school_name,
+                        role: user.role,
+                        kt_role: 'teacher',
+                        kt_classes: ktClasses
+                    });
+                } else {
+                    console.warn("🚫 SONUÇ: YETKİSİZ (Neither admin nor teacher in JSON)");
+                    return res.status(403).json({ status: 'error', message: 'Kütüphane sistemine erişim yetkiniz yok.' });
+                }
+            }
+            return res.json({ status: 'error', message: 'Hatalı Kimlik veya Şifre.' });
+        }
+
+        return res.json({ status: 'error', message: 'Geçersiz giriş tipi.' });
+
     } catch (error) {
         return res.status(401).json({ status: 'error', message: error.message });
     }
@@ -117,6 +224,28 @@ exports.updatePassword = async (req, res) => {
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
+exports.changePassword = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, oldPassword, newPassword } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (auth.role !== 'admin') {
+            return res.json({ status: 'error', message: 'Sadece idareciler şifre değiştirebilir.' });
+        }
+
+        const { data: school } = await supabase.from('schools').select('kt_pass').eq('id', auth.id).single();
+        if (!school || school.kt_pass !== oldPassword) {
+            return res.status(400).json({ status: 'error', message: 'Mevcut şifreniz hatalı.' });
+        }
+
+        const { error } = await supabase.from('schools').update({ kt_pass: newPassword }).eq('id', auth.id);
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
 exports.stats = async (req, res) => {
     try {
         const { schoolCode, schoolPass } = req.body;
@@ -156,7 +285,7 @@ exports.statDetails = async (req, res) => {
             let query;
             if (type === 'emanet') {
                 query = supabase.from('transactions')
-                    .select('borrow_date, students(student_no, full_name, class_name), books(barcode, book_name)')
+                    .select('borrow_date, students(student_no, full_name, class_name, grade), books(barcode, book_name)')
                     .eq('school_id', schoolId).eq('status', 'borrowed')
                     .order('borrow_date', { ascending: false });
             } else if (type === 'kitap') {
@@ -166,7 +295,7 @@ exports.statDetails = async (req, res) => {
                     .order('book_name', { ascending: true });
             } else if (type === 'ogrenci') {
                 query = supabase.from('students')
-                    .select('student_no, full_name, class_name')
+                    .select('student_no, full_name, class_name, grade')
                     .eq('school_id', schoolId).eq('is_active', true)
                     .order('class_name', { ascending: true });
             }
@@ -280,6 +409,26 @@ exports.addBook = async (req, res) => {
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
+exports.bulkAddBooks = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, data } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const mappedData = data.map(item => ({
+            ...item,
+            school_id: auth.id,
+            status: 'available',
+            is_active: true
+        }));
+
+        const { error } = await supabase.from('books').insert(mappedData);
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Toplu kitap ekleme başarılı' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
 exports.kitapVer = async (req, res) => {
     try {
         const { schoolCode, schoolPass, barkod, ogrNo, condition } = req.body;
@@ -327,7 +476,7 @@ exports.kitapVer = async (req, res) => {
         // Eğer şu an Ağustos'tan (7) önce bir aydaysak, eğitim yılı geçen sene başlamıştır.
         const startYear = currentMonth < 7 ? currentYear - 1 : currentYear;
         const academicYear = `${startYear}-${startYear + 1}`;
-        
+
         let processedBy = 'Admin';
         if (auth.role === 'staff' && settings.staff_names) {
             processedBy = settings.staff_names;
@@ -416,6 +565,25 @@ exports.addStudent = async (req, res) => {
         if (error && error.code === '23505') return res.json({ status: 'error', message: 'Öğrenci zaten var!' }); // Unique hatası
 
         res.json({ status: 'success', message: 'Öğrenci eklendi.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+exports.bulkAddStudents = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, data } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const mappedData = data.map(item => ({
+            ...item,
+            school_id: auth.id,
+            is_active: true
+        }));
+
+        const { error } = await supabase.from('students').insert(mappedData);
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Toplu öğrenci ekleme başarılı' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
@@ -707,7 +875,7 @@ exports.updateSettings = async (req, res) => {
         }
 
         const updatedSettings = { ...auth.settings, ...settings };
-        
+
         Object.keys(updatedSettings).forEach(key => {
             if (updatedSettings[key] === null) delete updatedSettings[key];
         });
@@ -764,4 +932,139 @@ exports.getLogs = async (req, res) => {
 
         res.json({ status: 'success', data: logs || [] });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: ÖĞRETMEN YETKİLENDİRME (ADMİN İÇİN)
+// ==========================================
+exports.getTeachers = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        
+        if (!auth || auth.role !== 'admin') {
+            return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler öğretmen listeleyebilir.' });
+        }
+
+        const { data: teachers, error } = await supabase.from('users')
+            .select('id, full_name, username, email, phone, app_roles')
+            .eq('school_id', auth.id)
+            .eq('role', 'teacher');
+            
+        if (error) throw error;
+
+        res.json({ status: 'success', data: teachers });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+exports.saveTeacher = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, id, fullName, username, email, phone, password, ktRole, ktClasses } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        
+        if (!auth || auth.role !== 'admin') {
+            return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler yetki değiştirebilir.' });
+        }
+
+        const appRolesPayload = { 
+            kutuphanemiz: { 
+                role: ktRole, 
+                classes: ktClasses || [] 
+            }
+        };
+
+        if (id) {
+            // GÜNCELLEME İŞLEMİ
+            const { data: user, error: fetchError } = await supabase.from('users')
+                .select('app_roles')
+                .eq('id', id)
+                .eq('school_id', auth.id)
+                .single();
+
+            if (fetchError || !user) throw new Error("Öğretmen bulunamadı.");
+
+            let mergedRoles = user.app_roles;
+            if (typeof mergedRoles === 'string') {
+                try { mergedRoles = JSON.parse(mergedRoles); } catch (e) { mergedRoles = {}; }
+            }
+            mergedRoles = mergedRoles || {};
+            mergedRoles.kutuphanemiz = appRolesPayload.kutuphanemiz;
+
+            const updateData = {
+                full_name: fullName,
+                username: username || null,
+                email: email || null,
+                phone: phone || null,
+                app_roles: mergedRoles
+            };
+            
+            if (password && password.trim() !== '') {
+                updateData.password = password;
+            }
+
+            const { error: updateError } = await supabase.from('users')
+                .update(updateData)
+                .eq('id', id);
+
+            if (updateError) throw updateError;
+            return res.json({ status: 'success', message: 'Öğretmen başarıyla güncellendi.' });
+
+        } else {
+            // YENİ EKLEME İŞLEMİ
+            if (!password) throw new Error("Yeni eklerken şifre belirlemek zorunludur.");
+            
+            const insertData = {
+                school_id: auth.id,
+                role: 'teacher',
+                full_name: fullName,
+                username: username || null,
+                email: email || null,
+                phone: phone || null,
+                password: password,
+                app_roles: appRolesPayload
+            };
+
+            const { error: insertError } = await supabase.from('users')
+                .insert([insertData]);
+
+            if (insertError) {
+                if (insertError.code === '23505') throw new Error("Bu kullanıcı bilgisi sistemde zaten kayıtlı.");
+                throw insertError;
+            }
+            
+            return res.json({ status: 'success', message: 'Öğretmen başarıyla eklendi.' });
+        }
+
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// YENİ: ÖĞRETMEN SİLME (SADECE ADMİN)
+// ==========================================
+exports.deleteTeacher = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, id } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+
+        if (!auth || auth.role !== 'admin') {
+            return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler öğretmen silebilir.' });
+        }
+
+        if (!id) throw new Error("Silinecek öğretmen ID\'si belirtilmedi.");
+
+        const { error } = await supabase.from('users')
+            .delete()
+            .eq('id', id)
+            .eq('school_id', auth.id);
+
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Öğretmen başarıyla silindi.' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };

@@ -12,6 +12,7 @@
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
 
 </head>
@@ -24,9 +25,22 @@
         <div class="login-container">
             <img src="app_logo.png" alt="Logo" class="login-logo-img">
 
+            <div class="login-tabs" style="display:flex; margin-bottom:15px; border-bottom:2px solid #e5e7eb;">
+                <button id="tab-login-duty" class="login-tab-btn active" onclick="switchLoginTab('duty')"
+                    style="flex:1; padding:10px; background:none; border:none; font-weight:bold; color:#4f46e5; border-bottom:2px solid #4f46e5; cursor:pointer; outline:none; transition:all 0.2s;">Nöbetçi</button>
+                <button id="tab-login-staff" class="login-tab-btn" onclick="switchLoginTab('staff')"
+                    style="flex:1; padding:10px; background:none; border:none; font-weight:bold; color:#6b7280; border-bottom:2px solid transparent; cursor:pointer; outline:none; transition:all 0.2s;">Yönetici
+                    / Öğretmen</button>
+            </div>
+
             <div class="input-group">
                 <span class="material-symbols-rounded input-icon">vpn_key</span>
                 <input type="text" id="schoolCode" placeholder="Okul Kodu">
+            </div>
+
+            <div class="input-group hidden" id="teacherIdentityGroup">
+                <span class="material-symbols-rounded input-icon">person</span>
+                <input type="text" id="teacherIdentity" placeholder="E-posta, Tel veya Kullanıcı Adı">
             </div>
 
             <div class="input-group">
@@ -134,8 +148,6 @@
             </div>
 
             <div id="tab-al" class="tab-content hidden">
-                <div style="text-align:center; padding:20px; color:#6b7280;"><span class="material-symbols-rounded"
-                        style="font-size:48px;">assignment_return</span><br>İade için okutun</div>
                 <div class="input-group">
                     <span class="material-symbols-rounded input-icon">barcode_reader</span>
                     <input type="tel" inputmode="numeric" id="alBarkod" placeholder="Barkod Okut/Yaz"
@@ -195,11 +207,28 @@
                     <div class="yonetim-card green" onclick="showYonetimForm('settings_staff')">
                         <icon>admin_panel_settings</icon><span>Görevli Ayarları</span>
                     </div>
+                    <div class="yonetim-card red" onclick="showYonetimForm('settings_security')">
+                        <icon>lock_reset</icon><span>Güvenlik Ayarları</span>
+                    </div>
+                    <div class="yonetim-card purple" onclick="showYonetimForm('teachers')">
+                        <icon>school</icon><span>Öğretmen Yetkileri</span>
+                    </div>
                 </div>
 
                 <div id="yonetim-form-student" class="hidden" style="margin-top:10px;">
                     <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
                                 class="material-symbols-rounded">arrow_back</span></button>Öğrenci Kaydı</div>
+                    <div style="display:flex; gap:10px; margin-bottom:15px; padding:0 5px;">
+                        <button type="button" class="action-btn"
+                            style="flex:1; background:#10b981; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px;"
+                            onclick="downloadExcelTemplate('student')"><span class="material-symbols-rounded"
+                                style="font-size:16px;">download</span> Şablon İndir</button>
+                        <label class="action-btn"
+                            style="flex:1; background:#0ea5e9; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer; margin-bottom:0;"><span
+                                class="material-symbols-rounded" style="font-size:16px;">upload</span> Excel Yükle<input
+                                type="file" id="excelStudentUpload" accept=".xlsx" style="display:none;"
+                                onchange="handleExcelUpload(event, 'student')"></label>
+                    </div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
                             type="number" id="newOgrNo" placeholder="Okul No"></div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">person</span><input
@@ -243,6 +272,17 @@
                 <div id="yonetim-form-book" class="hidden" style="margin-top:10px;">
                     <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
                                 class="material-symbols-rounded">arrow_back</span></button>Kitap Kaydı</div>
+                    <div style="display:flex; gap:10px; margin-bottom:15px; padding:0 5px;">
+                        <button type="button" class="action-btn"
+                            style="flex:1; background:#10b981; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px;"
+                            onclick="downloadExcelTemplate('book')"><span class="material-symbols-rounded"
+                                style="font-size:16px;">download</span> Şablon İndir</button>
+                        <label class="action-btn"
+                            style="flex:1; background:#0ea5e9; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer; margin-bottom:0;"><span
+                                class="material-symbols-rounded" style="font-size:16px;">upload</span> Excel Yükle<input
+                                type="file" id="excelBookUpload" accept=".xlsx" style="display:none;"
+                                onchange="handleExcelUpload(event, 'book')"></label>
+                    </div>
                     <div class="input-group">
                         <span class="material-symbols-rounded input-icon">menu_book</span>
                         <input type="text" id="newKitapAd" placeholder="Kitap Adı" list="bookSuggestions">
@@ -327,6 +367,8 @@
                                 style="color:#0f766e;">calendar_month</span>
                             <input type="date" id="logDateFilter" onchange="loadLogs()">
                         </div>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
                         <div class="input-group" style="flex:2; margin-bottom:0; border-color:#0f766e;">
                             <span class="material-symbols-rounded input-icon" style="color:#0f766e;">search</span>
                             <input type="text" id="logSearchInput" placeholder="Ad, No, Sınıf, Barkod..."
@@ -435,6 +477,147 @@
                     <button class="action-btn" style="background:#10b981;" onclick="saveSettings('staff')">Ayarları
                         Kaydet</button>
                 </div>
+
+                <div id="yonetim-form-settings_security" class="hidden" style="margin-top:10px;">
+                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
+                                class="material-symbols-rounded">arrow_back</span></button>Güvenlik Ayarları</div>
+
+                    <div
+                        style="background:#fff; border-radius:12px; padding:15px; border:1px solid #e5e7eb; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Mevcut
+                            Şifre</label>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">lock</span><input
+                                type="password" id="setting_old_password" placeholder="Mevcut Şifre"></div>
+
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block; margin-top:15px;">Yeni
+                            Şifre</label>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">vpn_key</span><input
+                                type="password" id="setting_new_password" placeholder="Yeni Şifre"></div>
+
+                        <label class="text-sm text-gray-500 mb-1 block"
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Yeni
+                            Şifre (Tekrar)</label>
+                        <div class="input-group"><span class="material-symbols-rounded input-icon">vpn_key</span><input
+                                type="password" id="setting_confirm_password" placeholder="Yeni Şifre (Tekrar)"></div>
+                    </div>
+
+                    <button class="action-btn" style="background:#ef4444;" onclick="changePassword()">Şifreyi
+                        Güncelle</button>
+                </div>
+
+                <div id="yonetim-form-teachers" class="hidden" style="margin-top:10px;">
+                    <div class="form-header">
+                        <button class="back-btn" onclick="closeYonetimForm()">
+                            <span class="material-symbols-rounded">arrow_back</span>
+                        </button>Öğretmen İşlemleri
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+                        <button onclick="openTeacherFormModal()"
+                            style="background:#10b981; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow:0 4px 6px rgba(16,185,129,0.2);">
+                            <span class="material-symbols-rounded">person_add</span> Yeni Öğretmen Ekle
+                        </button>
+                    </div>
+                    <div
+                        style="background:#fff; border-radius:12px; margin-top:15px; border:1px solid #e5e7eb; padding:15px;">
+                        <table id="teachersTable"
+                            style="width:100%; text-align:left; border-collapse:collapse; font-size:0.9rem;">
+                            <thead>
+                                <tr style="border-bottom:2px solid #e5e7eb; color:#4b5563;">
+                                    <th style="padding:10px 5px;">Ad Soyad</th>
+                                    <th style="padding:10px 5px;">Kütüphane Rolü</th>
+                                    <th style="padding:10px 5px;">Yetkili Sınıflar</th>
+                                    <th style="padding:10px 5px; text-align:right;">İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="teachersList" style="color:#1f2937;">
+                                <!-- Dinamik Yüklenir -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="teacherFormModal" class="hidden"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; display:flex; align-items:center; justify-content:center;">
+        <div
+            style="background:#fff; border-radius:16px; width:90%; max-width:500px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1); display:flex; flex-direction:column; max-height:90vh; overflow-y:auto;">
+            <div
+                style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e5e7eb; padding-bottom:10px; margin-bottom:15px;">
+                <h3 id="teacherModalTitle" style="margin:0; font-size:1.1rem; color:#1f2937;">Sistem Sorumlusu</h3>
+                <button onclick="closeTeacherFormModal()"
+                    style="background:none; border:none; cursor:pointer; color:#6b7280;"><span
+                        class="material-symbols-rounded">close</span></button>
+            </div>
+
+            <input type="hidden" id="teacherFormId">
+
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+                <input type="text" id="teacherFormName" placeholder="Ad Soyad"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px;">
+                <input type="text" id="teacherFormUsername" placeholder="Kullanıcı Adı"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px;">
+                <input type="email" id="teacherFormEmail" placeholder="E-Posta"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px;">
+                <input type="tel" id="teacherFormPhone" placeholder="Telefon (05XX...)"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px;">
+                <input type="password" id="teacherFormPassword" placeholder="Şifre (Değiştirmeyecekseniz boş bırakın)"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px;">
+
+                <select id="teacherFormKtRole" onchange="toggleTeacherRoleSelect()"
+                    style="padding:10px; border:1px solid #d1d5db; border-radius:8px; cursor:pointer; font-weight:bold;">
+                    <option value="teacher">Öğretmen (Kısıtlı Yetki)</option>
+                    <option value="admin">Yönetici (Tam Yetki)</option>
+                </select>
+            </div>
+
+            <div id="teacherClassesWrapper"
+                style="padding:15px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; margin-bottom:15px;">
+                <label
+                    style="display:flex; align-items:center; gap:8px; margin-bottom:10px; font-weight:bold; cursor:pointer;">
+                    <input type="checkbox" id="teacherFormAll" onchange="toggleTeacherRoleSelect()"
+                        style="width:18px; height:18px;"> Tüm Sınıflara Yetkili
+                </label>
+
+                <div id="teacherClassAddArea" style="display:flex; gap:5px; margin-bottom:10px;">
+                    <select id="teacherFormGrade"
+                        style="flex:1; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
+                        <option value="">Kademe</option>
+                    </select>
+                    <select id="teacherFormClass"
+                        style="flex:1; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
+                        <option value="">Şube</option>
+                    </select>
+                    <button type="button" onclick="addClassToTeacherForm()"
+                        style="background:#4f46e5; color:#fff; border:none; padding:0 15px; border-radius:6px; cursor:pointer; font-weight:bold;">Ekle</button>
+                </div>
+
+                <!-- Seçili Sınıflar Container -->
+                <div id="selectedClassesList" style="display:flex; flex-wrap:wrap; gap:8px;">
+                    <!-- Chipler JS ile dolar -->
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:20px;">
+
+                <button type="button" id="teacherFormDeleteBtn" onclick="deleteTeacherForm()"
+                    style="display:none; flex:1; padding:10px; border-radius:8px; border:none; background:#ef4444; font-weight:bold; color:#fff; cursor:pointer; box-shadow:0 4px 6px rgba(239, 68, 68, 0.2);">
+                    Sil
+                </button>
+
+                <button type="button" onclick="closeTeacherFormModal()"
+                    style="flex:1; padding:10px; border-radius:8px; border:1px solid #d1d5db; background:#fff; font-weight:bold; color:#4b5563; cursor:pointer;">
+                    İptal
+                </button>
+
+                <button type="button" onclick="saveTeacherForm()"
+                    style="flex:1; padding:10px; border-radius:8px; border:none; background:#4f46e5; font-weight:bold; color:#fff; cursor:pointer; box-shadow:0 4px 6px rgba(79, 70, 229, 0.2);">
+                    Kaydet
+                </button>
+
             </div>
         </div>
     </div>
