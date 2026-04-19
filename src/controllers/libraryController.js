@@ -17,8 +17,10 @@ async function getSchoolAuth(code, pass) {
     } else if (data.kt_settings?.staff_password === pass) {
         role = 'duty';
         if (data.kt_settings?.staff_pass_mode === 'daily') {
-            const d = new Date();
-            const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+            // 🚀 MİMARIN ZAMAN DÜZELTMESİ: Sunucu nerede olursa olsun İstanbul saatine bak!
+            const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+
             if (data.kt_settings?.staff_pass_date !== todayStr) {
                 throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
             }
@@ -941,7 +943,7 @@ exports.getTeachers = async (req, res) => {
     try {
         const { schoolCode, schoolPass } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
-        
+
         if (!auth || auth.role !== 'admin') {
             return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler öğretmen listeleyebilir.' });
         }
@@ -950,7 +952,7 @@ exports.getTeachers = async (req, res) => {
             .select('id, full_name, username, email, phone, app_roles')
             .eq('school_id', auth.id)
             .eq('role', 'teacher');
-            
+
         if (error) throw error;
 
         res.json({ status: 'success', data: teachers });
@@ -963,15 +965,15 @@ exports.saveTeacher = async (req, res) => {
     try {
         const { schoolCode, schoolPass, id, fullName, username, email, phone, password, ktRole, ktClasses } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
-        
+
         if (!auth || auth.role !== 'admin') {
             return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler yetki değiştirebilir.' });
         }
 
-        const appRolesPayload = { 
-            kutuphanemiz: { 
-                role: ktRole, 
-                classes: ktClasses || [] 
+        const appRolesPayload = {
+            kutuphanemiz: {
+                role: ktRole,
+                classes: ktClasses || []
             }
         };
 
@@ -999,7 +1001,7 @@ exports.saveTeacher = async (req, res) => {
                 phone: phone || null,
                 app_roles: mergedRoles
             };
-            
+
             if (password && password.trim() !== '') {
                 updateData.password = password;
             }
@@ -1014,7 +1016,7 @@ exports.saveTeacher = async (req, res) => {
         } else {
             // YENİ EKLEME İŞLEMİ
             if (!password) throw new Error("Yeni eklerken şifre belirlemek zorunludur.");
-            
+
             const insertData = {
                 school_id: auth.id,
                 role: 'teacher',
@@ -1033,7 +1035,7 @@ exports.saveTeacher = async (req, res) => {
                 if (insertError.code === '23505') throw new Error("Bu kullanıcı bilgisi sistemde zaten kayıtlı.");
                 throw insertError;
             }
-            
+
             return res.json({ status: 'success', message: 'Öğretmen başarıyla eklendi.' });
         }
 
