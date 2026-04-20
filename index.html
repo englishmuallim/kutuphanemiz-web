@@ -195,6 +195,9 @@
                     <div class="yonetim-card orange" onclick="showYonetimForm('book')">
                         <icon>library_add</icon><span>Kitap Ekle</span>
                     </div>
+                    <div class="yonetim-card green" onclick="openBookSearchModal()">
+                        <icon>edit_document</icon><span>Kitap Düzenle</span>
+                    </div>
                     <div class="yonetim-card pink" onclick="showYonetimForm('report')">
                         <icon>bar_chart</icon><span>Rapor Al</span>
                     </div>
@@ -618,6 +621,98 @@
                     Kaydet
                 </button>
 
+            </div>
+        </div>
+    </div>
+
+    <div id="bookEditSearchModal" class="modal hidden"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; display:flex; justify-content:center; align-items:center;">
+        <div
+            style="background:#fff; width:90%; max-width:600px; padding:20px; border-radius:12px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+
+            <div
+                style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #e5e7eb; padding-bottom:10px; margin-bottom:15px;">
+                <h3 style="margin:0; color:#1f2937;">🔍 Kitap Bul ve Düzenle</h3>
+                <button onclick="closeBookSearchModal()"
+                    style="background:none; border:none; color:#6b7280; font-size:24px; cursor:pointer; line-height:1; padding:5px;">
+                    &times;
+                </button>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="bookSearchInput" placeholder="Barkod veya Kitap Adı girin..."
+                    style="flex:1; padding:10px; border:1px solid #d1d5db; border-radius:8px; outline:none;"
+                    onkeydown="if(event.key==='Enter') searchBookForEdit()">
+                <button onclick="searchBookForEdit()"
+                    style="background:#3b82f6; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Ara</button>
+            </div>
+
+            <div id="bookSearchResults"
+                style="max-height:150px; overflow-y:auto; margin-bottom:15px; display:flex; flex-direction:column; gap:5px;">
+            </div>
+
+            <div id="bookEditFormArea"
+                style="display:none; background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #e5e7eb;">
+                <h4 style="margin-top:0; color:#4b5563; margin-bottom:15px;">📝 Kitap Bilgileri</h4>
+
+                <input type="hidden" id="editB_id">
+                <input type="hidden" id="editB_status">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                    <div><label style="font-size:12px; font-weight:bold; color:#6b7280;">Barkod *</label><input
+                            type="text" id="editB_barcode"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+                    <div><label style="font-size:12px; font-weight:bold; color:#6b7280;">Raf Bilgisi</label><input
+                            type="text" id="editB_shelf"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+
+                    <div style="grid-column: span 2;"><label
+                            style="font-size:12px; font-weight:bold; color:#6b7280;">Kitap Adı *</label><input
+                            type="text" id="editB_name"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+
+                    <div><label style="font-size:12px; font-weight:bold; color:#6b7280;">Yazar</label><input type="text"
+                            id="editB_author"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+                    <div><label style="font-size:12px; font-weight:bold; color:#6b7280;">Yayınevi</label><input
+                            type="text" id="editB_publisher"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+
+                    <div><label style="font-size:12px; font-weight:bold; color:#6b7280;">Kategori</label><input
+                            type="text" id="editB_category"
+                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label
+                                style="font-size:12px; font-weight:bold; color:#6b7280;">Sayfa</label><input
+                                type="number" id="editB_pages"
+                                style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                        </div>
+                        <div style="flex:1;"><label
+                                style="font-size:12px; font-weight:bold; color:#6b7280;">Durum</label>
+                            <select id="editB_condition"
+                                style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box; height:35px;">
+                                <option value="Yeni">Yeni</option>
+                                <option value="İyi">İyi</option>
+                                <option value="Yıpranmış">Yıpranmış</option>
+                                <option value="Hasarlı">Hasarlı</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" onclick="deleteBookEdit()"
+                        style="flex:1; padding:10px; border-radius:8px; border:none; background:#ef4444; font-weight:bold; color:#fff; cursor:pointer;">Sil</button>
+                    <button type="button" onclick="closeBookSearchModal()"
+                        style="flex:1; padding:10px; border-radius:8px; border:1px solid #d1d5db; background:#fff; font-weight:bold; color:#4b5563; cursor:pointer;">İptal</button>
+                    <button type="button" onclick="saveBookEdit()"
+                        style="flex:1; padding:10px; border-radius:8px; border:none; background:#10b981; font-weight:bold; color:#fff; cursor:pointer;">Kaydet</button>
+                </div>
             </div>
         </div>
     </div>

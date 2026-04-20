@@ -37,6 +37,10 @@ router.get('/globalBooks', libraryController.getGlobalBooks);
 router.post('/books/bulk', libraryController.bulkAddBooks);
 router.post('/archive', libraryController.archiveRecord);
 
+// Kitap Arama, Düzenleme, Silme
+router.post('/searchBooks', libraryController.searchBooks);
+router.post('/updateBook', libraryController.updateBook);
+router.post('/deleteBook', libraryController.deleteBook);
 
 // Ayarlar
 router.post('/getSettings', libraryController.getSettings);

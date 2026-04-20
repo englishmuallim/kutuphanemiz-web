@@ -569,3 +569,135 @@ window.deleteTeacherForm = async function () {
         alert("Silme hatası: " + res.message);
     }
 };
+
+// ==========================================
+// KİTAP DÜZENLEME VE SİLME MODÜLÜ
+// ==========================================
+
+window.foundBooksList = []; // Arama sonuçlarını hafızada tutar
+
+window.openBookSearchModal = function () {
+    document.getElementById('bookEditSearchModal').classList.remove('hidden');
+    document.getElementById('bookSearchInput').value = '';
+    document.getElementById('bookSearchResults').innerHTML = '';
+    document.getElementById('bookEditFormArea').style.display = 'none';
+};
+
+window.closeBookSearchModal = function () {
+    document.getElementById('bookEditSearchModal').classList.add('hidden');
+};
+
+// 1. Kitapları API'den Ara
+window.searchBookForEdit = async function () {
+    const query = document.getElementById('bookSearchInput').value.trim();
+    if (query.length < 2) return alert("Aramak için en az 2 karakter girmelisiniz.");
+
+    const code = document.getElementById('schoolCode').value;
+    const pass = document.getElementById('schoolPass').value;
+
+    const resultsArea = document.getElementById('bookSearchResults');
+    resultsArea.innerHTML = '<div style="padding:10px; color:#6b7280; text-align:center;">Arama yapılıyor...</div>';
+
+    // Bu fonksiyonu Agent api-client.js içine yazacak
+    const res = await searchBooksAPI({ schoolCode: code, schoolPass: pass, query: query });
+
+    if (res.status === 'success') {
+        window.foundBooksList = res.data;
+        if (window.foundBooksList.length === 0) {
+            resultsArea.innerHTML = '<div style="padding:10px; color:#ef4444; text-align:center;">Sonuç bulunamadı.</div>';
+            return;
+        }
+
+        resultsArea.innerHTML = '';
+        window.foundBooksList.forEach(book => {
+            const statusColor = (book.status === 'Emanette') ? '#ef4444' : '#10b981';
+            resultsArea.innerHTML += `
+                <div onclick="selectBookForEdit('${book.id}')" 
+                     style="padding:10px; background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <strong style="color:#1f2937;">${book.book_name}</strong><br>
+                        <small style="color:#6b7280;">Barkod: ${book.barcode} | Yazar: ${book.author || '-'}</small>
+                    </div>
+                    <span style="background:${statusColor}; color:white; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:bold;">${book.status || 'Rafta'}</span>
+                </div>
+            `;
+        });
+    } else {
+        resultsArea.innerHTML = `<div style="padding:10px; color:#ef4444; text-align:center;">Hata: ${res.message}</div>`;
+    }
+};
+
+// 2. Tıklanan Kitabı Forma Doldur
+window.selectBookForEdit = function (id) {
+    const book = window.foundBooksList.find(b => String(b.id) === String(id));
+    if (!book) return;
+
+    document.getElementById('editB_id').value = book.id;
+    document.getElementById('editB_status').value = book.status || 'Rafta'; // Güvenlik için
+    document.getElementById('editB_barcode').value = book.barcode || '';
+    document.getElementById('editB_name').value = book.book_name || '';
+    document.getElementById('editB_author').value = book.author || '';
+    document.getElementById('editB_publisher').value = book.publisher || '';
+    document.getElementById('editB_shelf').value = book.shelf || '';
+    document.getElementById('editB_category').value = book.category || '';
+    document.getElementById('editB_pages').value = book.page_count || '';
+    document.getElementById('editB_condition').value = book.condition || 'Yeni';
+
+    document.getElementById('bookEditFormArea').style.display = 'block';
+};
+
+// 3. Değişiklikleri Kaydet
+window.saveBookEdit = async function () {
+    const payload = {
+        schoolCode: document.getElementById('schoolCode').value,
+        schoolPass: document.getElementById('schoolPass').value,
+        id: document.getElementById('editB_id').value,
+        barcode: document.getElementById('editB_barcode').value.trim(),
+        book_name: document.getElementById('editB_name').value.trim(),
+        author: document.getElementById('editB_author').value.trim(),
+        publisher: document.getElementById('editB_publisher').value.trim(),
+        shelf: document.getElementById('editB_shelf').value.trim(),
+        category: document.getElementById('editB_category').value.trim(),
+        page_count: parseInt(document.getElementById('editB_pages').value) || null,
+        condition: document.getElementById('editB_condition').value
+    };
+
+    if (!payload.book_name || !payload.barcode) return alert("Kitap Adı ve Barkod zorunludur.");
+
+    // Bu fonksiyonu Agent yazacak
+    const res = await updateBookAPI(payload);
+    if (res.status === 'success') {
+        alert("Kitap başarıyla güncellendi!");
+        closeBookSearchModal();
+    } else {
+        alert("Hata: " + res.message);
+    }
+};
+
+// 4. Kitabı Sil (Güvenlik Kilitli)
+window.deleteBookEdit = async function () {
+    const status = document.getElementById('editB_status').value;
+    const name = document.getElementById('editB_name').value;
+
+    // GÜVENLİK KİLİDİ
+    if (status === 'Emanette') {
+        return alert(`⛔ DİKKAT: "${name}" isimli kitap şu an bir öğrencide EMANETTE görünmektedir.\n\nEmanette olan bir kitabı silemezsiniz. Lütfen önce kitabı sistemden iade alın!`);
+    }
+
+    if (!confirm(`⚠️ "${name}" isimli kitabı kütüphaneden TAMAMEN silmek istediğinize emin misiniz?`)) return;
+
+    const payload = {
+        schoolCode: document.getElementById('schoolCode').value,
+        schoolPass: document.getElementById('schoolPass').value,
+        id: document.getElementById('editB_id').value
+    };
+
+    // Bu fonksiyonu Agent yazacak
+    const res = await deleteBookAPI(payload);
+    if (res.status === 'success') {
+        alert("Kitap sistemden silindi.");
+        closeBookSearchModal();
+    } else {
+        alert("Silme hatası: " + res.message);
+    }
+};

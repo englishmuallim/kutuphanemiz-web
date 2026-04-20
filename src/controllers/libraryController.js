@@ -1045,6 +1045,105 @@ exports.saveTeacher = async (req, res) => {
 };
 
 // ==========================================
+// YENİ: KİTAP ARAMA
+// ==========================================
+exports.searchBooks = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, query } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (!query || query.trim().length < 1) {
+            return res.json({ status: 'error', message: 'Arama terimi gereklidir.' });
+        }
+
+        const q = query.trim();
+
+        const { data: books, error } = await supabase.from('books')
+            .select('id, barcode, book_name, author, publisher, shelf, category, page_count, condition, status')
+            .eq('school_id', auth.id)
+            .eq('is_active', true)
+            .or(`barcode.ilike.%${q}%,book_name.ilike.%${q}%`)
+            .limit(20);
+
+        if (error) throw error;
+
+        // status alanını kullanıcı dostu hale getir
+        const mapped = (books || []).map(b => ({
+            ...b,
+            status: b.status === 'borrowed' ? 'Emanette' : 'Rafta'
+        }));
+
+        res.json({ status: 'success', data: mapped });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// YENİ: KİTAP GÜNCELLEME
+// ==========================================
+exports.updateBook = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, id, barcode, book_name, author, publisher, shelf, category, page_count, condition } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (!id) throw new Error('Güncellenecek kitap ID\'si belirtilmedi.');
+        if (!book_name || !barcode) throw new Error('Kitap Adı ve Barkod zorunludur.');
+
+        const updateData = {
+            barcode,
+            book_name,
+            author: author || null,
+            publisher: publisher || null,
+            shelf: shelf || null,
+            category: category || null,
+            page_count: page_count ? parseInt(page_count) : null,
+            condition: condition || 'Yeni'
+        };
+
+        const { error } = await supabase.from('books')
+            .update(updateData)
+            .eq('id', id)
+            .eq('school_id', auth.id);
+
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Kitap başarıyla güncellendi.' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// YENİ: KİTAP SİLME (SADECE ADMİN)
+// ==========================================
+exports.deleteBook = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, id } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+
+        if (!auth || auth.role !== 'admin') {
+            return res.status(403).json({ status: 'error', message: 'Yetkisiz erişim. Sadece yöneticiler kitap silebilir.' });
+        }
+
+        if (!id) throw new Error('Silinecek kitap ID\'si belirtilmedi.');
+
+        const { error } = await supabase.from('books')
+            .delete()
+            .eq('id', id)
+            .eq('school_id', auth.id);
+
+        if (error) throw error;
+
+        res.json({ status: 'success', message: 'Kitap sistemden tamamen silindi.' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
 // YENİ: ÖĞRETMEN SİLME (SADECE ADMİN)
 // ==========================================
 exports.deleteTeacher = async (req, res) => {

@@ -1132,3 +1132,47 @@ async function deleteTeacherAPI(payload) {
         return { status: 'error', message: 'Sunucu hatası' };
     }
 }
+
+// --- KİTAP ARAMA / GÜNCELLEME / SİLME API'LERİ ---
+
+async function searchBooksAPI(payload) {
+    try {
+        const res = await fetch('/api/searchBooks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("searchBooksAPI error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
+}
+
+async function updateBookAPI(payload) {
+    try {
+        const res = await fetch('/api/updateBook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("updateBookAPI error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
+}
+
+async function deleteBookAPI(payload) {
+    try {
+        const res = await fetch('/api/deleteBook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    } catch (e) {
+        console.error("deleteBookAPI error:", e);
+        return { status: 'error', message: 'Sunucu hatası' };
+    }
+}
