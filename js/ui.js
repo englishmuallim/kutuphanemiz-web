@@ -22,6 +22,7 @@ function logout() {
             localStorage.removeItem("beni_hatirla");
             localStorage.removeItem("okul_ismi");
             localStorage.removeItem("kutuphane_identity");
+            localStorage.removeItem("kutuphane_user");
             localStorage.removeItem("kutuphane_login_type");
 
             // 2. SPA Mimarisi: Sayfayı yenilemek yerine sadece UI'ı değiştiriyoruz

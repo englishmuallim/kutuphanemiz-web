@@ -53,6 +53,7 @@ async function login() {
         const result = await response.json();
         if (result.status === 'success') {
             localStorage.setItem("okul_ismi", result.schoolName);
+            localStorage.setItem("kutuphane_user", result.userName);
             localStorage.setItem("user_role", result.role);
             localStorage.setItem("kt_role", result.kt_role || result.role);
             localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
@@ -196,6 +197,8 @@ async function islemYap(actionType) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     let data = { schoolCode: code, schoolPass: pass };
+    // YENİ EKLENEN: İşlemi yapan kişinin ismini de backend'e gönder
+    data.handlerName = localStorage.getItem("kutuphane_user") || "Bilinmeyen Görevli";
     let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
     let islemBarkod = "", islemOgrNo = "";
 
@@ -219,6 +222,8 @@ async function islemYap(actionType) {
         if (result.studentNo) islemOgrNo = result.studentNo;
 
         if (result.status === 'success') {
+            // YENİ EKLENEN: Backend'den gelen ismi tarayıcıya kaydet
+
             playBeep();
             let msg = result.message;
             if (result.raf) msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
@@ -878,9 +883,22 @@ function renderLogs(logs) {
             return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
         };
 
-        let dateHTML = `<span class="text-red-600" style="color:#dc2626;">⬆ Veriliş: ${formatDate(log.borrow_date)}</span>`;
+        // 🚀 MİMARIN DOKUNUŞU: Duruma göre renkli rozet (badge) üreten yardımcı fonksiyon
+        const getConditionBadge = (cond) => {
+            if (!cond) return ''; // Durum seçilmemişse boş döner
+            let bg = '#f3f4f6', col = '#4b5563'; // Varsayılan (Gri)
+            if (cond === 'Yeni') { bg = '#dcfce7'; col = '#166534'; } // Yeşil
+            else if (cond === 'İyi') { bg = '#e0f2fe'; col = '#075985'; } // Mavi
+            else if (cond === 'Yıpranmış') { bg = '#ffedd5'; col = '#9a3412'; } // Turuncu
+            else if (cond === 'Hasarlı') { bg = '#fee2e2'; col = '#991b1b'; } // Kırmızı
+
+            return `<span style="background:${bg}; color:${col}; font-size:0.65rem; padding:2px 6px; border-radius:10px; margin-left:4px; font-weight:bold; vertical-align:middle; display:inline-block;">${cond}</span>`;
+        };
+
+        // Tarihler ve Durum Rozetleri bir arada
+        let dateHTML = `<div style="color:#dc2626; margin-bottom:4px;">⬆ Veriliş: ${formatDate(log.borrow_date)} ${getConditionBadge(log.borrow_condition)}</div>`;
         if (isCompleted && log.return_date) {
-            dateHTML += `<br> <span class="text-green-600" style="color:#16a34a;">⬇ İade: ${formatDate(log.return_date)}</span>`;
+            dateHTML += `<div style="color:#16a34a;">⬇ İade: ${formatDate(log.return_date)} ${getConditionBadge(log.return_condition)}</div>`;
         }
 
         let handlerText = `Veren: <b style="color:#1f2937;">${log.handed_by || '-'}</b>`;
@@ -896,7 +914,7 @@ function renderLogs(logs) {
         const stText = `${fullName} (${gradeClass} - No: ${studentNo})`;
 
         return `
-        <div style="background:#f9fafb; border:1px solid #e5e7eb; border-left:4px solid ${borderColor}; padding:10px 15px; border-radius:8px;">
+        <div style="background:#f9fafb; border:1px solid #e5e7eb; border-left:4px solid ${borderColor}; padding:10px 15px; border-radius:8px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                 <div style="font-weight:bold; color:#1f2937;">${stText}</div>
                 <div style="font-size:0.8rem; color:#6b7280; text-align:right;">${dateHTML}</div>

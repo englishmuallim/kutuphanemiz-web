@@ -73,13 +73,14 @@ exports.login = async (req, res) => {
             if (!auth || auth.role !== 'duty') return res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Nöbetçi Şifresi' });
 
             const { data: school } = await supabase.from('schools')
-                .select('school_name')
+                .select('school_name, kt_settings')
                 .eq('id', auth.id)
                 .single();
 
             return res.json({
                 status: 'success',
                 schoolName: school.school_name,
+                userName: school.kt_settings?.staff_names || "Nöbetçi",
                 role: 'duty',
                 kt_role: 'duty',
                 kt_classes: ['ALL']
@@ -101,7 +102,7 @@ exports.login = async (req, res) => {
             if (!school) return res.json({ status: 'error', message: 'Geçersiz Okul Kodu.' });
 
             const { data: users, error } = await supabase.from('users')
-                .select('*')
+                .select('*, full_name')
                 .eq('school_id', school.id)
                 .eq('password', schoolPass);
 
@@ -140,6 +141,7 @@ exports.login = async (req, res) => {
                     return res.json({
                         status: 'success',
                         schoolName: school.school_name,
+                        userName: user.full_name,
                         role: user.role,
                         kt_role: 'admin',
                         kt_classes: ['ALL']
@@ -149,6 +151,7 @@ exports.login = async (req, res) => {
                     return res.json({
                         status: 'success',
                         schoolName: school.school_name,
+                        userName: user.full_name,
                         role: user.role,
                         kt_role: 'teacher',
                         kt_classes: ktClasses
@@ -433,7 +436,7 @@ exports.bulkAddBooks = async (req, res) => {
 
 exports.kitapVer = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, barkod, ogrNo, condition } = req.body;
+        const { schoolCode, schoolPass, barkod, ogrNo, condition, handlerName } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
         const schoolId = auth.id;
@@ -479,17 +482,12 @@ exports.kitapVer = async (req, res) => {
         const startYear = currentMonth < 7 ? currentYear - 1 : currentYear;
         const academicYear = `${startYear}-${startYear + 1}`;
 
-        let processedBy = 'Admin';
-        if (auth.role === 'staff' && settings.staff_names) {
-            processedBy = settings.staff_names;
-        }
-
         // Eğer formdan durum geldiyse (seçildiyse) ekle
         let updateData = { status: 'borrowed' };
         if (condition) updateData.condition = condition;
 
         const [transRes, bookUpdRes] = await Promise.all([
-            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: processedBy }]),
+            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: handlerName || 'Bilinmeyen', borrow_condition: condition || null }]),
             supabase.from('books').update(updateData).eq('id', book.id)
         ]);
 
@@ -504,7 +502,7 @@ exports.kitapVer = async (req, res) => {
 
 exports.kitapAl = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, barkod, condition } = req.body;
+        const { schoolCode, schoolPass, barkod, condition, handlerName } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
         const schoolId = auth.id;
@@ -535,17 +533,12 @@ exports.kitapAl = async (req, res) => {
 
         const today = new Date().toISOString();
 
-        let processedBy = 'Admin';
-        if (auth.role === 'staff' && settings.staff_names) {
-            processedBy = settings.staff_names;
-        }
-
         let updateData = { status: 'available' };
         if (condition) updateData.condition = condition;
 
         // Transaction tablosunda "received_by" güncellenerek teslim edenin adı loglanır.
         const [transRes, bookUpdRes] = await Promise.all([
-            supabase.from('transactions').update({ status: 'returned', return_date: today, received_by: processedBy }).eq('id', trans.id),
+            supabase.from('transactions').update({ status: 'returned', return_date: today, received_by: handlerName || 'Bilinmeyen', return_condition: condition || null }).eq('id', trans.id),
             supabase.from('books').update(updateData).eq('id', book.id)
         ]);
 
@@ -920,7 +913,7 @@ exports.getLogs = async (req, res) => {
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
         let query = supabase.from('transactions')
-            .select('id, created_at, borrow_date, return_date, status, handed_by, received_by, academic_year, students(student_no, full_name, grade, class_name), books(barcode, book_name)')
+            .select('id, created_at, borrow_date, return_date, status, handed_by, received_by, academic_year, borrow_condition, return_condition, students(student_no, full_name, grade, class_name), books(barcode, book_name)')
             .eq('school_id', schoolId)
             .order('created_at', { ascending: false })
             .limit(100);
