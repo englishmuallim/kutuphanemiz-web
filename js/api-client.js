@@ -540,7 +540,9 @@ async function getReport() {
                 titleClass = `${gradeNum}/${clsText} SINIFI`;
             }
 
-            let titleMonth = mon === 'ALL' ? 'TÜM ZAMANLAR' : `${monText.toLocaleUpperCase('tr-TR')} AYI`;
+            let titleMonth = mon === 'ALL' ? 'TÜM ZAMANLAR' :
+                (mon === 'TERM1' || mon === 'TERM2') ? monText.toLocaleUpperCase('tr-TR') :
+                    `${monText.toLocaleUpperCase('tr-TR')} AYI`;
             let reportTitle = `${titleClass} ${titleMonth} OKUMA RAPORU`;
 
 
