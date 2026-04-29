@@ -230,11 +230,40 @@ async function islemYap(actionType) {
             const popup = await Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', showDenyButton: true, denyButtonText: 'Geri Al', denyButtonColor: '#ef4444', allowOutsideClick: false });
             if (popup.isDenied) {
                 Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
-                const undoRes = await undoResp.json();
-                if (undoRes.status === 'success') { Swal.fire('Geri Alındı', undoRes.message, 'info'); getStats(); getOverdueBooks(); getLeaderboard(); } else { Swal.fire('Hata', undoRes.message, 'error'); }
+                try {
+                    // YENİ EKLENEN: Geri alma isteği (Agent'ın sildiği fetch kısmı)
+                    const undoPayload = {
+                        schoolCode: code,
+                        schoolPass: pass,
+                        type: actionType === 'kitapVer' ? 'ver' : 'al',
+                        bookCode: islemBarkod,
+                        studentNo: islemOgrNo
+                    };
+
+                    const undoReq = await fetch('/api/undo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(undoPayload)
+                    });
+                    const undoRes = await undoReq.json();
+
+                    if (undoRes.status === 'success') {
+                        Swal.fire('Geri Alındı', undoRes.message, 'info');
+                        getStats(); getOverdueBooks(); getLeaderboard();
+                    } else {
+                        Swal.fire('Hata', undoRes.message, 'error');
+                    }
+                } catch (err) {
+                    Swal.fire('Hata', 'Geri alma isteği gönderilemedi.', 'error');
+                }
             }
             if (document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
             if (document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
+            // YENİ EKLENEN: Kitap durumu seçim kutularını sıfırla (İsteğe Bağlı seçeneğine döndür)
+            if (document.getElementById("verKitapDurum")) document.getElementById("verKitapDurum").value = "";
+            if (document.getElementById("alKitapDurum")) document.getElementById("alKitapDurum").value = "";
+            // YENİ EKLENEN: Popup kapandığı anda öğrenci numarasını temizle
+            if (document.getElementById("verOgrNo")) document.getElementById("verOgrNo").value = "";
             getStats(); getOverdueBooks(); getLeaderboard();
         } else { Swal.fire({ icon: 'error', title: 'Hata', text: result.message }); }
     } catch (error) { Swal.fire({ icon: 'error', title: 'Hata', text: error.message }); }
@@ -722,22 +751,32 @@ async function saveSettings(type) {
         };
     } else if (type === 'staff') {
         const mode = document.getElementById("setting_staff_pass_mode").value;
-        if (mode === 'daily') {
-            const randomPass = Math.floor(100000 + Math.random() * 900000).toString();
-            const d = new Date();
+        const randomPass = Math.floor(100000 + Math.random() * 900000).toString();
+        const d = new Date();
+        const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
+        // Yeni Veritabanı Yapısı: Verileri "Sabit" ve "Günlük" olarak ayırıyoruz
+        if (mode === 'daily') {
             settingsPayload = {
                 staff_pass_mode: mode,
-                staff_password: randomPass,
-                staff_names: currentStaffNames.join(', ') || null,
-                staff_pass_date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+                daily_staff_names: currentStaffNames.join(', ') || null,
+                daily_staff_password: randomPass,
+                daily_pass_date: todayStr
             };
-        } else {
+        } else if (mode === 'fixed') {
             settingsPayload = {
                 staff_pass_mode: mode,
-                staff_password: document.getElementById("setting_staff_password").value || null,
-                staff_names: document.getElementById("setting_fixed_staff_name").value || null,
-                staff_pass_date: null
+                fixed_staff_name: document.getElementById("setting_fixed_staff_name").value || null,
+                fixed_staff_password: document.getElementById("setting_staff_password").value || null
+            };
+        } else if (mode === 'hybrid') {
+            settingsPayload = {
+                staff_pass_mode: mode,
+                fixed_staff_name: document.getElementById("setting_fixed_staff_name").value || null,
+                fixed_staff_password: document.getElementById("setting_staff_password").value || null,
+                daily_staff_names: currentStaffNames.join(', ') || null,
+                daily_staff_password: randomPass,
+                daily_pass_date: todayStr
             };
         }
     }
@@ -758,7 +797,13 @@ async function saveSettings(type) {
                     Swal.fire({
                         icon: 'success',
                         title: 'Nöbetçiler Kaydedildi',
-                        html: `Günün nöbetçileri: <b>${currentStaffNames.join(', ')}</b><br><br><div style="font-size:1.5rem; color:#4f46e5; padding:10px; background:#f3f4f6; border-radius:8px; display:inline-block; font-weight:bold; letter-spacing:2px;">Günlük Şifre: ${settingsPayload.staff_password}</div>`
+                        html: `Günün nöbetçileri: <b>${currentStaffNames.join(', ')}</b><br><br><div style="font-size:1.5rem; color:#4f46e5; padding:10px; background:#f3f4f6; border-radius:8px; display:inline-block; font-weight:bold; letter-spacing:2px;">Günlük Şifre: ${settingsPayload.daily_staff_password}</div>`
+                    });
+                } else if (mode === 'hybrid') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Hibrit Sistem Aktif',
+                        html: `Sabit Görevli korundu.<br><br>Günün Nöbetçileri: <b>${currentStaffNames.join(', ')}</b><br><br><div style="font-size:1.5rem; color:#4f46e5; padding:10px; background:#f3f4f6; border-radius:8px; display:inline-block; font-weight:bold; letter-spacing:2px;">Nöbetçi Şifresi: ${settingsPayload.daily_staff_password}</div>`
                     });
                 } else {
                     Swal.fire('Başarılı', 'Sabit görevli ayarları kaydedildi.', 'success');
@@ -834,6 +879,22 @@ function renderStaffList() {
     `).join('');
 }
 
+function toggleStaffGroups() {
+    const mode = document.getElementById("setting_staff_pass_mode").value;
+    const fixedGroup = document.getElementById("fixedStaffGroup");
+    const dailyGroup = document.getElementById("dailyStaffGroup");
+
+    if (mode === 'fixed') {
+        fixedGroup.style.display = 'block';
+        dailyGroup.style.display = 'none';
+    } else if (mode === 'daily') {
+        fixedGroup.style.display = 'none';
+        dailyGroup.style.display = 'block';
+    } else if (mode === 'hybrid') {
+        fixedGroup.style.display = 'block';
+        dailyGroup.style.display = 'block';
+    }
+}
 // ==========================================
 // İŞLEM GEÇMİŞİ (LOGS) & OMNI-SEARCH
 // ==========================================

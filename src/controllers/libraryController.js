@@ -14,13 +14,21 @@ async function getSchoolAuth(code, pass) {
 
     if (data.kt_pass === pass) {
         role = 'admin';
-    } else if (data.kt_settings?.staff_password === pass) {
+    } else if (
+        (data.kt_settings?.fixed_staff_password && data.kt_settings.fixed_staff_password === pass) ||
+        (data.kt_settings?.daily_staff_password && data.kt_settings.daily_staff_password === pass) ||
+        (data.kt_settings?.staff_password && data.kt_settings.staff_password === pass)
+    ) {
         role = 'duty';
-        if (data.kt_settings?.staff_pass_mode === 'daily') {
 
-            // 🚀 MİMARIN ZAMAN DÜZELTMESİ: Sunucu nerede olursa olsun İstanbul saatine bak!
-            const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+        // 🚀 MİMARIN ZAMAN DÜZELTMESİ: Sunucu nerede olursa olsun İstanbul saatine bak!
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
 
+        if (pass === data.kt_settings?.daily_staff_password) {
+            if (data.kt_settings?.daily_pass_date !== todayStr) {
+                throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
+            }
+        } else if (pass === data.kt_settings?.staff_password && data.kt_settings?.staff_pass_mode === 'daily') {
             if (data.kt_settings?.staff_pass_date !== todayStr) {
                 throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
             }
@@ -77,10 +85,23 @@ exports.login = async (req, res) => {
                 .eq('id', auth.id)
                 .single();
 
+            let userName = "";
+            const settings = school.kt_settings || {};
+
+            if (settings.fixed_staff_password && schoolPass === settings.fixed_staff_password) {
+                userName = settings.fixed_staff_name || "Sabit Görevli";
+            } else if (settings.daily_staff_password && schoolPass === settings.daily_staff_password) {
+                userName = settings.daily_staff_names || "Nöbetçi Öğrenci";
+            } else if (settings.staff_password && schoolPass === settings.staff_password) {
+                userName = settings.staff_names || "Nöbetçi";
+            } else {
+                return res.json({ status: 'error', message: 'Hatalı Şifre' });
+            }
+
             return res.json({
                 status: 'success',
                 schoolName: school.school_name,
-                userName: school.kt_settings?.staff_names || "Nöbetçi",
+                userName: userName,
                 role: 'duty',
                 kt_role: 'duty',
                 kt_classes: ['ALL']
@@ -451,7 +472,7 @@ exports.kitapVer = async (req, res) => {
         }
 
         const [bookRes, studentRes] = await Promise.all([
-            supabase.from('books').select('id, book_name, status').eq('school_id', schoolId).eq('barcode', barkod).single(),
+            supabase.from('books').select('id, book_name, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single(),
             supabase.from('students').select('id, full_name').eq('school_id', schoolId).eq('student_no', ogrNo).single()
         ]);
 
@@ -487,7 +508,7 @@ exports.kitapVer = async (req, res) => {
         if (condition) updateData.condition = condition;
 
         const [transRes, bookUpdRes] = await Promise.all([
-            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: handlerName || 'Bilinmeyen', borrow_condition: condition || null }]),
+            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: handlerName || 'Bilinmeyen', borrow_condition: condition || book.condition }]),
             supabase.from('books').update(updateData).eq('id', book.id)
         ]);
 
@@ -515,7 +536,7 @@ exports.kitapAl = async (req, res) => {
             }
         }
 
-        const { data: book } = await supabase.from('books').select('id, book_name, shelf, status').eq('school_id', schoolId).eq('barcode', barkod).single();
+        const { data: book } = await supabase.from('books').select('id, book_name, shelf, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single();
         if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
         if (book.status === 'available') return res.json({ status: 'error', message: 'Bu kitap zaten rafta.' });
 
@@ -538,7 +559,7 @@ exports.kitapAl = async (req, res) => {
 
         // Transaction tablosunda "received_by" güncellenerek teslim edenin adı loglanır.
         const [transRes, bookUpdRes] = await Promise.all([
-            supabase.from('transactions').update({ status: 'returned', return_date: today, received_by: handlerName || 'Bilinmeyen', return_condition: condition || null }).eq('id', trans.id),
+            supabase.from('transactions').update({ status: 'returned', return_date: today, received_by: handlerName || 'Bilinmeyen', return_condition: condition || book.condition }).eq('id', trans.id),
             supabase.from('books').update(updateData).eq('id', book.id)
         ]);
 
@@ -779,7 +800,7 @@ exports.undo = async (req, res) => {
             // Kitap alma işlemini iptal et: En son teslimi bul, tekrar 'borrowed' yap
             const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'returned').order('return_date', { ascending: false }).limit(1).single();
             if (trans) {
-                await supabase.from('transactions').update({ status: 'borrowed', return_date: null }).eq('id', trans.id);
+                await supabase.from('transactions').update({ status: 'borrowed', return_date: null, return_condition: null, received_by: null }).eq('id', trans.id);
                 await supabase.from('books').update({ status: 'borrowed' }).eq('id', book.id);
             }
         }
