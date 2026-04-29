@@ -32,7 +32,8 @@ router.post('/sorgula', libraryController.sorgula);
 router.post('/addStudent', libraryController.addStudent);
 router.post('/students/bulk', libraryController.bulkAddStudents);
 router.post('/updateStudent', libraryController.updateStudent);
-
+router.post('/searchStudentsAdvanced', libraryController.searchStudentsAdvanced);
+router.post('/updateStudentDetailed', libraryController.updateStudentDetailed);
 router.get('/globalBooks', libraryController.getGlobalBooks);
 router.post('/books/bulk', libraryController.bulkAddBooks);
 router.post('/archive', libraryController.archiveRecord);

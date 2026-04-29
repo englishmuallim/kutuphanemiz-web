@@ -299,7 +299,6 @@ async function sorgula(incomingType) {
                     html += `<div class="result-card" style="border-left-color:#f59e0b;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div style="font-weight:bold;">${book.name}</div>
-                                    <button onclick="archiveRecord('${book.code}', 'book')" style="background:none; border:none; color:#ef4444; cursor:pointer;" title="Arşive Gönder"><span class="material-symbols-rounded">delete</span></button>
                                 </div>
                                 <div style="font-size:0.9rem; color:#666;">${book.author} | Barkod: ${book.code}</div>
                                 <div style="margin-top:5px; display:flex; gap:5px;">
@@ -313,7 +312,6 @@ async function sorgula(incomingType) {
                 html += `<div class="result-card" style="border-left-color:#6366f1;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div style="font-weight:bold; color:#4f46e5; font-size:1.1rem;">${std.name}</div>
-                        <button onclick="archiveRecord('${std.no}', 'student')" style="background:none; border:none; color:#ef4444; cursor:pointer;" title="Arşive Gönder"><span class="material-symbols-rounded">delete</span></button>
                     </div>
                     <div style="font-size:0.9rem;">${std.grade}/${std.className} - ${std.no}</div>
                     <div style="display:flex; gap:10px; margin-top:10px; padding:10px; background:#f9fafb; border-radius:8px;">
@@ -382,28 +380,119 @@ async function kaydet(type) {
     } catch (e) { Swal.fire('Hata', 'Sunucu hatası.', 'error'); }
 }
 
-async function updateStudent() {
+// Öğrenciyi Arama
+async function searchStudentForEdit() {
+    const query = document.getElementById("studentSearchInput").value.trim();
+    if (!query) return;
+
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
-    const no = document.getElementById("updateOgrNo").value;
-    const newGrade = document.getElementById("updateOgrKademe").value;
-    const newClass = document.getElementById("updateOgrSube").value;
-    if (!no || !newGrade || !newClass) { Swal.fire('Eksik', 'Bilgileri doldurun', 'warning'); return; }
+    const resultsArea = document.getElementById("studentSearchResults");
+    resultsArea.innerHTML = '<div style="text-align:center; padding:10px;">Aranıyor...</div>';
 
-    Swal.fire({ title: 'Güncelleniyor...', didOpen: () => Swal.showLoading() });
     try {
-        const res = await fetch('/api/updateStudent', {
+        const res = await fetch('/api/searchStudentsAdvanced', { // Backend'e yeni bir endpoint yazdıracağız
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, no: no, newGrade: newGrade, newClass: newClass })
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, query: query })
+        });
+        const r = await res.json();
+
+        if (r.status === 'success' && r.data.length > 0) {
+            resultsArea.innerHTML = r.data.map(std => `
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#f3f4f6; padding:10px; border-radius:8px;">
+                    <div><b>${std.full_name}</b> <br><small style="color:#6b7280;">No: ${std.student_no} | ${std.grade}/${std.class_name}</small></div>
+                    <button onclick='fillStudentEditForm(${JSON.stringify(std).replace(/'/g, "&apos;")})' style="background:#8b5cf6; color:white; border:none; padding:5px 15px; border-radius:6px; cursor:pointer;">Seç</button>
+                </div>
+            `).join('');
+        } else {
+            resultsArea.innerHTML = '<div style="color:red; text-align:center;">Öğrenci bulunamadı.</div>';
+        }
+    } catch (e) { resultsArea.innerHTML = 'Hata oluştu.'; }
+}
+
+// Seçilen Öğrenciyi Forma Doldurma
+function fillStudentEditForm(std) {
+    document.getElementById("editS_oldNo").value = std.student_no;
+    document.getElementById("editS_name").value = std.full_name;
+    document.getElementById("editS_no").value = std.student_no;
+    document.getElementById("editS_grade").value = std.grade;
+    document.getElementById("editS_class").value = std.class_name;
+    document.getElementById("studentEditFormArea").style.display = "block";
+}
+
+// Bilgileri Kaydetme
+async function saveStudentEdit() {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    const payload = {
+        schoolCode: code, schoolPass: pass,
+        oldNo: document.getElementById("editS_oldNo").value,
+        newNo: document.getElementById("editS_no").value,
+        newName: document.getElementById("editS_name").value,
+        newGrade: document.getElementById("editS_grade").value,
+        newClass: document.getElementById("editS_class").value
+    };
+
+    Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/updateStudentDetailed', { // Backend'e yeni/güncellenmiş endpoint
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         });
         const r = await res.json();
         if (r.status === 'success') {
-            Swal.fire('Başarılı', `${r.studentName} artık ${newGrade}/${newClass} sınıfında.`, 'success');
-            document.getElementById("updateOgrNo").value = "";
+            Swal.fire('Başarılı', 'Öğrenci bilgileri güncellendi.', 'success');
+            closeStudentEditModal();
         } else Swal.fire('Hata', r.message, 'error');
     } catch (e) { Swal.fire('Hata', 'Sunucu hatası', 'error'); }
 }
 
+// Güvenli Silme (Zırhlı Buton)
+async function deleteStudentEdit() {
+    const studentName = document.getElementById("editS_name").value;
+    const studentNo = document.getElementById("editS_oldNo").value;
+
+    const confirmed = await Swal.fire({
+        title: 'Emin misiniz?',
+        html: `<b>${studentName}</b> adlı öğrenciyi sistemden silmek/arşivlemek üzeresiniz.<br><br><i>Not: Üzerinde teslim edilmemiş kitap varsa silinemez.</i>`,
+        icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', cancelButtonColor: '#6b7280', confirmButtonText: 'Evet, Sil!', cancelButtonText: 'İptal'
+    });
+
+    if (!confirmed.isConfirmed) return;
+
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    Swal.fire({ title: 'Siliniyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/archive', { // Mevcut arşivleme servisimizi kullanıyoruz
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, code: studentNo, type: 'student' })
+        });
+        const r = await res.json();
+        if (r.status === 'success') {
+            Swal.fire('Silindi', 'Öğrenci başarıyla silindi.', 'success');
+            closeStudentEditModal();
+        } else Swal.fire('Hata', r.message, 'error');
+    } catch (e) { Swal.fire('Hata', 'Sunucu hatası', 'error'); }
+}
+// Öğrenci Düzenleme Modalını Kapat ve Temizle
+function closeStudentEditModal() {
+    // 1. Modalı gizle
+    document.getElementById('studentEditSearchModal').classList.add('hidden');
+
+    // 2. Arama kutusunu ve sonuç listesini sıfırla
+    if (document.getElementById('studentSearchInput')) document.getElementById('studentSearchInput').value = '';
+    if (document.getElementById('studentSearchResults')) document.getElementById('studentSearchResults').innerHTML = '';
+
+    // 3. Form kutularını sıfırla ve form alanını gizle
+    if (document.getElementById('studentEditFormArea')) document.getElementById('studentEditFormArea').style.display = 'none';
+    if (document.getElementById('editS_oldNo')) document.getElementById('editS_oldNo').value = '';
+    if (document.getElementById('editS_name')) document.getElementById('editS_name').value = '';
+    if (document.getElementById('editS_no')) document.getElementById('editS_no').value = '';
+    if (document.getElementById('editS_grade')) document.getElementById('editS_grade').value = '';
+    if (document.getElementById('editS_class')) document.getElementById('editS_class').value = '';
+}
 
 async function getReport() {
     const code = localStorage.getItem("kutuphane_code");
@@ -668,43 +757,7 @@ async function loadBookSuggestions() {
     } catch (error) { console.error("Öneriler yüklenemedi", error); }
 }
 
-async function archiveRecord(code, type) {
-    const confirmed = await Swal.fire({
-        title: 'Emin misiniz?',
-        text: 'Bu kayıt arşive gönderilecek ve listelerde görünmeyecek.',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#ef4444',
-        cancelButtonColor: '#6b7280',
-        confirmButtonText: 'Evet, Arşivle',
-        cancelButtonText: 'İptal'
-    });
 
-    if (!confirmed.isConfirmed) return;
-
-    const schoolCode = localStorage.getItem("kutuphane_code");
-    const schoolPass = localStorage.getItem("kutuphane_pass");
-
-    Swal.fire({ title: 'Arşivleniyor...', didOpen: () => Swal.showLoading() });
-    try {
-        const res = await fetch('/api/archive', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode, schoolPass, code, type })
-        });
-        const result = await res.json();
-
-        if (result.status === 'success') {
-            Swal.fire('Başarılı', result.message, 'success');
-            document.getElementById("sorguSonucAlani").innerHTML = ""; // Temizle
-            getStats(); // Sayıları güncelle
-        } else {
-            Swal.fire('Hata', result.message, 'error');
-        }
-    } catch (error) {
-        Swal.fire('Hata', 'Sunucu hatası', 'error');
-    }
-}
 
 async function loadSettings() {
     const code = localStorage.getItem("kutuphane_code");

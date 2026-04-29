@@ -189,8 +189,9 @@
                     <div class="yonetim-card" onclick="showYonetimForm('student')">
                         <icon>person_add</icon><span>Öğrenci Ekle</span>
                     </div>
-                    <div class="yonetim-card purple" onclick="showYonetimForm('studentUpdate')">
-                        <icon>manage_accounts</icon><span>Öğrenci Güncelle</span>
+                    <div class="yonetim-card purple"
+                        onclick="document.getElementById('studentEditSearchModal').classList.remove('hidden')">
+                        <icon>school</icon><span>Öğrenci Düzenle</span>
                     </div>
                     <div class="yonetim-card orange" onclick="showYonetimForm('book')">
                         <icon>library_add</icon><span>Kitap Ekle</span>
@@ -251,24 +252,73 @@
                     <button class="action-btn" style="background:#4f46e5;" onclick="kaydet('student')">Kaydet</button>
                 </div>
 
-                <div id="yonetim-form-studentUpdate" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
-                                class="material-symbols-rounded">arrow_back</span></button>Sınıf Değiştir</div>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
-                            type="number" id="updateOgrNo" placeholder="Öğrenci No"></div>
-                    <div style="display:flex; gap:10px;">
-                        <div class="input-group" style="flex:1;"><span
-                                class="material-symbols-rounded input-icon">numbers</span><select id="updateOgrKademe"
-                                class="grade-selector">
-                                <option value="">Kademe</option>
-                            </select></div>
-                        <div class="input-group" style="flex:1;"><span
-                                class="material-symbols-rounded input-icon">school</span><select id="updateOgrSube"
-                                class="class-selector">
-                                <option value="">Şube</option>
-                            </select></div>
+                <div id="studentEditSearchModal" class="modal hidden"
+                    style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center;">
+                    <div
+                        style="background:#fff; width:90%; max-width:600px; padding:20px; border-radius:12px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+
+                        <div
+                            style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #e5e7eb; padding-bottom:10px; margin-bottom:15px;">
+                            <h3 style="margin:0; color:#1f2937;">👩‍🎓 Öğrenci Bul ve Düzenle</h3>
+                            <button onclick="closeStudentEditModal()"
+                                style="background:none; border:none; color:#6b7280; font-size:24px; cursor:pointer; line-height:1; padding:5px;">&times;</button>
+                        </div>
+
+                        <div style="display:flex; gap:10px; margin-bottom:15px;">
+                            <input type="text" id="studentSearchInput" placeholder="Öğrenci Adı veya No girin..."
+                                style="flex:1; padding:10px; border:1px solid #d1d5db; border-radius:8px; outline:none;"
+                                onkeydown="if(event.key==='Enter') searchStudentForEdit()">
+                            <button onclick="searchStudentForEdit()"
+                                style="background:#8b5cf6; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Ara</button>
+                        </div>
+
+                        <div id="studentSearchResults"
+                            style="max-height:150px; overflow-y:auto; margin-bottom:15px; display:flex; flex-direction:column; gap:5px;">
+                        </div>
+
+                        <div id="studentEditFormArea"
+                            style="display:none; background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #e5e7eb;">
+                            <h4 style="margin-top:0; color:#4b5563; margin-bottom:15px;">📝 Öğrenci Bilgileri</h4>
+
+                            <input type="hidden" id="editS_oldNo">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                                <div style="grid-column: span 2;">
+                                    <label style="font-size:12px; font-weight:bold; color:#6b7280;">Ad Soyad *</label>
+                                    <input type="text" id="editS_name"
+                                        style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                                </div>
+
+                                <div>
+                                    <label style="font-size:12px; font-weight:bold; color:#6b7280;">Öğrenci No *</label>
+                                    <input type="number" id="editS_no"
+                                        style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                                </div>
+
+                                <div style="display:flex; gap:10px;">
+                                    <div style="flex:1;">
+                                        <label style="font-size:12px; font-weight:bold; color:#6b7280;">Kademe</label>
+                                        <input type="text" id="editS_grade"
+                                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                                    </div>
+                                    <div style="flex:1;">
+                                        <label style="font-size:12px; font-weight:bold; color:#6b7280;">Şube</label>
+                                        <input type="text" id="editS_class"
+                                            style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display:flex; gap:10px; margin-top:20px;">
+                                <button type="button" onclick="deleteStudentEdit()"
+                                    style="flex:1; padding:10px; border-radius:8px; border:none; background:#ef4444; font-weight:bold; color:#fff; cursor:pointer;">Sil
+                                    / Arşivle</button>
+                                <button type="button" onclick="closeStudentEditModal()"
+                                    style="flex:1; padding:10px; border-radius:8px; border:1px solid #d1d5db; background:#fff; font-weight:bold; color:#4b5563; cursor:pointer;">İptal</button>
+                                <button type="button" onclick="saveStudentEdit()"
+                                    style="flex:1; padding:10px; border-radius:8px; border:none; background:#10b981; font-weight:bold; color:#fff; cursor:pointer;">Kaydet</button>
+                            </div>
+                        </div>
                     </div>
-                    <button class="action-btn" style="background:#8b5cf6;" onclick="updateStudent()">Güncelle</button>
                 </div>
 
 
@@ -338,6 +388,8 @@
                     <div class="input-group"><span class="material-symbols-rounded input-icon">calendar_month</span>
                         <select id="reportMonth">
                             <option value="ALL">Tüm Zamanlar</option>
+                            <option value="TERM1">Birinci Dönem</option>
+                            <option value="TERM2">İkinci Dönem</option>
                             <option value="01">Ocak</option>
                             <option value="02">Şubat</option>
                             <option value="03">Mart</option>
@@ -546,7 +598,7 @@
     </div>
 
     <div id="teacherFormModal" class="hidden"
-        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; display:flex; align-items:center; justify-content:center;">
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: index 1000;; display:flex; align-items:center; justify-content:center;">
         <div
             style="background:#fff; border-radius:16px; width:90%; max-width:500px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1); display:flex; flex-direction:column; max-height:90vh; overflow-y:auto;">
             <div
@@ -627,7 +679,7 @@
     </div>
 
     <div id="bookEditSearchModal" class="modal hidden"
-        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; display:flex; justify-content:center; align-items:center;">
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center;">
         <div
             style="background:#fff; width:90%; max-width:600px; padding:20px; border-radius:12px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
 
