@@ -1,10 +1,10 @@
 // --- BAŞLANGIÇ & AYARLAR ---
-// Splash 3.5 saniye (3500ms)
+// Splash 2.5 saniye (2500ms)
 window.addEventListener('load', () => {
     setTimeout(() => {
         document.getElementById('splash-screen').classList.add('hidden-splash');
         document.body.style.overflow = 'auto';
-    }, 3150);
+    }, 2500);
 });
 
 function logout() {
