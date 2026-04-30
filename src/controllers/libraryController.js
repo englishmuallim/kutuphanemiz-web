@@ -11,6 +11,7 @@ async function getSchoolAuth(code, pass) {
 
     const settings = data.kt_settings || {};
     let role = null;
+    let app_roles = null;
 
     if (data.kt_pass === pass) {
         role = 'admin';
@@ -36,12 +37,13 @@ async function getSchoolAuth(code, pass) {
     } else {
         // Personel/Yönetici users tablosundan kontrol
         const { data: user } = await supabase.from('users')
-            .select('id, role')
+            .select('id, role, app_roles')
             .eq('school_id', data.id)
             .eq('password', pass)
             .limit(1);
         if (user && user.length > 0) {
             role = user[0].role; // 'admin' veya 'teacher' vb
+            app_roles = user[0].app_roles;
         } else {
             return null;
         }
@@ -55,7 +57,7 @@ async function getSchoolAuth(code, pass) {
     endDate.setHours(23, 59, 59, 999);
     if (today < startDate || today > endDate) throw new Error('Abonelik süreniz dolmuştur.');
 
-    return { id: data.id, role, settings };
+    return { id: data.id, role, app_roles, settings };
 }
 
 async function getSchoolId(code, pass) {
@@ -954,7 +956,7 @@ exports.updateSettings = async (req, res) => {
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        if (auth.role !== 'admin') {
+        if (!(auth.role === 'admin' || auth.app_roles?.kutuphanemiz?.role === 'admin')) {
             return res.json({ status: 'error', message: 'Bu işlem için yetkiniz yok.' });
         }
 

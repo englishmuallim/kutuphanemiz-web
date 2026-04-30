@@ -560,7 +560,7 @@ async function getReport() {
                     });
                 } else {
                     booksHtml = `<div style="color:#9ca3af;">Veri yok.</div>`;
-                }
+                } n
 
                 html += `<div class="report-item" onclick="this.classList.toggle('active')">
                     <div class="report-header-row">
