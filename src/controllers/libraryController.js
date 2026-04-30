@@ -466,8 +466,7 @@ exports.kitapVer = async (req, res) => {
         const settings = auth.settings;
 
         if (settings.lib_open_time && settings.lib_close_time) {
-            const now = new Date();
-            const currentHourStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+            const currentHourStr = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', hour12: false });
             if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
                 return res.json({ status: 'error', message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` });
             }
@@ -532,7 +531,7 @@ exports.kitapAl = async (req, res) => {
         const settings = auth.settings;
 
         if (settings.lib_open_time && settings.lib_close_time) {
-            const currentHourStr = String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0');
+            const currentHourStr = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', hour12: false });
             if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
                 return res.json({ status: 'error', message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` });
             }
@@ -767,13 +766,15 @@ exports.getReport = async (req, res) => {
                 const borrowDate = new Date(t.borrow_date);
                 const monthStr = ("0" + (borrowDate.getMonth() + 1)).slice(-2); // "01", "09" gibi ay formatı
 
-                if (filterMonth !== 'ALL') {
-                    if (filterMonth === 'TERM1') {
+                if (filterMonth && filterMonth !== 'ALL') {
+                    const fMonthStr = String(filterMonth).trim().toUpperCase();
+                    if (fMonthStr === 'TERM1') {
                         if (!['07', '08', '09', '10', '11', '12', '01'].includes(monthStr)) return acc;
-                    } else if (filterMonth === 'TERM2') {
+                    } else if (fMonthStr === 'TERM2') {
                         if (!['02', '03', '04', '05', '06'].includes(monthStr)) return acc;
                     } else {
-                        if (monthStr !== filterMonth) return acc;
+                        const targetMonth = String(filterMonth).trim().padStart(2, '0');
+                        if (monthStr !== targetMonth) return acc;
                     }
                 }
 
@@ -794,7 +795,7 @@ exports.getReport = async (req, res) => {
         let sortedReport = Object.values(reportData).sort((a, b) => b.totalPage - a.totalPage);
         res.json({ status: 'success', data: sortedReport });
 
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    } catch (error) { res.status(500).json({ status: 'error', message: 'Sunucu Hatası: ' + (error.message || JSON.stringify(error) || error) }); }
 };
 
 // ==========================================
