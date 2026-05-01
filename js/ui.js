@@ -702,3 +702,19 @@ window.deleteBookEdit = async function () {
         alert("Silme hatası: " + res.message);
     }
 };
+
+// ==========================================
+// ARAYÜZ YARDIMCI FONKSİYONLARI
+// ==========================================
+window.togglePasswordVisibility = function (inputId, iconElement) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        iconElement.innerText = 'visibility_off';
+    } else {
+        input.type = 'password';
+        iconElement.innerText = 'visibility';
+    }
+};

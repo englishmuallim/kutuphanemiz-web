@@ -777,13 +777,17 @@ async function loadSettings() {
 
             document.getElementById("setting_staff_pass_mode").value = s.staff_pass_mode || 'fixed';
             if (s.staff_pass_mode === 'fixed') {
-                document.getElementById("setting_fixed_staff_name").value = s.staff_names || '';
-                document.getElementById("setting_staff_password").value = s.staff_password || '';
+                document.getElementById("setting_fixed_staff_name").value = s.fixed_staff_name || s.staff_names || '';
+                document.getElementById("setting_staff_password").value = s.fixed_staff_password || s.staff_password || '';
                 currentStaffNames = [];
+            } else if (s.staff_pass_mode === 'hybrid') {
+                document.getElementById("setting_fixed_staff_name").value = s.fixed_staff_name || '';
+                document.getElementById("setting_staff_password").value = s.fixed_staff_password || '';
+                currentStaffNames = s.daily_staff_names ? s.daily_staff_names.split(',').map(n => n.trim()).filter(Boolean) : [];
             } else {
                 document.getElementById("setting_fixed_staff_name").value = '';
                 document.getElementById("setting_staff_password").value = '';
-                currentStaffNames = s.staff_names ? s.staff_names.split(',').map(n => n.trim()).filter(Boolean) : [];
+                currentStaffNames = s.daily_staff_names ? s.daily_staff_names.split(',').map(n => n.trim()).filter(Boolean) : (s.staff_names ? s.staff_names.split(',').map(n => n.trim()).filter(Boolean) : []);
             }
             renderStaffList();
             if (typeof toggleStaffGroups === 'function') toggleStaffGroups();

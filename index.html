@@ -44,7 +44,10 @@
 
             <div class="input-group">
                 <span class="material-symbols-rounded input-icon">lock</span>
-                <input type="password" id="schoolPass" placeholder="Şifre" onkeydown="if(event.key==='Enter') login()">
+                <input type="password" id="schoolPass" placeholder="Şifre" onkeydown="if(event.key==='Enter') login()"
+                    style="padding-right: 40px;">
+                <span class="material-symbols-rounded" onclick="togglePasswordVisibility('schoolPass', this)"
+                    style="position: absolute; right: 10px; cursor: pointer; color: #6b7280; user-select: none;">visibility</span>
             </div>
 
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px;">
@@ -505,8 +508,14 @@
                         <label class="text-sm text-gray-500 mb-1 block"
                             style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Görevli
                             Şifresi</label>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">lock</span><input
-                                type="text" id="setting_staff_password" placeholder="Şifre Belirleyin"></div>
+                        <div class="input-group">
+                            <span class="material-symbols-rounded input-icon">lock</span>
+                            <input type="password" id="setting_staff_password" placeholder="Şifre Belirleyin"
+                                style="padding-right: 40px;">
+                            <span class="material-symbols-rounded"
+                                onclick="togglePasswordVisibility('setting_staff_password', this)"
+                                style="position: absolute; right: 10px; cursor: pointer; color: #6b7280; user-select: none;">visibility</span>
+                        </div>
                     </div>
 
                     <div id="dailyStaffGroup" style="display:none;">
