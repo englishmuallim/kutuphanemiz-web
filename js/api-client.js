@@ -1333,3 +1333,74 @@ async function deleteBookAPI(payload) {
         return { status: 'error', message: 'Sunucu hatası' };
     }
 }
+
+// ==========================================
+// 🎫 SİHİRLİ BİLET (MAGIC TOKEN) YAKALAYICI
+// ==========================================
+async function checkMagicToken() {
+    // 1. URL'de bilet var mı diye bak
+    const urlParams = new URLSearchParams(window.location.search);
+    const bilet = urlParams.get('bilet');
+
+    if (bilet) {
+        console.log("🎫 Bilet tespit edildi, kapılar Süper Admin için zorlanıyor...");
+
+        // Ekrana geçici bir yükleniyor mesajı verebiliriz
+        Swal.fire({
+            title: 'Süper Admin Girişi...',
+            text: 'Biletiniz doğrulanıyor, lütfen bekleyin.',
+            allowOutsideClick: false,
+            didOpen: () => { Swal.showLoading(); }
+        });
+
+        try {
+            // 2. Bileti arka plana yolla
+            const response = await fetch('/api/magic-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bilet: bilet })
+            });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                // 3. SENİN SİSTEMİNİN BİREBİR AYNI HAFIZA KAYITLARI
+                localStorage.setItem("okul_ismi", result.schoolName);
+                localStorage.setItem("kutuphane_user", result.userName);
+                localStorage.setItem("user_role", result.role);
+                localStorage.setItem("kt_role", result.kt_role || result.role);
+                localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
+
+                document.getElementById("headerTitle").innerText = result.schoolName;
+
+                // 4. İzinleri ayarla (Sistemindeki mevcut fonksiyon)
+                if (typeof applyPermissions === 'function') applyPermissions();
+
+                // 5. URL'deki bileti sil (Kullanıcı sayfayı yenilerse hata almasın)
+                window.history.replaceState({}, document.title, window.location.pathname);
+
+                // 6. EKRAN GEÇİŞİ (Senin sisteminin birebir aynısı)
+                document.getElementById("login-screen").classList.add("hidden");
+                document.getElementById("dashboard").classList.remove("hidden");
+
+                // Dashboard verilerini çek (Senin fonksiyonların)
+                getStats();
+                getOverdueBooks();
+                loadClasses();
+                getLeaderboard();
+                loadBookSuggestions();
+
+                Swal.fire({ icon: 'success', title: 'Sızma Başarılı!', text: 'Süper Admin olarak giriş yapıldı.', timer: 2000, showConfirmButton: false });
+            } else {
+                Swal.fire({ icon: 'error', title: 'Sızma Başarısız', text: result.message });
+            }
+        } catch (error) {
+            console.error(error);
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Sihirli bilet sunucuya iletilemedi.' });
+        }
+    }
+}
+
+// Dosya yüklendiğinde bilet yakalayıcıyı otomatik çalıştır
+document.addEventListener('DOMContentLoaded', () => {
+    checkMagicToken();
+});

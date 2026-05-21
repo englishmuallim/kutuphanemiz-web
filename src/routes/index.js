@@ -4,6 +4,7 @@ const libraryController = require('../controllers/libraryController');
 
 // Kullanıcı & Oturum İşlemleri
 router.post('/login', libraryController.login);
+router.post('/magic-login', libraryController.magicLogin); // YENİ: Bilet kapısı
 
 // Şifre Sıfırlama İşlemleri
 router.post('/forgotPassword', libraryController.forgotPassword);
