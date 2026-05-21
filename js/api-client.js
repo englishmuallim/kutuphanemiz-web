@@ -1364,6 +1364,8 @@ async function checkMagicToken() {
 
             if (result.status === 'success') {
                 // 3. SENİN SİSTEMİNİN BİREBİR AYNI HAFIZA KAYITLARI
+                localStorage.setItem("kutuphane_code", result.schoolCode);
+                localStorage.setItem("kutuphane_pass", result.schoolPass);
                 localStorage.setItem("okul_ismi", result.schoolName);
                 localStorage.setItem("kutuphane_user", result.userName);
                 localStorage.setItem("user_role", result.role);

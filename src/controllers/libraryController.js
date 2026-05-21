@@ -624,7 +624,16 @@ exports.searchStudentsAdvanced = async (req, res) => {
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
         if (!query || query.trim() === '') {
-            return res.json({ status: 'success', data: [] });
+            return res.json({
+                status: 'success',
+                schoolCode: school.school_code, // 🚀 EKLENDİ
+                schoolPass: school.kt_pass,     // 🚀 EKLENDİ
+                schoolName: school.school_name,
+                userName: 'Süper Admin',
+                role: 'admin',
+                kt_role: 'admin',
+                kt_classes: ['ALL']
+            });
         }
 
         // Arama terimini al ve virgülleri temizle (Supabase OR sintaksını bozmaması için)
@@ -1336,7 +1345,7 @@ exports.magicLogin = async (req, res) => {
         // 1. Supabase'den bu bilete sahip okulu bul (JSONB içinde arama yapıyoruz)
         const { data: schools, error } = await supabase
             .from('schools')
-            .select('id, school_name, kt_settings')
+            .select('id, school_code, school_name, kt_pass, kt_settings')
             .contains('kt_settings', { magic_token: bilet });
 
         if (error || !schools || schools.length === 0) {
