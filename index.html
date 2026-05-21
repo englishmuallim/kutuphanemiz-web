@@ -340,7 +340,8 @@
                     </div>
                     <div class="input-group">
                         <span class="material-symbols-rounded input-icon">menu_book</span>
-                        <input type="text" id="newKitapAd" placeholder="Kitap Adı" list="bookSuggestions">
+                        <input type="text" id="newKitapAd" placeholder="Kitap Adı" list="bookSuggestions"
+                            oninput="loadBookSuggestions(this.value)" autocomplete="off">
                         <datalist id="bookSuggestions"></datalist>
                     </div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">edit_note</span><input

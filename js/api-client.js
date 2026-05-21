@@ -746,17 +746,36 @@ async function getOverdueBooks() {
     } catch (e) { }
 }
 
-async function loadBookSuggestions() {
-    try {
-        const res = await fetch('/api/globalBooks');
-        const r = await res.json();
-        if (r.status === 'success' && r.data.length > 0) {
-            const datalist = document.getElementById("bookSuggestions");
-            let options = "";
-            r.data.forEach(book => { options += `<option value="${book}">`; });
-            datalist.innerHTML = options;
+let suggestionTimeout;
+
+async function loadBookSuggestions(query) {
+    // Kullanıcı en az 2 harf yazmadan arama yapma
+    if (!query || query.length < 2) {
+        document.getElementById("bookSuggestions").innerHTML = "";
+        return;
+    }
+
+    // Debounce: Kullanıcı hızlı hızlı yazarken her harfte sunucuya istek atmasını engeller.
+    // Yazmayı bıraktıktan 300ms sonra tek bir istek atar.
+    clearTimeout(suggestionTimeout);
+    suggestionTimeout = setTimeout(async () => {
+        try {
+            // Arama terimini backend'e parametre olarak gönderiyoruz
+            const res = await fetch(`/api/globalBooks?q=${encodeURIComponent(query)}`);
+            const r = await res.json();
+
+            if (r.status === 'success') {
+                const datalist = document.getElementById("bookSuggestions");
+                let options = "";
+                r.data.forEach(book => {
+                    options += `<option value="${book}">`;
+                });
+                datalist.innerHTML = options;
+            }
+        } catch (error) {
+            console.error("Öneriler yüklenemedi", error);
         }
-    } catch (error) { console.error("Öneriler yüklenemedi", error); }
+    }, 300);
 }
 
 
@@ -1056,16 +1075,16 @@ function filterLogs() {
         renderLogs(allLogs);
         return;
     }
-    const q = searchTerm.toLowerCase();
+    const q = searchTerm.toLocaleLowerCase('tr-TR');
 
     const filtered = allLogs.filter(log => {
-        return (log.students?.full_name || '').toLowerCase().includes(q) ||
+        return (log.students?.full_name || '').toLocaleLowerCase('tr-TR').includes(q) ||
             (log.students?.student_no?.toString() || '').includes(q) ||
-            ((log.students?.grade || '') + '/' + (log.students?.class_name || '')).toLowerCase().includes(q) ||
-            (log.books?.book_name || '').toLowerCase().includes(q) ||
+            ((log.students?.grade || '') + '/' + (log.students?.class_name || '')).toLocaleLowerCase('tr-TR').includes(q) ||
+            (log.books?.book_name || '').toLocaleLowerCase('tr-TR').includes(q) ||
             (log.books?.barcode?.toString() || '').includes(q) ||
-            (log.handed_by || '').toLowerCase().includes(q) ||
-            (log.received_by || '').toLowerCase().includes(q);
+            (log.handed_by || '').toLocaleLowerCase('tr-TR').includes(q) ||
+            (log.received_by || '').toLocaleLowerCase('tr-TR').includes(q);
     });
 
     renderLogs(filtered);

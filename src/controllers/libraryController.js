@@ -623,22 +623,44 @@ exports.searchStudentsAdvanced = async (req, res) => {
         const schoolId = await getSchoolId(schoolCode, schoolPass);
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        let orQuery = `full_name.ilike.%${query}%`;
-        if (!isNaN(query) && query.trim() !== '') {
-            orQuery += `,student_no.eq.${query}`;
+        if (!query || query.trim() === '') {
+            return res.json({ status: 'success', data: [] });
         }
+
+        // Arama terimini al ve virgülleri temizle (Supabase OR sintaksını bozmaması için)
+        const baseQuery = query.trim().replace(/,/g, '');
+
+        // --- VARYASYON TEKNİĞİ BAŞLANGICI ---
+        const variations = new Set();
+        variations.add(baseQuery);
+
+        // MUCİZE DOKUNUŞ: Supabase 'ilike', Ç/Ş/Ğ harflerini eşleştirir ama i/İ ve ı/I'da takılır.
+        // Girilen kelimedeki 'i'leri 'İ'ye, 'ı'ları 'I'ya (ve tam tersine) çevirerek tam hedefi vuruyoruz.
+        variations.add(baseQuery.replace(/i/g, 'İ'));
+        variations.add(baseQuery.replace(/İ/g, 'i'));
+        variations.add(baseQuery.replace(/ı/g, 'I'));
+        variations.add(baseQuery.replace(/I/g, 'ı'));
+
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
+        variations.add(baseQuery.toLocaleLowerCase('tr-TR'));
+
+        const validVariations = Array.from(variations).filter(v => v);
+        const orQueryString = validVariations.map(v => `book_name.ilike.%${v}%`).join(',');
+        // --- VARYASYON TEKNİĞİ BİTİŞİ ---
 
         const { data, error } = await supabase.from('students')
             .select('full_name, student_no, grade, class_name')
             .eq('school_id', schoolId)
-            .or(orQuery)
+            .or(orQueryString)
             .eq('is_active', true)
             .limit(20);
 
         if (error) throw error;
 
         res.json({ status: 'success', data: data || [] });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 exports.updateStudentDetailed = async (req, res) => {
@@ -870,34 +892,51 @@ exports.undo = async (req, res) => {
 // ==========================================
 exports.getGlobalBooks = async (req, res) => {
     try {
-        let allBooks = [];
-        let from = 0;
-        const step = 1000;
-        let fetchMore = true;
+        // Frontend'den gelen arama terimini alıyoruz (GET veya POST destekli)
+        const query = req.query.q || req.body.q;
 
-        // Supabase'in 1000 satır limitini aşmak için verileri parça parça çekiyoruz
-        while (fetchMore) {
-            const { data } = await supabase
-                .from('books')
-                .select('book_name')
-                .neq('is_active', false)
-                .range(from, from + step - 1);
-
-            if (data && data.length > 0) {
-                allBooks.push(...data);
-                from += step;
-                if (data.length < step) fetchMore = false; // 1000'den az geldiyse son sayfadayız demektir
-            } else {
-                fetchMore = false; // Veri bitti
-            }
+        // Eğer arama terimi yoksa veya çok kısaysa boş dön (sistemi yorma)
+        if (!query || query.trim().length < 2) {
+            return res.json({ status: 'success', data: [] });
         }
 
-        if (allBooks.length === 0) return res.json({ status: 'success', data: [] });
+        const baseQuery = query.trim().replace(/,/g, '');
 
-        // Node.js üzerinde DISTINCT (Benzersizleştirme) ve sıralama işlemi
-        const uniqueBooks = [...new Set(allBooks.map(b => b.book_name))].sort();
+        // --- VARYASYON TEKNİĞİ BAŞLANGICI ---
+        const variations = new Set();
+        variations.add(baseQuery);
+        variations.add(baseQuery.toLocaleLowerCase('tr-TR'));
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
+        variations.add(baseQuery.toLowerCase());
+        variations.add(baseQuery.toUpperCase());
+        variations.add(baseQuery.replace(/i/g, 'ı').replace(/İ/g, 'I'));
+        variations.add(baseQuery.replace(/ı/g, 'i').replace(/I/g, 'İ'));
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR').replace(/İ/g, 'I'));
+
+        const validVariations = Array.from(variations).filter(v => v);
+        const orQueryString = validVariations.map(v => `book_name.ilike.%${v}%`).join(',');
+        // --- VARYASYON TEKNİĞİ BİTİŞİ ---
+
+        // Artık while döngüsü YOK. Sadece eşleşenleri ve maksimum 50 tanesini çekiyoruz.
+        const { data, error } = await supabase
+            .from('books')
+            .select('book_name')
+            .neq('is_active', false)
+            .or(orQueryString)
+            .limit(50);
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            return res.json({ status: 'success', data: [] });
+        }
+
+        // Benzersizleştir ve sırala
+        const uniqueBooks = [...new Set(data.map(b => b.book_name))].sort();
         res.json({ status: 'success', data: uniqueBooks });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 // ==========================================
@@ -1142,13 +1181,43 @@ exports.searchBooks = async (req, res) => {
             return res.json({ status: 'error', message: 'Arama terimi gereklidir.' });
         }
 
-        const q = query.trim();
+        // Arama terimini al ve Supabase OR sintaksını (virgüllerle çalışır) bozmaması için kelime içindeki olası virgülleri temizle
+        const baseQuery = query.trim().replace(/,/g, '');
+
+        // --- VARYASYON TEKNİĞİ BAŞLANGICI ---
+        const variations = new Set(); // Set kullanıyoruz ki aynı kelimeler tekrar eklenmesin
+
+        // 1. Orijinal hali
+        variations.add(baseQuery);
+        // 2. Tamamen küçük harf (Türkçe - ı, i vb. destekli)
+        variations.add(baseQuery.toLocaleLowerCase('tr-TR'));
+        // 3. Tamamen büyük harf (Türkçe - I, İ vb. destekli)
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
+        // 4. Standart İngilizce dönüşümler (Supabase ILIKE için güvenlik ağı)
+        variations.add(baseQuery.toLowerCase());
+        variations.add(baseQuery.toUpperCase());
+
+        // 5. Çok sık yapılan I/i/ı hataları için çapraz dönüşümler
+        // Örn: "bir" yazıldıysa "bır" da aransın, "BİR" yazıldıysa "BIR" da aransın.
+        variations.add(baseQuery.replace(/i/g, 'ı').replace(/İ/g, 'I'));
+        variations.add(baseQuery.replace(/ı/g, 'i').replace(/I/g, 'İ'));
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR').replace(/İ/g, 'I'));
+
+        // Set'i standart bir Array'e çevir ve boş olanları temizle
+        const validVariations = Array.from(variations).filter(v => v);
+
+        // Supabase için dinamik OR sorgusu oluştur
+        // Çıktı Örneği: barcode.ilike.%bir%,book_name.ilike.%bir%,barcode.ilike.%BİR%,book_name.ilike.%BİR%
+        const orQueryString = validVariations
+            .map(v => `barcode.ilike.%${v}%,book_name.ilike.%${v}%`)
+            .join(',');
+        // --- VARYASYON TEKNİĞİ BİTİŞİ ---
 
         const { data: books, error } = await supabase.from('books')
             .select('id, barcode, book_name, author, publisher, shelf, category, page_count, condition, status')
             .eq('school_id', auth.id)
             .eq('is_active', true)
-            .or(`barcode.ilike.%${q}%,book_name.ilike.%${q}%`)
+            .or(orQueryString)
             .limit(20);
 
         if (error) throw error;
@@ -1164,7 +1233,6 @@ exports.searchBooks = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
-
 // ==========================================
 // YENİ: KİTAP GÜNCELLEME
 // ==========================================
@@ -1252,5 +1320,58 @@ exports.deleteTeacher = async (req, res) => {
         res.json({ status: 'success', message: 'Öğretmen başarıyla silindi.' });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// 🎫 SİHİRLİ BİLET İLE VIP GİRİŞ (SÜPER ADMİN)
+// ==========================================
+exports.magicLogin = async (req, res) => {
+    try {
+        const { bilet } = req.body;
+        if (!bilet) return res.json({ status: 'error', message: 'Bilet bulunamadı.' });
+
+        console.log("🔍 SİHİRLİ BİLET KONTROL EDİLİYOR:", bilet);
+
+        // 1. Supabase'den bu bilete sahip okulu bul (JSONB içinde arama yapıyoruz)
+        const { data: schools, error } = await supabase
+            .from('schools')
+            .select('id, school_name, kt_settings')
+            .contains('kt_settings', { magic_token: bilet });
+
+        if (error || !schools || schools.length === 0) {
+            console.warn("🚨 Bilet Geçersiz veya Kullanılmış!");
+            return res.json({ status: 'error', message: 'Geçersiz veya kullanılmış bilet.' });
+        }
+
+        const school = schools[0];
+        const settings = school.kt_settings || {};
+
+        // 2. Süre kontrolü (1 dakikayı geçmiş mi?)
+        if (Date.now() > settings.magic_token_expires) {
+            console.warn("🚨 Biletin süresi dolmuş!");
+            return res.json({ status: 'error', message: 'Biletin süresi dolmuş. Lütfen panelden tekrar deneyin.' });
+        }
+
+        // 3. 🛡️ GÜVENLİK: Bileti tek kullanımlık yapmak için HEMEN YAK!
+        delete settings.magic_token;
+        delete settings.magic_token_expires;
+        await supabase.from('schools').update({ kt_settings: settings }).eq('id', school.id);
+
+        // 4. Kusursuz İllüzyon: Frontend'in beklediği o başarılı giriş JSON'unu fırlat!
+        console.log(`🎉 SÜPER ADMIN SIZMASI BAŞARILI: ${school.school_name}`);
+
+        return res.json({
+            status: 'success',
+            schoolName: school.school_name,
+            userName: 'Süper Admin',
+            role: 'admin',
+            kt_role: 'admin',
+            kt_classes: ['ALL']
+        });
+
+    } catch (error) {
+        console.error("Magic Login Hatası:", error);
+        return res.status(500).json({ status: 'error', message: 'Bilet sistemi sunucu hatası.' });
     }
 };
