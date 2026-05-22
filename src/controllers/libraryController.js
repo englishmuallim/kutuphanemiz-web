@@ -1333,45 +1333,53 @@ exports.deleteTeacher = async (req, res) => {
 };
 
 // ==========================================
-// 🎫 SİHİRLİ BİLET İLE VIP GİRİŞ (SÜPER ADMİN)
+// 🎫 SİHİRLİ BİLET İLE VIP GİRİŞ (GÜNCELLENDİ)
 // ==========================================
 exports.magicLogin = async (req, res) => {
     try {
         const { bilet } = req.body;
         if (!bilet) return res.json({ status: 'error', message: 'Bilet bulunamadı.' });
 
-        console.log("🔍 SİHİRLİ BİLET KONTROL EDİLİYOR:", bilet);
-
-        // 1. Supabase'den bu bilete sahip okulu bul (JSONB içinde arama yapıyoruz)
         const { data: schools, error } = await supabase
             .from('schools')
             .select('id, school_code, school_name, kt_pass, kt_settings')
             .contains('kt_settings', { magic_token: bilet });
 
         if (error || !schools || schools.length === 0) {
-            console.warn("🚨 Bilet Geçersiz veya Kullanılmış!");
             return res.json({ status: 'error', message: 'Geçersiz veya kullanılmış bilet.' });
         }
 
         const school = schools[0];
         const settings = school.kt_settings || {};
 
-        // 2. Süre kontrolü (1 dakikayı geçmiş mi?)
         if (Date.now() > settings.magic_token_expires) {
-            console.warn("🚨 Biletin süresi dolmuş!");
-            return res.json({ status: 'error', message: 'Biletin süresi dolmuş. Lütfen panelden tekrar deneyin.' });
+            return res.json({ status: 'error', message: 'Biletin süresi dolmuş.' });
         }
 
-        // 3. 🛡️ GÜVENLİK: Bileti tek kullanımlık yapmak için HEMEN YAK!
         delete settings.magic_token;
         delete settings.magic_token_expires;
         await supabase.from('schools').update({ kt_settings: settings }).eq('id', school.id);
 
-        // 4. Kusursuz İllüzyon: Frontend'in beklediği o başarılı giriş JSON'unu fırlat!
-        console.log(`🎉 SÜPER ADMIN SIZMASI BAŞARILI: ${school.school_name}`);
+        // 🚀 ZIRHLI ŞİFRE BULUCU (Eğer kt_pass yoksa ilk adminin şifresini al)
+        let validPass = school.kt_pass;
+        if (!validPass) {
+            const { data: firstAdmin } = await supabase
+                .from('users')
+                .select('password')
+                .eq('school_id', school.id)
+                .eq('role', 'admin')
+                .limit(1)
+                .single();
+
+            if (firstAdmin) {
+                validPass = firstAdmin.password;
+            }
+        }
 
         return res.json({
             status: 'success',
+            schoolCode: school.school_code,
+            schoolPass: validPass, // 🚀 Artık null gitme ihtimali yok!
             schoolName: school.school_name,
             userName: 'Süper Admin',
             role: 'admin',
@@ -1380,7 +1388,6 @@ exports.magicLogin = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Magic Login Hatası:", error);
         return res.status(500).json({ status: 'error', message: 'Bilet sistemi sunucu hatası.' });
     }
 };

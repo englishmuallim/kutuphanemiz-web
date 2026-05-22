@@ -1371,6 +1371,7 @@ async function checkMagicToken() {
                 localStorage.setItem("user_role", result.role);
                 localStorage.setItem("kt_role", result.kt_role || result.role);
                 localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
+                localStorage.setItem("kutuphane_login_type", "staff");
 
                 document.getElementById("headerTitle").innerText = result.schoolName;
 
