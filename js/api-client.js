@@ -51,6 +51,7 @@ async function login() {
 
         const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
+
         if (result.status === 'success') {
             localStorage.setItem("okul_ismi", result.schoolName);
             localStorage.setItem("kutuphane_user", result.userName);
@@ -82,33 +83,71 @@ async function login() {
             document.getElementById("dashboard").classList.remove("hidden");
             getStats(); getOverdueBooks(); loadClasses(); getLeaderboard();
             loadBookSuggestions();
-        } else { Swal.fire({ icon: 'error', title: 'Hata', text: result.message }); }
-    } catch (error) { Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucu hatası' }); } finally { btn.innerText = "Giriş Yap"; btn.disabled = false; }
+
+        } else {
+            // 🛑 İŞTE BÜYÜNÜN GERÇEKLEŞTİĞİ YER: LİSANS HATASI KONTROLÜ
+            if (result.isLicenseError) {
+                Swal.fire({
+                    title: 'Lisans Süresi Doldu',
+                    html: result.message, // 'text' yerine 'html' kullanıyoruz ki etiketler çalışsın
+                    icon: 'warning',
+                    confirmButtonText: 'Tamam',
+                    confirmButtonColor: '#ea580c',
+                    background: '#1e293b',
+                    color: '#f8fafc',
+                    iconColor: '#f59e0b'
+                });
+            } else {
+                // Normal şifre/kullanıcı hataları için
+                Swal.fire({ icon: 'error', title: 'Giriş Başarısız', text: result.message });
+            }
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuyla iletişim kurulamadı. Lütfen internet bağlantınızı kontrol edin.' });
+    } finally {
+        btn.innerText = "Giriş Yap"; btn.disabled = false;
+    }
 }
 
+// =========================================================================
+// 🔐 KÜTÜPHANEMİZ - BİREYSEL ŞİFRE SIFIRLAMA ZİNCİRİ
+// =========================================================================
 async function forgotPassword() {
-    const { value: schoolCode } = await Swal.fire({
+    // 1. ADIM: Kurum Kodu ve Kimlik Bilgisi İsteme
+    const { value: formValues } = await Swal.fire({
         title: 'Şifremi Unuttum',
-        input: 'text',
-        inputLabel: 'Sisteme kayıtlı okul kodunuzu girin',
-        inputPlaceholder: 'Örn: 102030',
+        html: `
+            <p style="font-size:14px; color:#666; margin-bottom:15px;">Lütfen kurum kodunuzu ve kimlik bilginizi (Kullanıcı adı, E-posta veya Telefon) girin.</p>
+            <input id="swal-code" class="swal2-input" placeholder="Kurum Kodu (Örn: 102030)" style="margin-bottom: 10px;">
+            <input id="swal-identity" class="swal2-input" placeholder="Kullanıcı Adı, Tel veya E-posta">
+        `,
         showCancelButton: true,
-        confirmButtonText: 'Şifre Sıfırlama Kodu Gönder',
+        confirmButtonText: 'Kodu Gönder',
         cancelButtonText: 'İptal',
-        inputValidator: (value) => {
-            if (!value) return 'Lütfen okul kodunuzu girin!';
+        confirmButtonColor: '#4CAF50',
+        focusConfirm: false,
+        preConfirm: () => {
+            const schoolCode = document.getElementById('swal-code').value;
+            const identity = document.getElementById('swal-identity').value;
+            if (!schoolCode || !identity) {
+                Swal.showValidationMessage('Lütfen her iki alanı da eksiksiz doldurun!');
+                return false;
+            }
+            return { schoolCode, identity };
         }
     });
 
-    if (!schoolCode) return;
+    if (!formValues) return;
+    const { schoolCode, identity } = formValues;
 
-    Swal.fire({ title: 'Kontrol Ediliyor...', html: 'E-posta adresinize kod gönderiliyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: 'Hesabınız Aranıyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
     try {
+        // 1. İSTEK: Kodu Gönder
         let res = await fetch('/api/forgotPassword', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode })
+            body: JSON.stringify({ schoolCode, identity })
         });
         let data = await res.json();
 
@@ -116,16 +155,26 @@ async function forgotPassword() {
             return Swal.fire({ icon: 'error', title: 'Hata', text: data.message });
         }
 
+        // 2. ADIM: 6 Haneli Kodu İsteme
         const { value: resetCode } = await Swal.fire({
             title: 'Kod Gönderildi!',
-            html: `<b>${data.maskedEmail}</b> adresine 6 haneli bir doğrulama kodu gönderdik.<br><br>Lütfen kodu aşağıya girin:`,
-            input: 'text',
-            inputPlaceholder: '123456',
+            html: `
+                <p style="font-size:14px; color:#333; margin-bottom:15px;">
+                    <b>${data.maskedEmail}</b> adresine 6 haneli bir doğrulama kodu gönderdik.<br><br>Lütfen kodu aşağıya girin:
+                </p>
+                <input id="swal-reset-code" type="text" class="swal2-input" placeholder="123456" maxlength="6" style="text-align:center; font-size:24px; letter-spacing:4px;">
+            `,
             showCancelButton: true,
             confirmButtonText: 'Kodu Doğrula',
             cancelButtonText: 'İptal',
-            inputValidator: (value) => {
-                if (!value || value.length !== 6) return 'Lütfen 6 haneli kodu eksiksiz girin!';
+            confirmButtonColor: '#4CAF50',
+            preConfirm: () => {
+                const code = document.getElementById('swal-reset-code').value;
+                if (!code || code.length !== 6) {
+                    Swal.showValidationMessage('Lütfen 6 haneli kodu eksiksiz girin!');
+                    return false;
+                }
+                return code;
             }
         });
 
@@ -133,10 +182,11 @@ async function forgotPassword() {
 
         Swal.fire({ title: 'Kod Doğrulanıyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
+        // 2. İSTEK: Kodu Doğrula
         res = await fetch('/api/verifyResetCode', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode, resetCode })
+            body: JSON.stringify({ schoolCode, identity, resetCode })
         });
         data = await res.json();
 
@@ -144,6 +194,7 @@ async function forgotPassword() {
             return Swal.fire({ icon: 'error', title: 'Geçersiz Kod', text: data.message });
         }
 
+        // 3. ADIM: Yeni Şifre İsteme
         const { value: newPassword } = await Swal.fire({
             title: 'Yeni Şifre',
             html: `
@@ -154,11 +205,11 @@ async function forgotPassword() {
             showCancelButton: true,
             confirmButtonText: 'Şifreyi Kaydet',
             cancelButtonText: 'İptal',
+            confirmButtonColor: '#4CAF50',
             focusConfirm: false,
             preConfirm: () => {
                 const pass1 = document.getElementById('swal-pass1').value;
                 const pass2 = document.getElementById('swal-pass2').value;
-
                 if (!pass1 || pass1.length < 4) {
                     Swal.showValidationMessage('Güvenliğiniz için şifre en az 4 karakter olmalıdır!');
                     return false;
@@ -175,15 +226,16 @@ async function forgotPassword() {
 
         Swal.fire({ title: 'Şifreniz Güncelleniyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
+        // 3. İSTEK: Şifreyi Kaydet
         res = await fetch('/api/updatePassword', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode, resetCode, newPassword })
+            body: JSON.stringify({ schoolCode, identity, resetCode, newPassword })
         });
         data = await res.json();
 
         if (data.status === 'success') {
-            Swal.fire({ icon: 'success', title: 'Başarılı!', text: 'Şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.' });
+            Swal.fire({ icon: 'success', title: 'Başarılı!', text: 'Şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.', confirmButtonColor: '#4CAF50' });
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: data.message });
         }
@@ -583,7 +635,135 @@ async function getReport() {
             if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = "1"; printBtn.style.cursor = "pointer"; }
 
         } else resDiv.innerHTML = 'Hata.';
+    } catch (e) {
+        resDiv.innerHTML = 'Sistem Hatası: ' + e.message;
+        console.error("Detaylı Hata:", e);
+    }
+}
+
+// --- YENİ EKLENEN: Emanet Raporunu Çeken Fonksiyon ---
+async function getBorrowedReport() {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    const grdSelect = document.getElementById("borrowedReportGrade");
+    const clsSelect = document.getElementById("borrowedReportClass");
+    const statSelect = document.getElementById("borrowedReportStatus");
+
+    const grd = grdSelect.value;
+    const cls = clsSelect.value;
+    const stat = statSelect.value;
+
+    const resDiv = document.getElementById("borrowed-report-result");
+    const printBtn = document.getElementById("borrowedPrintBtn");
+
+    if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = "0.5"; printBtn.style.cursor = "not-allowed"; }
+
+    resDiv.innerHTML = '<div style="text-align:center;">Hesaplanıyor...</div>';
+
+    try {
+        const res = await fetch('/api/getBorrowedReport', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: grd, filterClass: cls, filterStatus: stat })
+        });
+        const r = await res.json();
+
+        if (r.status === 'success') {
+            if (r.data.length === 0) { resDiv.innerHTML = '<div style="text-align:center; color:red;">Kayıt yok.</div>'; return; }
+
+            const grdText = grdSelect.options[grdSelect.selectedIndex].text;
+            const clsText = clsSelect.options[clsSelect.selectedIndex].text;
+
+            let titleClass = '';
+            const gradeMatch = grdText.match(/\d+/);
+            const gradeNum = gradeMatch ? gradeMatch[0] : grdText;
+
+            if (grd === 'ALL' && cls === 'ALL') titleClass = 'TÜM OKUL';
+            else if (grd !== 'ALL' && cls === 'ALL') titleClass = `${gradeNum}. SINIFLAR`;
+            else if (grd === 'ALL' && cls !== 'ALL') titleClass = `${clsText} ŞUBELERİ`;
+            else titleClass = `${gradeNum}/${clsText} SINIFI`;
+
+            let reportTitle = `${titleClass} EMANETTEKİ KİTAPLAR RAPORU`;
+            if (stat === 'OVERDUE') reportTitle = `${titleClass} GECİKEN KİTAPLAR RAPORU`;
+
+            let html = `
+            <div style="text-align:center; margin-bottom:20px; padding-bottom:10px; border-bottom:2px solid #f59e0b; page-break-after: avoid;">
+                <h2 style="margin:0; font-size:1.3rem; color:#1f2937;">${reportTitle}</h2>
+            </div>
+            <div style="font-weight:bold; margin-bottom:10px;">Sonuçlar (${r.data.length} Öğrenci): <span style="font-size:0.8rem; font-weight:normal; color:#6b7280; display:inline-block;" class="hide-on-print">(Detaylar için tıklayın)</span></div>`;
+
+            r.data.forEach((item, index) => {
+                let booksHtml = "";
+                if (item.books && item.books.length > 0) {
+                    item.books.forEach(b => {
+                        const statusBadge = `<span style="color: ${b.statusColor}; font-size: 0.8rem; font-weight: bold; float:right;">${b.statusText}</span>`;
+                        booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">📕 ${b.name} ${statusBadge}</div>`;
+                    });
+                }
+
+                // Deneliz'deki gecikme görseli uyarısı (Kırmızı satır ve Ünlem)
+                const isOverdue = item.hasOverdue;
+                const activeBorder = isOverdue ? 'border: 1px solid #fca5a5;' : '';
+                const activeBg = isOverdue ? 'background: #fef2f2;' : '';
+                const warningIcon = isOverdue ? '<span title="Gecikmiş Kitap!" style="margin-left:5px;">⚠️</span>' : '';
+
+                html += `<div class="report-item" style="${activeBorder} ${activeBg}" onclick="this.classList.toggle('active')">
+                    <div class="report-header-row">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div class="rank-circle" style="background:#f59e0b;">${index + 1}</div>
+                            <div><div style="font-weight:bold; color:#1f2937;">${item.name}${warningIcon}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className}</div></div>
+                        </div>
+                        <div style="font-weight:bold; color:#f59e0b; text-align:right;">${item.books.length} Kitap <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span></div>
+                    </div>
+                    <div class="book-details">
+                        <div style="font-weight:bold; margin-bottom:5px; color:#374151;">Emanetteki Kitaplar:</div>
+                        ${booksHtml}
+                    </div>
+                </div>`;
+            });
+
+            resDiv.innerHTML = html;
+            if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = "1"; printBtn.style.cursor = "pointer"; }
+
+        } else resDiv.innerHTML = 'Hata: ' + r.message;
     } catch (e) { resDiv.innerHTML = 'Sunucu Hatası.'; }
+}
+
+// --- YENİ EKLENEN: Emanet Raporunu PDF Olarak Yazdırma ---
+function printBorrowedReport() {
+    const reportContent = document.getElementById('borrowed-report-result').innerHTML;
+
+    // Varsa eski gizli iframe'i temizle
+    let oldFrame = document.getElementById('kutuphanePrintFrame');
+    if (oldFrame) oldFrame.remove();
+
+    // Yeni gizli iframe oluştur
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('id', 'kutuphanePrintFrame');
+    iframe.style.visibility = 'hidden';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    // Iframe'in içine HTML ve CSS bas
+    const doc = iframe.contentWindow.document;
+    doc.write('<html><head><title>Emanet Raporu</title>');
+    doc.write('<style>body{font-family:sans-serif; color:#1f2937; padding:20px;} .hide-on-print{display:none !important;} .report-item{margin-bottom:15px; border-bottom:1px solid #e5e7eb; padding-bottom:10px; page-break-inside: avoid;} .rank-circle{display:inline-block; width:24px; height:24px; background:#f59e0b; color:#fff; border-radius:50%; text-align:center; line-height:24px; font-size:12px; font-weight:bold; margin-right:10px;} .report-header-row{display:flex; align-items:center; justify-content:space-between;}</style>');
+    doc.write('</head><body>');
+    doc.write(reportContent);
+    doc.write('</body></html>');
+    doc.close();
+
+    // İçeriğin DOM'a yüklenmesi için ufak bir gecikme ve ardından tetikleme
+    setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+    }, 500);
 }
 
 async function getStats() {

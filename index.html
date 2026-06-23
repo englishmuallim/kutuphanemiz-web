@@ -204,6 +204,9 @@
                     <div class="yonetim-card pink" onclick="showYonetimForm('report')">
                         <icon>bar_chart</icon><span>Rapor Al</span>
                     </div>
+                    <div class="yonetim-card orange" onclick="showYonetimForm('borrowed-report')">
+                        <icon>hourglass_empty</icon><span>Emanet Raporu</span>
+                    </div>
                     <div class="yonetim-card" onclick="showYonetimForm('logs')">
                         <icon>history</icon><span>İşlem Geçmişi</span>
                     </div>
@@ -414,6 +417,45 @@
                             Yazdır</button>
                     </div>
                     <div id="report-result" style="margin-top:20px;"></div>
+                </div>
+
+                <div id="yonetim-form-borrowed-report" class="hidden" style="margin-top:10px;">
+                    <div class="form-header">
+                        <button class="back-btn" onclick="closeYonetimForm()">
+                            <span class="material-symbols-rounded">arrow_back</span>
+                        </button>Emanet Raporu
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="input-group" style="flex:1;">
+                            <span class="material-symbols-rounded input-icon">school</span>
+                            <select id="borrowedReportGrade" class="grade-selector">
+                                <option value="ALL">Tüm Kademeler</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="flex:1;">
+                            <span class="material-symbols-rounded input-icon">school</span>
+                            <select id="borrowedReportClass" class="class-selector">
+                                <option value="ALL">Tüm Şubeler</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <span class="material-symbols-rounded input-icon">filter_list</span>
+                        <select id="borrowedReportStatus">
+                            <option value="ALL">Tüm Emanettekiler</option>
+                            <option value="OVERDUE">Sadece Gecikenler</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="action-btn" style="background:#f59e0b; flex: 1;"
+                            onclick="getBorrowedReport()">Rapor Oluştur</button>
+                        <button id="borrowedPrintBtn" class="action-btn"
+                            style="background:#6b7280; flex: 1; opacity: 0.5; cursor: not-allowed;"
+                            onclick="printBorrowedReport()" disabled>
+                            <span class="material-symbols-rounded">print</span> PDF / Yazdır
+                        </button>
+                    </div>
+                    <div id="borrowed-report-result" style="margin-top:20px;"></div>
                 </div>
 
                 <div id="yonetim-form-logs" class="hidden" style="margin-top:10px;">

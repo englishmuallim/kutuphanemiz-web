@@ -113,9 +113,9 @@ window.applyPermissions = function () {
                 yonetimTab.innerHTML = '<span class="material-symbols-rounded">bar_chart</span> Raporlar';
             }
 
-            // Report dışındaki tüm yönetim menülerini gizle
+            // Rapor ve Emanet Raporu dışındaki tüm yönetim menülerini gizle
             document.querySelectorAll('.yonetim-card').forEach(card => {
-                const isReport = card.getAttribute('onclick') === "showYonetimForm('report')";
+                const isReport = card.getAttribute('onclick') === "showYonetimForm('report')" || card.getAttribute('onclick') === "showYonetimForm('borrowed-report')";
                 if (!isReport) {
                     card.style.display = 'none';
                 }
@@ -126,9 +126,14 @@ window.applyPermissions = function () {
 
             const reportGrade = document.getElementById('reportGrade');
             const reportClass = document.getElementById('reportClass');
-            // 'Tüm Okul' gibi "ALL" seçeneklerini gizle/etkisizleştir:
+            const borrowedGrade = document.getElementById('borrowedReportGrade'); // YENİ EKLENDİ
+            const borrowedClass = document.getElementById('borrowedReportClass'); // YENİ EKLENDİ
+
+            // 'Tüm Okul' gibi "ALL" seçeneklerini gizle/etkisizleştir (Her iki rapor için):
             if (reportGrade) Array.from(reportGrade.options).forEach(o => { if (o.value === 'ALL') o.style.display = 'none'; });
             if (reportClass) Array.from(reportClass.options).forEach(o => { if (o.value === 'ALL') o.style.display = 'none'; });
+            if (borrowedGrade) Array.from(borrowedGrade.options).forEach(o => { if (o.value === 'ALL') o.style.display = 'none'; });
+            if (borrowedClass) Array.from(borrowedClass.options).forEach(o => { if (o.value === 'ALL') o.style.display = 'none'; });
 
             // Eğer öğretmenin sadece belirli sınıflara yetkisi varsa, dropdownları filtrele
             if (!kt_classes.includes('ALL')) {
@@ -709,7 +714,7 @@ window.deleteBookEdit = async function () {
 window.togglePasswordVisibility = function (inputId, iconElement) {
     const input = document.getElementById(inputId);
     if (!input) return;
-    
+
     if (input.type === 'password') {
         input.type = 'text';
         iconElement.innerText = 'visibility_off';

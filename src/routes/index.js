@@ -21,8 +21,9 @@ router.post('/statDetails', libraryController.statDetails);
 router.post('/getClasses', libraryController.getClasses);
 router.post('/overdue', libraryController.overdue);
 router.post('/getReport', libraryController.getReport);
+router.post('/getBorrowedReport', libraryController.getBorrowedReport);
 
-// Kitap ve Emanet İşlemleri
+// Kitap ve Emanet İşlemleri 
 router.post('/addBook', libraryController.addBook);
 router.post('/kitapVer', libraryController.kitapVer);
 router.post('/kitapAl', libraryController.kitapAl);

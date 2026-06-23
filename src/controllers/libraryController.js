@@ -3,11 +3,26 @@ const supabase = require('../api/supabase');
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
     const { data } = await supabase.from('schools')
-        .select('id, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings')
+        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings')
         .eq('school_code', code)
         .single();
 
     if (!data) return null;
+
+    // =========================================================================
+    // 🛑 KÜTÜPHANEMİZ PREMIUM LİSANS DUVARI (Nöbetçiler İçin Tembel Kontrol)
+    // =========================================================================
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Sadece gün bazında kıyaslamak için saatleri sıfırlıyoruz
+    const endDate = new Date(data.kt_end_date);
+    endDate.setHours(0, 0, 0, 0);
+    const isExpired = endDate < today;
+
+    if (data.kt_status !== 'active' || isExpired) {
+        // Özel bir işaretle (LİSANS_İPTAL|) hata fırlatıyoruz ki, catch bloğu bunu anlayıp şık mesaj bassın.
+        throw new Error(`LİSANS_İPTAL|Sayın <strong>${data.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
+    }
+    // =========================================================================
 
     const settings = data.kt_settings || {};
     let role = null;
@@ -49,14 +64,6 @@ async function getSchoolAuth(code, pass) {
         }
     }
 
-    if (data.kt_status !== 'active') throw new Error('Abonelik süreniz dolmuştur. Uygulamayı kullanmak için lütfen aboneliğinizi yenileyiniz.');
-
-    const today = new Date();
-    const startDate = new Date(data.kt_start_date);
-    const endDate = new Date(data.kt_end_date);
-    endDate.setHours(23, 59, 59, 999);
-    if (today < startDate || today > endDate) throw new Error('Abonelik süreniz dolmuştur.');
-
     return { id: data.id, role, app_roles, settings };
 }
 
@@ -67,12 +74,9 @@ async function getSchoolId(code, pass) {
 
 exports.login = async (req, res) => {
     try {
-        // Frontend'in ne gönderdiğini görmek için HER ŞEYİ logluyoruz:
         console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
 
         const { schoolCode, schoolPass, loginType } = req.body;
-
-        // Eğer frontend "identity" yerine "username" veya "email" gönderiyorsa onu da yakala:
         const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
 
         // -------------------------
@@ -80,7 +84,7 @@ exports.login = async (req, res) => {
         // -------------------------
         if (loginType === 'duty') {
             const auth = await getSchoolAuth(schoolCode, schoolPass);
-            if (!auth || auth.role !== 'duty') return res.json({ status: 'error', message: 'Hatalı Okul Kodu veya Nöbetçi Şifresi' });
+            if (!auth || auth.role !== 'duty') return res.json({ status: 'error', message: 'Hatalı kurum kodu veya nöbetçi şifresi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.' });
 
             const { data: school } = await supabase.from('schools')
                 .select('school_name, kt_settings')
@@ -97,7 +101,7 @@ exports.login = async (req, res) => {
             } else if (settings.staff_password && schoolPass === settings.staff_password) {
                 userName = settings.staff_names || "Nöbetçi";
             } else {
-                return res.json({ status: 'error', message: 'Hatalı Şifre' });
+                return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen tekrar deneyin.' });
             }
 
             return res.json({
@@ -111,10 +115,9 @@ exports.login = async (req, res) => {
         }
 
         // -------------------------
-        // 2. PERSONEL GİRİŞİ (STAFF) - GÜNCELLENMİŞ VE LOGLU
+        // 2. PERSONEL GİRİŞİ (STAFF)
         // -------------------------
         if (loginType === 'staff') {
-            const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
             console.log("🔍 GİRİŞ DENEMESİ - Kimlik:", identity, "Okul:", schoolCode);
 
             const { data: school } = await supabase.from('schools')
@@ -122,7 +125,27 @@ exports.login = async (req, res) => {
                 .eq('school_code', schoolCode)
                 .maybeSingle();
 
-            if (!school) return res.json({ status: 'error', message: 'Geçersiz Okul Kodu.' });
+            if (!school) return res.json({ status: 'error', message: 'Geçersiz kurum kodu. Lütfen kurum kodunu kontrol edip tekrar deneyin.' });
+
+            // =========================================================================
+            // 🛑 KÜTÜPHANEMİZ PREMIUM LİSANS DUVARI (Personeller İçin Tembel Kontrol)
+            // =========================================================================
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const endDate = new Date(school.kt_end_date);
+            endDate.setHours(0, 0, 0, 0);
+            const isExpired = endDate < today;
+
+            if (school.kt_status !== 'active' || isExpired) {
+                console.log(`🚨 LİSANS ENGELİ: ${school.school_name} kurumunun Kütüphanemiz lisansı kapalı!`);
+                // Frontend'in bunu yakalayıp SweetAlert basması için 'isLicenseError' bayrağı ekliyoruz!
+                return res.json({
+                    status: 'error',
+                    isLicenseError: true,
+                    message: `Sayın <strong>${school.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`
+                });
+            }
+            // =========================================================================
 
             const { data: users, error } = await supabase.from('users')
                 .select('*, full_name')
@@ -138,29 +161,18 @@ exports.login = async (req, res) => {
             );
 
             if (user) {
-                // --- KRİTİK LOGLAMA BAŞLADI ---
                 console.log("✅ KULLANICI BULUNDU:", user.full_name);
-                console.log("📊 ANA ROL (user.role):", user.role);
-                console.log("📦 HAM APP_ROLES:", user.app_roles);
 
                 let appRoles = user.app_roles;
                 if (typeof appRoles === 'string') {
-                    try { appRoles = JSON.parse(appRoles); } catch (e) {
-                        console.error("❌ JSON PARSE HATASI:", e.message);
-                        appRoles = {};
-                    }
+                    try { appRoles = JSON.parse(appRoles); } catch (e) { appRoles = {}; }
                 }
                 appRoles = appRoles || {};
 
                 const ktRole = appRoles.kutuphanemiz?.role;
                 const ktClasses = appRoles.kutuphanemiz?.classes || [];
 
-                console.log("🔑 KUTUPHANEMİZ ROLÜ:", ktRole);
-                console.log("🏫 YETKİLİ SINIFLAR:", ktClasses);
-                // --- KRİTİK LOGLAMA BİTTİ ---
-
                 if (user.role === 'admin' || ktRole === 'admin') {
-                    console.log("⭐ SONUÇ: ADMIN OLARAK ALINIYOR");
                     return res.json({
                         status: 'success',
                         schoolName: school.school_name,
@@ -170,7 +182,6 @@ exports.login = async (req, res) => {
                         kt_classes: ['ALL']
                     });
                 } else if (ktRole === 'teacher') {
-                    console.log("📝 SONUÇ: ÖĞRETMEN OLARAK ALINIYOR");
                     return res.json({
                         status: 'success',
                         schoolName: school.school_name,
@@ -180,76 +191,141 @@ exports.login = async (req, res) => {
                         kt_classes: ktClasses
                     });
                 } else {
-                    console.warn("🚫 SONUÇ: YETKİSİZ (Neither admin nor teacher in JSON)");
-                    return res.status(403).json({ status: 'error', message: 'Kütüphane sistemine erişim yetkiniz yok.' });
+                    return res.json({ status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' });
                 }
             }
-            return res.json({ status: 'error', message: 'Hatalı Kimlik veya Şifre.' });
+            return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen kimlik ve şifrenizi kontrol edip tekrar deneyin.' });
         }
 
         return res.json({ status: 'error', message: 'Geçersiz giriş tipi.' });
 
     } catch (error) {
+        // Nöbetçi kısmından (getSchoolAuth) fırlatılan özel lisans hatasını yakalıyoruz
+        if (error.message.startsWith('LİSANS_İPTAL|')) {
+            return res.json({ status: 'error', isLicenseError: true, message: error.message.split('|')[1] });
+        }
         return res.status(401).json({ status: 'error', message: error.message });
     }
 };
 
+
+// =========================================================================
+// 🔐 KÜTÜPHANEMİZ - BİREYSEL ŞİFRE SIFIRLAMA MİMARİSİ
+// =========================================================================
 const emailService = require('../api/emailService');
 
-function generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+// 🕵🏻‍♂️ YARDIMCI MOTOR: Kurumu ve Personeli Bulur
+const findLibraryUserForReset = async (schoolCode, identity) => {
+    const { data: school } = await supabase.from('schools').select('id, school_name').eq('school_code', schoolCode).single();
+    if (!school) return { error: 'Bu kurum koduna ait bir okul bulunamadı.' };
+
+    const cleanIdentity = String(identity).trim();
+    const phoneIdentity = cleanIdentity.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, '');
+
+    // Kütüphanemiz'de sadece personeller (users) şifre sıfırlayabilir, nöbetçilerin sabit şifresi vardır.
+    const { data: users } = await supabase.from('users').select('id, email, phone, username, reset_code, reset_expires').eq('school_id', school.id);
+
+    const targetUser = users?.find(u =>
+        u.email === cleanIdentity ||
+        u.username === cleanIdentity ||
+        (phoneIdentity && u.phone && u.phone.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, '') === phoneIdentity)
+    );
+
+    if (!targetUser) return { error: 'Girdiğiniz bilgilere ait bir personel veya yönetici hesabı bulunamadı. (Not: Nöbetçi şifreleri sistemden sıfırlanamaz, idareden öğrenilmelidir).' };
+    return { school, user: targetUser };
+};
+
+/**
+ * 1️⃣ KODU GÖNDER (POST /api/forgotPassword)
+ */
 exports.forgotPassword = async (req, res) => {
     try {
-        const { schoolCode } = req.body;
-        const { data: school } = await supabase.from('schools').select('id, school_name, school_email').eq('school_code', schoolCode).single();
+        const { schoolCode, identity } = req.body;
+        if (!schoolCode || !identity) return res.json({ status: 'error', message: 'Eksik bilgi gönderdiniz.' });
 
-        if (!school) return res.json({ status: 'error', message: 'Bu koda ait bir okul bulunamadı.' });
-        if (!school.school_email) return res.json({ status: 'error', message: 'Bu okul hesabına tanımlı bir e-posta adresi yok. Lütfen sistem yöneticisiyle iletişime geçin.' });
+        const result = await findLibraryUserForReset(schoolCode, identity);
+        if (result.error) return res.json({ status: 'error', message: result.error });
+
+        const { school, user } = result;
+
+        // 🛑 Çıkmaz Sokak: E-posta Yoksa!
+        if (!user.email) {
+            return res.json({ status: 'error', message: 'Sisteme kayıtlı bireysel bir e-posta adresiniz bulunmuyor. Şifrenizi sıfırlamak için lütfen sistem yöneticinizle iletişime geçin.' });
+        }
 
         const resetCode = generateOTP();
-        const { error } = await supabase.from('schools').update({ reset_code: resetCode }).eq('id', school.id);
-        if (error) throw error;
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-        const emailSent = await emailService.sendResetCodeEmail(school.school_email, school.school_name, resetCode);
+        const { error: updateErr } = await supabase.from('users').update({ reset_code: resetCode, reset_expires: expiresAt }).eq('id', user.id);
+        if (updateErr) throw updateErr;
+
+        const emailSent = await emailService.sendResetCodeEmail(user.email, school.school_name, resetCode);
 
         if (emailSent) {
-            const maskedEmail = school.school_email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + gp3.replace(/./g, '*'));
-            res.json({ status: 'success', message: 'Sıfırlama kodu gönderildi.', maskedEmail: maskedEmail });
+            const maskedEmail = user.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp1 + gp2.replace(/./g, '*'));
+            return res.json({ status: 'success', message: 'Sıfırlama kodu gönderildi.', maskedEmail });
         } else {
-            res.json({ status: 'error', message: 'E-posta gönderilirken bir hata oluştu.' });
+            return res.json({ status: 'error', message: 'E-posta gönderilirken sunucu tarafında bir hata oluştu.' });
         }
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+    } catch (error) {
+        console.error("Şifre Sıfırlama Hatası:", error);
+        return res.json({ status: 'error', message: 'Sunucu hatası oluştu.' });
+    }
 };
 
+/**
+ * 2️⃣ KODU DOĞRULA (POST /api/verifyResetCode)
+ */
 exports.verifyResetCode = async (req, res) => {
     try {
-        const { schoolCode, resetCode } = req.body;
-        const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
+        const { schoolCode, identity, resetCode } = req.body;
+        const result = await findLibraryUserForReset(schoolCode, identity);
 
-        if (!school || String(school.reset_code) !== String(resetCode)) {
-            return res.json({ status: 'error', message: 'Hatalı veya süresi dolmuş kod.' });
+        if (result.error) return res.json({ status: 'error', message: result.error });
+        const { user } = result;
+
+        if (!user.reset_code || user.reset_code !== resetCode) {
+            return res.json({ status: 'error', message: 'Girdiğiniz kod hatalı.' });
         }
 
-        res.json({ status: 'success', message: 'Kod doğrulandı.' });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+        if (new Date(user.reset_expires) < new Date()) {
+            return res.json({ status: 'error', message: 'Bu kodun süresi dolmuş. Lütfen yeni bir kod isteyin.' });
+        }
+
+        return res.json({ status: 'success', message: 'Kod başarıyla doğrulandı.' });
+    } catch (error) {
+        return res.json({ status: 'error', message: 'Doğrulama sırasında bir hata oluştu.' });
+    }
 };
 
+/**
+ * 3️⃣ ŞİFREYİ GÜNCELLE (PUT /api/updatePassword)
+ */
 exports.updatePassword = async (req, res) => {
     try {
-        const { schoolCode, resetCode, newPassword } = req.body;
-        const { data: school } = await supabase.from('schools').select('id, reset_code').eq('school_code', schoolCode).single();
+        const { schoolCode, identity, resetCode, newPassword } = req.body;
+        const result = await findLibraryUserForReset(schoolCode, identity);
 
-        if (!school || String(school.reset_code) !== String(resetCode)) {
-            return res.json({ status: 'error', message: 'Güvenlik doğrulaması başarısız oldu.' });
+        if (result.error) return res.json({ status: 'error', message: result.error });
+        const { user } = result;
+
+        if (!user.reset_code || user.reset_code !== resetCode || new Date(user.reset_expires) < new Date()) {
+            return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
         }
 
-        const { error } = await supabase.from('schools').update({ kt_pass: newPassword, reset_code: null }).eq('id', school.id);
-        if (error) throw error;
+        const { error: updateErr } = await supabase
+            .from('users')
+            .update({ password: newPassword, reset_code: null, reset_expires: null })
+            .eq('id', user.id);
 
-        res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi!' });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+        if (updateErr) throw updateErr;
+
+        return res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi.' });
+    } catch (error) {
+        return res.json({ status: 'error', message: 'Şifre güncellenirken bir hata oluştu.' });
+    }
 };
 
 exports.changePassword = async (req, res) => {
@@ -827,6 +903,87 @@ exports.getReport = async (req, res) => {
         res.json({ status: 'success', data: sortedReport });
 
     } catch (error) { res.status(500).json({ status: 'error', message: 'Sunucu Hatası: ' + (error.message || JSON.stringify(error) || error) }); }
+};
+
+// --- YENİ EKLENEN: Emanet Raporu Controller ---
+exports.getBorrowedReport = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, filterGrade, filterClass, filterStatus } = req.body;
+        const schoolId = await getSchoolId(schoolCode, schoolPass); // Kütüphanemiz yetki mantığı
+        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        // 1. Okulun max gün ayarını çek
+        const { data: schoolData } = await supabase.from('schools').select('kt_settings').eq('id', schoolId).single();
+        let maxDays = 15;
+        if (schoolData?.kt_settings?.max_borrow_days) {
+            maxDays = parseInt(schoolData.kt_settings.max_borrow_days, 10);
+        }
+
+        // 2. Emanetteki ('borrowed') kitapları çek
+        let query = supabase.from('transactions')
+            .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
+            .eq('school_id', schoolId).eq('status', 'borrowed');
+
+        if (filterGrade && filterGrade !== 'ALL') query = query.eq('students.grade', filterGrade);
+        if (filterClass && filterClass !== 'ALL') query = query.eq('students.class_name', filterClass);
+
+        const { data: transactions, error } = await query;
+        if (error) throw error;
+
+        let reportData = {};
+        const today = new Date();
+
+        if (transactions && transactions.length > 0) {
+            transactions.forEach(t => {
+                const borrowDate = new Date(t.borrow_date);
+                const diffTime = Math.abs(today - borrowDate);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                // Filtre: Sadece gecikenler seçilmişse ve gecikmemişse pas geç
+                if (filterStatus === 'OVERDUE' && diffDays <= maxDays) return;
+
+                const sNo = t.students.student_no;
+                if (!reportData[sNo]) {
+                    const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
+                    reportData[sNo] = {
+                        name: t.students.full_name,
+                        className: cName,
+                        grade: t.students.grade || '',
+                        subClass: t.students.class_name || '',
+                        oldestDate: borrowDate,
+                        hasOverdue: false,
+                        books: []
+                    };
+                } else {
+                    if (borrowDate < reportData[sNo].oldestDate) {
+                        reportData[sNo].oldestDate = borrowDate;
+                    }
+                }
+
+                let statusText = `${diffDays} Gündür Emanette`;
+                let statusColor = '#0ea5e9'; // Mavi
+                if (diffDays > maxDays) {
+                    statusText = `Gecikti (${diffDays - maxDays} Gün)`;
+                    statusColor = '#ef4444'; // Kırmızı
+                    reportData[sNo].hasOverdue = true;
+                }
+
+                reportData[sNo].books.push({ name: t.books.book_name, statusText, statusColor });
+            });
+        }
+
+        // Sınıf > Şube > Eski Tarih sıralaması (Deneliz ile aynı)
+        const sortedData = Object.values(reportData).sort((a, b) => {
+            if (a.grade !== b.grade) return String(a.grade).localeCompare(String(b.grade), 'tr', { numeric: true });
+            if (a.subClass !== b.subClass) return String(a.subClass).localeCompare(String(b.subClass), 'tr');
+            return a.oldestDate - b.oldestDate;
+        });
+
+        res.json({ status: 'success', data: sortedData });
+
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: 'Sunucu Hatası: ' + (error.message || JSON.stringify(error) || error) });
+    }
 };
 
 // ==========================================
