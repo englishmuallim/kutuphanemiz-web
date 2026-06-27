@@ -344,17 +344,24 @@ async function sorgula(incomingType) {
             let html = '';
             if (res.result.type === 'book') {
                 if (res.result.data.length === 0) { resultArea.innerHTML = '<div style="color:red; text-align:center;">Bulunamadı.</div>'; return; }
+
                 res.result.data.forEach(book => {
                     const statusText = book.status === 'In' ? `RAF: ${book.shelf || '?'}` : `KİMDE: ${book.holder} (${book.holderNo})`;
                     const badgeClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
                     const condColor = book.condition === 'Hasarlı' || book.condition === 'Yıpranmış' ? '#ef4444' : '#059669';
+
+                    // YENİ: Kitap emanetteyse (Out) fazladan şık bir Raf etiketi oluştur.
+                    const extraShelfBadge = book.status === 'Out' ? `<span class="badge" style="background:#6366f1; color:white;">Raf: ${book.shelf || '?'}</span>` : '';
+
                     html += `<div class="result-card" style="border-left-color:#f59e0b;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div style="font-weight:bold;">${book.name}</div>
                                 </div>
                                 <div style="font-size:0.9rem; color:#666;">${book.author} | Barkod: ${book.code}</div>
-                                <div style="margin-top:5px; display:flex; gap:5px;">
+                                <!-- YENİ: flex-wrap:wrap eklendi (Telefonda etiketler alt alta taşabilsin diye) -->
+                                <div style="margin-top:5px; display:flex; gap:5px; flex-wrap:wrap;">
                                     <span class="badge ${badgeClass}">${statusText}</span>
+                                    ${extraShelfBadge}
                                     <span class="badge" style="background:${condColor}; color:white;">Durum: ${book.condition || 'Yeni'}</span>
                                 </div>
                             </div>`;
@@ -815,8 +822,13 @@ async function showStatDetails(type) {
             } else if (type === 'kitap') {
                 res.data.forEach((item, index) => {
                     html += `<div style="padding: 8px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'};">
-                        <div style="font-weight: bold; color: #1f2937;">${item.book_name}</div>
-                        <div style="font-size: 0.8rem; color: #6b7280;">Barkod: ${item.barcode} | Raf: ${item.shelf || '?'} | Durum: ${item.condition || 'Yeni'}</div>
+                        <div style="font-weight: bold; color: #1f2937;">${item.book_name}
+                            ${item.category ? `<span style="margin-left: 8px; font-size: 0.72rem; font-weight: 600; color: #6d28d9; background: #ede9fe; border-radius: 999px; padding: 2px 9px;">${item.category}</span>` : ''}
+                        </div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">
+                            Barkod: ${item.barcode} | Raf: ${item.shelf || '?'} | Durum: ${item.condition || 'Yeni'}
+                            ${item.page_count ? `&nbsp;|&nbsp;<span style="color: #0369a1; font-weight: 600;">${item.page_count} syf</span>` : ''}
+                        </div>
                     </div>`;
                 });
             } else if (type === 'ogrenci') {
@@ -969,8 +981,18 @@ async function loadSettings() {
         if (res.status === 'success') {
             const s = res.data || {};
             document.getElementById("setting_max_borrow_limit").value = s.max_borrow_limit || '';
-            document.getElementById("setting_max_borrow_days").value = s.max_borrow_days || '';
-            document.getElementById("setting_min_borrow_days").value = s.min_borrow_days || '';
+
+            // YENİ: Dinamik Kuralları Yükleme Mantığı (Eski sabit atamaların yerine)
+            const ruleContainer = document.getElementById('dynamic-rules-container');
+            if (ruleContainer) {
+                ruleContainer.innerHTML = ''; // Önce temizle
+                if (s.dynamic_rules && s.dynamic_rules.length > 0) {
+                    s.dynamic_rules.forEach(rule => addDynamicRuleRow(rule.max_pages, rule.min_days, rule.max_days));
+                } else {
+                    addDynamicRuleRow('', '', ''); // Kural yoksa boş bir tane aç
+                }
+            }
+
             document.getElementById("setting_lib_open_time").value = s.lib_open_time || '';
             document.getElementById("setting_lib_close_time").value = s.lib_close_time || '';
 
@@ -994,16 +1016,49 @@ async function loadSettings() {
     } catch (e) { console.error("Ayarlar yüklenemedi", e); }
 }
 
+// --- YENİ EKLENEN: Dinamik Kural Satırı Oluşturma Fonksiyonu ---
+window.addDynamicRuleRow = function (pages = '', min = '', max = '') {
+    const container = document.getElementById('dynamic-rules-container');
+    const row = document.createElement('div');
+    row.className = 'dynamic-rule-row';
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.alignItems = 'center';
+
+    row.innerHTML = `
+        <div style="flex:1;"><input type="number" placeholder="Max Syf (Örn:100)" value="${pages}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+        <div style="flex:1;"><input type="number" placeholder="Min Gün (Örn:1)" value="${min}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+        <div style="flex:1;"><input type="number" placeholder="Max Gün (Örn:7)" value="${max}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+        <button onclick="this.parentElement.remove()" type="button" style="background:#ef4444; color:white; border:none; padding:8px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Sil"><span class="material-symbols-rounded" style="font-size:16px;">delete</span></button>
+    `;
+    container.appendChild(row);
+};
+
 async function saveSettings(type) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
 
     let settingsPayload = {};
     if (type === 'general') {
+        // YENİ: Ekrandaki Kural Satırlarını JSON Dizisine Çevirme Mantığı
+        let dynamicRules = [];
+        document.querySelectorAll('#dynamic-rules-container .dynamic-rule-row').forEach(row => {
+            const inputs = row.querySelectorAll('input');
+            const pages = parseInt(inputs[0].value);
+            const min = parseInt(inputs[1].value);
+            const max = parseInt(inputs[2].value);
+            // Sadece üç kutu da sayısal olarak doluysa listeye al (boşları süz)
+            if (!isNaN(pages) && !isNaN(min) && !isNaN(max)) {
+                dynamicRules.push({ max_pages: pages, min_days: min, max_days: max });
+            }
+        });
+
+        // Eğer kullanıcı kural listesini çok karıştırırsa düzgün çalışması için max_pages'e göre küçükten büyüğe sıralayalım
+        dynamicRules.sort((a, b) => a.max_pages - b.max_pages);
+
         settingsPayload = {
             max_borrow_limit: document.getElementById("setting_max_borrow_limit").value ? parseInt(document.getElementById("setting_max_borrow_limit").value) : null,
-            max_borrow_days: document.getElementById("setting_max_borrow_days").value ? parseInt(document.getElementById("setting_max_borrow_days").value) : null,
-            min_borrow_days: document.getElementById("setting_min_borrow_days").value ? parseInt(document.getElementById("setting_min_borrow_days").value) : null,
+            dynamic_rules: dynamicRules.length > 0 ? dynamicRules : null, // Sabit günler JSON'dan tamamen çıkarıldı
             lib_open_time: document.getElementById("setting_lib_open_time").value || null,
             lib_close_time: document.getElementById("setting_lib_close_time").value || null
         };

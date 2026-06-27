@@ -394,7 +394,7 @@ exports.statDetails = async (req, res) => {
                     .order('borrow_date', { ascending: false });
             } else if (type === 'kitap') {
                 query = supabase.from('books')
-                    .select('barcode, book_name, author, shelf, condition')
+                    .select('barcode, book_name, author, shelf, condition, page_count, category')
                     .eq('school_id', schoolId).eq('is_active', true)
                     .order('book_name', { ascending: true });
             } else if (type === 'ogrenci') {
@@ -613,7 +613,7 @@ exports.kitapAl = async (req, res) => {
             }
         }
 
-        const { data: book } = await supabase.from('books').select('id, book_name, shelf, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single();
+        const { data: book } = await supabase.from('books').select('id, book_name, shelf, status, condition, page_count').eq('school_id', schoolId).eq('barcode', barkod).single();
         if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
         if (book.status === 'available') return res.json({ status: 'error', message: 'Bu kitap zaten rafta.' });
 
@@ -622,11 +622,20 @@ exports.kitapAl = async (req, res) => {
 
         if (!trans) return res.json({ status: 'error', message: 'Aktif bir ödünç işlemi bulunamadı.' });
 
-        const minDays = settings.min_borrow_days !== undefined ? settings.min_borrow_days : 1;
+        let minDays = 1;
+        if (settings.dynamic_rules && Array.isArray(settings.dynamic_rules) && settings.dynamic_rules.length > 0) {
+            const rules = [...settings.dynamic_rules].sort((a, b) => a.max_pages - b.max_pages);
+            const pCount = book.page_count || 0;
+            const matchedRule = rules.find(r => pCount <= r.max_pages);
+            minDays = matchedRule ? matchedRule.min_days : rules[rules.length - 1].min_days;
+        } else if (settings.min_borrow_days !== undefined) {
+            minDays = settings.min_borrow_days;
+        }
+
         const bDate = new Date(trans.borrow_date);
         const diffDays = Math.floor(Math.abs(new Date() - bDate) / (1000 * 60 * 60 * 24));
         if (diffDays < minDays) {
-            return res.json({ status: 'error', message: `Bu kitabı henüz iade edemezsiniz, okumak için daha fazla zaman ayırın. (En az ${minDays} gün okunmalı)` });
+            return res.json({ status: 'error', message: `Bu kitabı henüz iade edemezsiniz. ${book.page_count ? `(${book.page_count} sayfalık kitap)` : ''} En az ${minDays} gün okunmalı.` });
         }
 
         const today = new Date().toISOString();
@@ -700,44 +709,42 @@ exports.searchStudentsAdvanced = async (req, res) => {
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
         if (!query || query.trim() === '') {
-            return res.json({
-                status: 'success',
-                schoolCode: school.school_code, // 🚀 EKLENDİ
-                schoolPass: school.kt_pass,     // 🚀 EKLENDİ
-                schoolName: school.school_name,
-                userName: 'Süper Admin',
-                role: 'admin',
-                kt_role: 'admin',
-                kt_classes: ['ALL']
-            });
+            return res.json({ status: 'success', data: [] });
         }
 
         // Arama terimini al ve virgülleri temizle (Supabase OR sintaksını bozmaması için)
         const baseQuery = query.trim().replace(/,/g, '');
 
-        // --- VARYASYON TEKNİĞİ BAŞLANGICI ---
+        // --- VARYASYON TEKNİĞİ (searchBooks ile aynı mantık) ---
         const variations = new Set();
+
+        // 1. Orijinal hali
         variations.add(baseQuery);
-
-        // MUCİZE DOKUNUŞ: Supabase 'ilike', Ç/Ş/Ğ harflerini eşleştirir ama i/İ ve ı/I'da takılır.
-        // Girilen kelimedeki 'i'leri 'İ'ye, 'ı'ları 'I'ya (ve tam tersine) çevirerek tam hedefi vuruyoruz.
-        variations.add(baseQuery.replace(/i/g, 'İ'));
-        variations.add(baseQuery.replace(/İ/g, 'i'));
-        variations.add(baseQuery.replace(/ı/g, 'I'));
-        variations.add(baseQuery.replace(/I/g, 'ı'));
-
-        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
+        // 2. Türkçe küçük harf (ı, i destekli)
         variations.add(baseQuery.toLocaleLowerCase('tr-TR'));
+        // 3. Türkçe büyük harf (I, İ destekli)
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
+        // 4. İngilizce standart dönüşümler (güvenlik ağı)
+        variations.add(baseQuery.toLowerCase());
+        variations.add(baseQuery.toUpperCase());
+        // 5. i/ı ve İ/I çapraz dönüşümleri (asıl Türkçe çözümü)
+        variations.add(baseQuery.replace(/i/g, 'ı').replace(/İ/g, 'I'));
+        variations.add(baseQuery.replace(/ı/g, 'i').replace(/I/g, 'İ'));
+        variations.add(baseQuery.toLocaleUpperCase('tr-TR').replace(/İ/g, 'I'));
 
         const validVariations = Array.from(variations).filter(v => v);
-        const orQueryString = validVariations.map(v => `book_name.ilike.%${v}%`).join(',');
+
+        // Her varyasyon için hem student_no hem full_name aranır (kitap aramasındaki gibi)
+        const orQueryString = validVariations
+            .map(v => `student_no.ilike.%${v}%,full_name.ilike.%${v}%`)
+            .join(',');
         // --- VARYASYON TEKNİĞİ BİTİŞİ ---
 
         const { data, error } = await supabase.from('students')
             .select('full_name, student_no, grade, class_name')
             .eq('school_id', schoolId)
-            .or(orQueryString)
             .eq('is_active', true)
+            .or(orQueryString)
             .limit(20);
 
         if (error) throw error;

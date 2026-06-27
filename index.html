@@ -494,16 +494,16 @@
                             id="setting_max_borrow_limit" placeholder="Örn: 2"></div>
 
                     <label class="text-sm text-gray-500 mb-1 block"
-                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Maksimum
-                        Okuma Günü</label>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">date_range</span><input
-                            type="number" id="setting_max_borrow_days" placeholder="Örn: 15"></div>
-
-                    <label class="text-sm text-gray-500 mb-1 block"
-                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Minimum
-                        İade Günü (Erken getirme engeli)</label>
-                    <div class="input-group"><span class="material-symbols-rounded input-icon">update</span><input
-                            type="number" id="setting_min_borrow_days" placeholder="Örn: 1"></div>
+                        style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-top:15px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>Dinamik Okuma Kuralları (Sayfa Sınırına Göre)</span>
+                        <button onclick="addDynamicRuleRow()" type="button"
+                            style="background:#10b981; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.75rem; font-weight:bold;">+
+                            Kural Ekle</button>
+                    </label>
+                    <div id="dynamic-rules-container"
+                        style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px; background:#f9fafb; padding:10px; border-radius:6px; border:1px solid #e5e7eb;">
+                        <!-- Satırlar JS ile buraya basılacak -->
+                    </div>
 
                     <div style="display:flex; gap:10px;">
                         <div style="flex:1;">
