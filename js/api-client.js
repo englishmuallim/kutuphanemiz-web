@@ -350,7 +350,7 @@ async function sorgula(incomingType) {
                     const badgeClass = book.status === 'In' ? 'badge-raf' : 'badge-out';
                     const condColor = book.condition === 'Hasarlı' || book.condition === 'Yıpranmış' ? '#ef4444' : '#059669';
 
-                    // YENİ: Kitap emanetteyse (Out) fazladan şık bir Raf etiketi oluştur.
+                    //  YENİ: Kitap emanetteyse (Out) fazladan şık bir Raf etiketi oluştur.
                     const extraShelfBadge = book.status === 'Out' ? `<span class="badge" style="background:#6366f1; color:white;">Raf: ${book.shelf || '?'}</span>` : '';
 
                     html += `<div class="result-card" style="border-left-color:#f59e0b;">

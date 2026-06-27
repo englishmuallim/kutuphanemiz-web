@@ -598,6 +598,30 @@ exports.kitapVer = async (req, res) => {
 };
 
 
+// ==========================================
+// 📐 ORTAK YARDIMCI: Dinamik Gün Hesaplayıcı
+// ==========================================
+/**
+ * Kitabın sayfa sayısına göre kt_settings.dynamic_rules tablosundan ilgili süreyi döner.
+ * @param {number} pageCount - Kitabın sayfa sayısı
+ * @param {object} settings  - kt_settings objesi (dynamic_rules, min_borrow_days, max_borrow_days içerir)
+ * @param {'min'|'max'} mode - 'min' = iade alt sınırı (kitapAl), 'max' = gecikme üst sınırı (overdue/rapor)
+ * @returns {number} Hesaplanan gün sayısı
+ */
+function calculateMaxDays(pageCount, settings, mode = 'max') {
+    if (settings.dynamic_rules && Array.isArray(settings.dynamic_rules) && settings.dynamic_rules.length > 0) {
+        const rules = [...settings.dynamic_rules].sort((a, b) => a.max_pages - b.max_pages);
+        const pCount = pageCount || 0;
+        const matchedRule = rules.find(r => pCount <= r.max_pages);
+        const rule = matchedRule || rules[rules.length - 1]; // En büyük kural (sınırsız sayfa)
+        return mode === 'min' ? (rule.min_days ?? 1) : (rule.max_days ?? 15);
+    }
+    // Fallback: dynamic_rules yoksa tekil ayarlara bak
+    if (mode === 'min' && settings.min_borrow_days !== undefined) return settings.min_borrow_days;
+    if (mode === 'max' && settings.max_borrow_days !== undefined) return parseInt(settings.max_borrow_days, 10);
+    return 15; // Son çare sabit değer
+}
+
 exports.kitapAl = async (req, res) => {
     try {
         const { schoolCode, schoolPass, barkod, condition, handlerName } = req.body;
@@ -916,17 +940,12 @@ exports.getReport = async (req, res) => {
 exports.getBorrowedReport = async (req, res) => {
     try {
         const { schoolCode, schoolPass, filterGrade, filterClass, filterStatus } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass); // Kütüphanemiz yetki mantığı
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
+        const settings = auth.settings; // dynamic_rules buradan gelir
 
-        // 1. Okulun max gün ayarını çek
-        const { data: schoolData } = await supabase.from('schools').select('kt_settings').eq('id', schoolId).single();
-        let maxDays = 15;
-        if (schoolData?.kt_settings?.max_borrow_days) {
-            maxDays = parseInt(schoolData.kt_settings.max_borrow_days, 10);
-        }
-
-        // 2. Emanetteki ('borrowed') kitapları çek
+        // Emanetteki ('borrowed') kitapları çek
         let query = supabase.from('transactions')
             .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'borrowed');
@@ -945,6 +964,9 @@ exports.getBorrowedReport = async (req, res) => {
                 const borrowDate = new Date(t.borrow_date);
                 const diffTime = Math.abs(today - borrowDate);
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                // Her kitap için sayfa sayısına göre dinamik max gün hesapla
+                const maxDays = calculateMaxDays(t.books.page_count, settings, 'max');
 
                 // Filtre: Sadece gecikenler seçilmişse ve gecikmemişse pas geç
                 if (filterStatus === 'OVERDUE' && diffDays <= maxDays) return;
@@ -999,11 +1021,13 @@ exports.getBorrowedReport = async (req, res) => {
 exports.overdue = async (req, res) => {
     try {
         const { schoolCode, schoolPass } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
+        const settings = auth.settings; // dynamic_rules buradan gelir
 
         const { data: activeTrans, error } = await supabase.from('transactions')
-            .select('borrow_date, students!inner(full_name, grade, class_name), books!inner(barcode, book_name)')
+            .select('borrow_date, students!inner(full_name, grade, class_name), books!inner(barcode, book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'borrowed');
 
         if (error) throw error; // KRİTİK: Supabase hatalarını yakala ve try/catch'e düşür
@@ -1015,8 +1039,9 @@ exports.overdue = async (req, res) => {
             list = activeTrans.reduce((acc, t) => {
                 const bDate = new Date(t.borrow_date);
                 const diffDays = Math.ceil(Math.abs(now - bDate) / (1000 * 60 * 60 * 24));
+                const maxDays = calculateMaxDays(t.books.page_count, settings, 'max');
 
-                if (diffDays > 15) { // 15 gün sınırı
+                if (diffDays > maxDays) {
                     const sName = t.students.grade ? `${t.students.full_name} (${t.students.grade}/${t.students.class_name})` : t.students.full_name;
                     acc.push({ code: t.books.barcode, student: sName, book: t.books.book_name, date: bDate.toLocaleDateString("tr-TR") });
                 }
