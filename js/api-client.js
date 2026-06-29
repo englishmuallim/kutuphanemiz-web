@@ -1012,8 +1012,44 @@ async function loadSettings() {
             }
             renderStaffList();
             if (typeof toggleStaffGroups === 'function') toggleStaffGroups();
+            // YENİ: Eğitim yılı dropdown'ını mevcut değerle doldur
+            const yearSelect = document.getElementById('setting_academic_year');
+            if (yearSelect && s.active_academic_year) {
+                yearSelect.value = s.active_academic_year;
+            }
         }
     } catch (e) { console.error("Ayarlar yüklenemedi", e); }
+}
+
+// YENİ: Eğitim-Öğretim Yılı Kaydetme
+async function saveAcademicYear() {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    const yearSelect = document.getElementById("setting_academic_year");
+    const academicYear = yearSelect ? yearSelect.value : "";
+
+    if (!academicYear) {
+        Swal.fire({ icon: 'warning', title: 'Seçim Yapılmadı', text: 'Lütfen bir eğitim-öğretim yılı seçin.' });
+        return;
+    }
+
+    Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/updateAcademicYear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, academicYear })
+        });
+        const result = await res.json();
+
+        if (result.status === 'success') {
+            Swal.fire({ icon: 'success', title: 'Güncellendi', text: result.message });
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+        }
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+    }
 }
 
 // --- YENİ EKLENEN: Dinamik Kural Satırı Oluşturma Fonksiyonu ---

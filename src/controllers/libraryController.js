@@ -622,6 +622,32 @@ function calculateMaxDays(pageCount, settings, mode = 'max') {
     return 15; // Son çare sabit değer
 }
 
+// ==========================================
+// 📅 ORTAK YARDIMCI: Akademik Yıl Tarih Dönüştürücü
+// ==========================================
+/**
+ * "2025-2026" → { startDate: '2025-07-01', endDate: '2026-06-30' }
+ * yearString boş gelirse, bulunduğumuz tarihe göre otomatik hesaplar.
+ * Türkiye eğitim takvimi: 1 Temmuz başlangıç, 30 Haziran bitiş.
+ */
+function getAcademicYearDates(yearString) {
+    let startYear, endYear;
+
+    if (yearString && /^\d{4}-\d{4}$/.test(yearString)) {
+        [startYear, endYear] = yearString.split('-').map(Number);
+    } else {
+        // Otomatik hesapla: Temmuz (ay indeksi 6) ve sonrası = yeni yıl başladı
+        const now = new Date();
+        startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+        endYear = startYear + 1;
+    }
+
+    return {
+        startDate: `${startYear}-07-01`,
+        endDate:   `${endYear}-06-30`
+    };
+}
+
 exports.kitapAl = async (req, res) => {
     try {
         const { schoolCode, schoolPass, barkod, condition, handlerName } = req.body;
@@ -882,14 +908,27 @@ exports.sorgula = async (req, res) => {
 // ==========================================
 exports.getReport = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, filterGrade, filterClass, filterMonth } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const { schoolCode, schoolPass, filterGrade, filterClass, filterMonth, academicYear: reqYear } = req.body;
+        // YENİ: getSchoolAuth'a geçildi ki schoolId'ye ek olarak DB'den yıl da çekilebisin
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
 
-        // Mükemmel SQL Sorgusu: Sadece teslim edilmiş kitapları, öğrenci ve kitap bilgileriyle getir
+        // YENİ: Hibrit Yıl Kaynağı — önce req.body'den, yoksa DB'den
+        let academicYear = reqYear;
+        if (!academicYear) {
+            const { data: school } = await supabase
+                .from('schools').select('active_academic_year').eq('id', schoolId).single();
+            academicYear = school?.active_academic_year || null;
+        }
+        const { startDate, endDate } = getAcademicYearDates(academicYear);
+
+        // Sadece teslim edilmiş kitapları, öğrenci ve kitap bilgileriyle getir
         let query = supabase.from('transactions')
             .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
-            .eq('school_id', schoolId).eq('status', 'returned');
+            .eq('school_id', schoolId).eq('status', 'returned')
+            .gte('borrow_date', startDate)   // YENİ: Akademik yıl başlangıcı
+            .lte('borrow_date', endDate);    // YENİ: Akademik yıl bitişi
 
         if (filterGrade && filterGrade !== 'ALL') query = query.eq('students.grade', filterGrade);
         if (filterClass && filterClass !== 'ALL') query = query.eq('students.class_name', filterClass);
@@ -1184,7 +1223,14 @@ exports.getSettings = async (req, res) => {
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        res.json({ status: 'success', data: auth.settings });
+        // YENİ: active_academic_year'ı da döndürmek için schools tablosunu ayrıca sorgula
+        const { data: school } = await supabase
+            .from('schools')
+            .select('active_academic_year')
+            .eq('id', auth.id)
+            .single();
+
+        res.json({ status: 'success', data: { ...auth.settings, active_academic_year: school?.active_academic_year || null } });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
@@ -1237,15 +1283,28 @@ exports.getStudentByNo = async (req, res) => {
 // ==========================================
 exports.getLogs = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, filterDate } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const { schoolCode, schoolPass, filterDate, academicYear: reqYear } = req.body;
+        // YENİ: getSchoolAuth'a geçildi ki DB'den yıl da çekilebisin
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
+
+        // YENİ: Hibrit Yıl Kaynağı — önce req.body'den, yoksa DB'den
+        let academicYear = reqYear;
+        if (!academicYear) {
+            const { data: school } = await supabase
+                .from('schools').select('active_academic_year').eq('id', schoolId).single();
+            academicYear = school?.active_academic_year || null;
+        }
+        const { startDate, endDate } = getAcademicYearDates(academicYear);
 
         let query = supabase.from('transactions')
             .select('id, created_at, borrow_date, return_date, status, handed_by, received_by, academic_year, borrow_condition, return_condition, students(student_no, full_name, grade, class_name), books(barcode, book_name)')
             .eq('school_id', schoolId)
             .order('created_at', { ascending: false })
-            .limit(100);
+            .limit(100)
+            .gte('borrow_date', startDate)   // YENİ: Akademik yıl başlangıcı
+            .lte('borrow_date', endDate);    // YENİ: Akademik yıl bitişi
 
         if (filterDate) {
             query = query.gte('created_at', `${filterDate}T00:00:00`).lte('created_at', `${filterDate}T23:59:59`);
@@ -1578,5 +1637,38 @@ exports.magicLogin = async (req, res) => {
 
     } catch (error) {
         return res.status(500).json({ status: 'error', message: 'Bilet sistemi sunucu hatası.' });
+    }
+};
+
+// ==========================================
+// YENİ: EĞİTİM-ÖĞRETİM YILI GÜNCELLEME
+// ==========================================
+exports.updateAcademicYear = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, academicYear } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        // Yetki kontrolü: Sadece admin güncelleyebilir
+        if (auth.role !== 'admin') {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+
+        // Format kontrolü: "2024-2025" biçiminde olmalı
+        const yearRegex = /^\d{4}-\d{4}$/;
+        if (academicYear && !yearRegex.test(academicYear)) {
+            return res.json({ status: 'error', message: 'Geçersiz yıl formatı. "2024-2025" biçiminde girin.' });
+        }
+
+        const { error } = await supabase
+            .from('schools')
+            .update({ active_academic_year: academicYear || null })
+            .eq('id', auth.id);
+
+        if (error) throw error;
+
+        res.json({ status: 'success', message: `Eğitim-öğretim yılı "${academicYear || 'boşaltıldı'}" olarak güncellendi.` });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
     }
 };

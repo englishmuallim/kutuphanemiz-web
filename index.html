@@ -523,8 +523,38 @@
                                     id="setting_lib_close_time"></div>
                         </div>
                     </div>
-                    <button class="action-btn" style="background:#3b82f6;" onclick="saveSettings('general')">Ayarları
+
+                    <!-- YENİ: Eğitim-Öğretim Yılı Seçici -->
+                    <div style="margin-top:20px; padding-top:15px; border-top:1px solid #e5e7eb;">
+                        <label
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                            <span class="material-symbols-rounded" style="font-size:16px;">calendar_today</span>
+                            Aktif Eğitim-Öğretim Yılı
+                        </label>
+                        <div style="display:flex; gap:10px; align-items:stretch;">
+                            <div class="input-group" style="flex:1; margin-bottom:0;">
+                                <span class="material-symbols-rounded input-icon">school</span>
+                                <select id="setting_academic_year"
+                                    style="width:100%; border:none; background:transparent; outline:none; font-size:0.95rem; cursor:pointer;">
+                                    <option value="">-- Yıl Seçiniz --</option>
+                                    <option value="2025-2026">2025-2026</option>
+                                    <option value="2026-2027">2026-2027</option>
+                                    <option value="2027-2028">2027-2028</option>
+                                    <option value="2028-2029">2028-2029</option>
+                                    <option value="2029-2030">2029-2030</option>
+                                </select>
+                            </div>
+                            <button type="button" onclick="saveAcademicYear()"
+                                style="background:#6366f1; color:#fff; border:none; padding:0 20px; border-radius:8px; font-weight:bold; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:5px;">
+                                <span class="material-symbols-rounded" style="font-size:16px;">save</span> Kaydet
+                            </button>
+                        </div>
+                    </div>
+
+                    <button class="action-btn" style="background:#3b82f6; margin-top:15px;"
+                        onclick="saveSettings('general')">Ayarları
                         Kaydet</button>
+
                 </div>
 
                 <div id="yonetim-form-settings_staff" class="hidden" style="margin-top:10px;">
