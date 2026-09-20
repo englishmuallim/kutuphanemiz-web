@@ -72,6 +72,21 @@ async function getSchoolId(code, pass) {
     return auth ? auth.id : null;
 }
 
+const buildDuplicateStudentError = (student = {}) => {
+    const fullName = student.full_name || student.fullName || student.name || 'Bilinmeyen öğrenci';
+    return `Bu numarada zaten kayıtlı bir öğrenci var: ${fullName}`;
+};
+
+exports.buildDuplicateStudentError = buildDuplicateStudentError;
+
+const isDuplicateStudentConstraintError = (error) => {
+    if (!error) return false;
+    if (error.code === '23505') return true;
+
+    const details = [error.message, error.details, error.hint].filter(Boolean).join(' ');
+    return /duplicate key|unique constraint|students.*student_no|school_id.*student_no/i.test(details);
+};
+
 exports.login = async (req, res) => {
     try {
         console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
@@ -713,8 +728,31 @@ exports.addStudent = async (req, res) => {
         const schoolId = await getSchoolId(schoolCode, schoolPass);
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        const { error } = await supabase.from('students').insert([{ school_id: schoolId, student_no: no, full_name: name, grade: grade, class_name: className }]);
-        if (error && error.code === '23505') return res.json({ status: 'error', message: 'Öğrenci zaten var!' }); // Unique hatası
+        const normalizedNo = String(no ?? '').trim();
+        const { data: existingStudents, error: lookupError } = await supabase
+            .from('students')
+            .select('full_name')
+            .eq('school_id', schoolId)
+            .eq('student_no', normalizedNo)
+            .eq('is_active', true)
+            .limit(1);
+
+        if (lookupError) throw lookupError;
+
+        if (existingStudents && existingStudents.length > 0) {
+            return res.json({ status: 'error', message: buildDuplicateStudentError(existingStudents[0]) });
+        }
+
+        const { error } = await supabase.from('students').insert([
+            { school_id: schoolId, student_no: normalizedNo, full_name: name, grade: grade, class_name: className, is_active: true }
+        ]);
+
+        if (error) {
+            if (isDuplicateStudentConstraintError(error)) {
+                return res.json({ status: 'error', message: buildDuplicateStudentError({ full_name: name }) });
+            }
+            throw error;
+        }
 
         res.json({ status: 'success', message: 'Öğrenci eklendi.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }

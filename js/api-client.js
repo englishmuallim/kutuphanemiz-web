@@ -435,8 +435,14 @@ async function kaydet(type) {
                 Swal.fire({ icon: 'success', title: '📚 Kitaplar Eklendi', html: `<div><b>${data.name}</b> (${data.quantity} adet)</div><div style="color:#059669; font-weight:bold;">${barcodesHtml}</div>` });
             } else { Swal.fire('Başarılı', r.message, 'success'); }
             document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => { if (i.id !== 'newKitapAdet') i.value = ''; else i.value = '1'; });
-        } else { Swal.fire('Hata', r.message, 'error'); }
-    } catch (e) { Swal.fire('Hata', 'Sunucu hatası.', 'error'); }
+        } else {
+            const errorMessage = r && r.message ? r.message : 'İşlem başarısız oldu.';
+            Swal.fire({ icon: 'error', title: 'Hata', text: errorMessage });
+        }
+    } catch (e) {
+        const fallbackMessage = e && e.message ? e.message : 'Sunucu hatası.';
+        Swal.fire({ icon: 'error', title: 'Hata', text: fallbackMessage });
+    }
 }
 
 // Öğrenciyi Arama
