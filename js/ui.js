@@ -140,6 +140,7 @@ window.applyPermissions = function () {
                 const allowedGrades = [...new Set(kt_classes.map(c => String(c).split('/')[0]))];
 
                 document.querySelectorAll(".grade-selector").forEach(sel => {
+                    if (!sel.options) return;
                     // Kademe filtresi
                     Array.from(sel.options).forEach(opt => {
                         if (opt.value !== "" && opt.value !== "ALL" && !allowedGrades.includes(opt.value)) {

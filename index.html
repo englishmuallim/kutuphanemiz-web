@@ -237,6 +237,12 @@
                                 class="material-symbols-rounded" style="font-size:16px;">upload</span> Excel Yükle<input
                                 type="file" id="excelStudentUpload" accept=".xlsx" style="display:none;"
                                 onchange="handleExcelUpload(event, 'student')"></label>
+                        <button type="button" class="action-btn"
+                            style="flex:1; background:#8b5cf6; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px;"
+                            onclick="triggerEokulStudentImport()"><span class="material-symbols-rounded"
+                                style="font-size:16px;">download</span> 📥 E-Okul Excel Yükle</button>
+                        <input type="file" id="eOkulStudentUpload" accept=".xlsx" style="display:none;"
+                            onchange="handleEOkulStudentUpload(event)">
                     </div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
                             type="number" id="newOgrNo" placeholder="Okul No"></div>
@@ -244,15 +250,13 @@
                             type="text" id="newOgrAd" placeholder="Ad Soyad"></div>
                     <div style="display:flex; gap:10px;">
                         <div class="input-group" style="flex:1;"><span
-                                class="material-symbols-rounded input-icon">numbers</span><select id="newOgrKademe"
-                                class="grade-selector">
-                                <option value="">Kademe</option>
-                            </select></div>
+                            class="material-symbols-rounded input-icon">numbers</span><input type="text"
+                            id="newOgrKademe" class="grade-selector" list="newOgrKademeList"
+                            placeholder="Kademe" autocomplete="off"><datalist id="newOgrKademeList"></datalist></div>
                         <div class="input-group" style="flex:1;"><span
-                                class="material-symbols-rounded input-icon">school</span><select id="newOgrSube"
-                                class="class-selector">
-                                <option value="">Şube</option>
-                            </select></div>
+                            class="material-symbols-rounded input-icon">school</span><input type="text"
+                            id="newOgrSube" class="class-selector" list="newOgrSubeList"
+                            placeholder="Şube" autocomplete="off"><datalist id="newOgrSubeList"></datalist></div>
                     </div>
                     <button class="action-btn" style="background:#4f46e5;" onclick="kaydet('student')">Kaydet</button>
                 </div>
@@ -549,6 +553,20 @@
                                 <span class="material-symbols-rounded" style="font-size:16px;">save</span> Kaydet
                             </button>
                         </div>
+                    </div>
+
+                    <!-- YENİ: Arşivlenmiş Öğrenciye Kitap Verme İzni -->
+                    <div style="margin-top:20px; padding-top:15px; border-top:1px solid #e5e7eb;">
+                        <label
+                            style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:bold; font-size:0.9rem; color:#374151;">
+                            <input type="checkbox" id="setting_allow_lending_to_archived"
+                                style="width:18px; height:18px;">
+                            Mezun/Arşivlenmiş Öğrencilere Kitap Verilebilsin
+                        </label>
+                        <p style="font-size:0.8rem; color:#6b7280; margin:6px 0 0 26px;">
+                            Kapalıyken, arşivlenmiş (mezun/nakil) öğrencilere yeni kitap verilemez. Açıkken bu
+                            kısıtlama kaldırılır.
+                        </p>
                     </div>
 
                     <button class="action-btn" style="background:#3b82f6; margin-top:15px;"

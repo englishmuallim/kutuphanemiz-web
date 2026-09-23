@@ -565,7 +565,7 @@ exports.kitapVer = async (req, res) => {
 
         const [bookRes, studentRes] = await Promise.all([
             supabase.from('books').select('id, book_name, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single(),
-            supabase.from('students').select('id, full_name').eq('school_id', schoolId).eq('student_no', ogrNo).single()
+            supabase.from('students').select('id, full_name, is_active').eq('school_id', schoolId).eq('student_no', ogrNo).single()
         ]);
 
         const book = bookRes.data;
@@ -574,6 +574,10 @@ exports.kitapVer = async (req, res) => {
         if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
         if (book.status === 'borrowed') return res.json({ status: 'error', message: 'Kitap başkasında!' });
         if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı' });
+
+        if (student.is_active === false && !settings.allow_lending_to_archived) {
+            return res.json({ status: 'error', message: 'Bu öğrenci arşivlenmiş (mezun/nakil), kitap verilemez. Ayarlar sayfasından bu kısıtlamayı kaldırabilirsiniz.' });
+        }
 
         const { count: activeCount } = await supabase.from('transactions')
             .select('id', { count: 'exact', head: true })
@@ -764,17 +768,81 @@ exports.bulkAddStudents = async (req, res) => {
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        const mappedData = data.map(item => ({
-            ...item,
-            school_id: auth.id,
-            is_active: true
-        }));
+        const rawItems = Array.isArray(data) ? data : [];
+        const cleanedItems = rawItems
+            .map(item => {
+                const studentNo = String(item.student_no ?? item.studentNo ?? '').trim();
+                const fullName = String(item.full_name ?? item.fullName ?? item.name ?? '').trim();
+                if (!studentNo || !fullName) return null;
+                return {
+                    ...item,
+                    student_no: studentNo,
+                    full_name: fullName,
+                    school_id: auth.id,
+                    is_active: true
+                };
+            })
+            .filter(Boolean);
 
-        const { error } = await supabase.from('students').insert(mappedData);
-        if (error) throw error;
+        if (cleanedItems.length === 0) {
+            return res.json({ status: 'success', insertedCount: 0, duplicateCount: 0, duplicates: [], message: 'İçe aktarılacak öğrenci bulunamadı.' });
+        }
 
-        res.json({ status: 'success', message: 'Toplu öğrenci ekleme başarılı' });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+        const uniqueNos = [...new Set(cleanedItems.map(item => item.student_no))];
+        const { data: existingRows, error: lookupError } = await supabase
+            .from('students')
+            .select('student_no, full_name')
+            .eq('school_id', auth.id)
+            .in('student_no', uniqueNos);
+
+        if (lookupError) throw lookupError;
+
+        const existingSet = new Set((existingRows || []).map(item => String(item.student_no).trim()));
+        const toInsert = [];
+        const duplicates = [];
+
+        cleanedItems.forEach(item => {
+            const studentNo = String(item.student_no).trim();
+            if (existingSet.has(studentNo)) {
+                duplicates.push({ student_no: studentNo, full_name: item.full_name || 'Bilinmeyen öğrenci' });
+                return;
+            }
+            toInsert.push(item);
+            existingSet.add(studentNo);
+        });
+
+        let insertedCount = 0;
+        if (toInsert.length > 0) {
+            const { error } = await supabase.from('students').insert(toInsert);
+            if (error) {
+                if (isDuplicateStudentConstraintError(error)) {
+                    const raceDuplicates = toInsert.map(item => ({ student_no: item.student_no, full_name: item.full_name }));
+                    return res.json({
+                        status: 'success',
+                        insertedCount: 0,
+                        duplicateCount: raceDuplicates.length,
+                        duplicates: raceDuplicates,
+                        message: 'Bazı öğrenciler eşzamanlı ekleme nedeniyle mükerrer olarak atlandı.'
+                    });
+                }
+                throw error;
+            }
+            insertedCount = toInsert.length;
+        }
+
+        return res.json({
+            status: 'success',
+            insertedCount,
+            duplicateCount: duplicates.length,
+            duplicates,
+            message: 'Toplu öğrenci ekleme başarılı'
+        });
+    } catch (error) {
+        if (isDuplicateStudentConstraintError(error)) {
+            return res.json({ status: 'success', insertedCount: 0, duplicateCount: 1, duplicates: [{ full_name: 'Bilinmeyen öğrenci', student_no: 'Bilinmeyen numara' }], message: 'Mükerrer öğrenci olduğu için kayıt atlandı.' });
+        }
+        return res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 exports.updateStudent = async (req, res) => {

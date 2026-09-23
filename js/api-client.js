@@ -6,13 +6,24 @@ async function loadClasses() {
         const res = await fetch('/api/getClasses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
         const r = await res.json();
         if (r.status === 'success' && r.data) {
+            const setDatalistOptions = (selector, values) => {
+                const datalist = document.getElementById(selector);
+                if (!datalist) return;
+                datalist.innerHTML = (values || []).map(value => `<option value="${value}"></option>`).join('');
+            };
+
+            setDatalistOptions('newOgrSubeList', r.data.classes);
+            setDatalistOptions('newOgrKademeList', r.data.grades);
+
             document.querySelectorAll(".class-selector").forEach(sel => {
+                if (sel.tagName === 'INPUT') return;
                 const defaultOpt = sel.firstElementChild ? sel.firstElementChild.outerHTML : '<option value="">Şube</option>';
                 let options = defaultOpt;
                 if (r.data.classes) r.data.classes.forEach(cls => { options += `<option value="${cls}">${cls}</option>`; });
                 sel.innerHTML = options;
             });
             document.querySelectorAll(".grade-selector").forEach(sel => {
+                if (sel.tagName === 'INPUT') return;
                 const defaultOpt = sel.firstElementChild ? sel.firstElementChild.outerHTML : '<option value="">Kademe</option>';
                 let options = defaultOpt;
                 if (r.data.grades) r.data.grades.forEach(g => { options += `<option value="${g}">${g}. Sınıf</option>`; });
@@ -405,12 +416,14 @@ async function kaydet(type) {
     let endpoint = "";
 
     if (type === 'student') {
-        const no = document.getElementById("newOgrNo").value;
-        const name = document.getElementById("newOgrAd").value;
-        const grade = document.getElementById("newOgrKademe").value;
-        const sube = document.getElementById("newOgrSube").value;
-        if (!no || !name || !grade || !sube) { Swal.fire('Eksik', 'Bilgileri doldurunuz.', 'warning'); return; }
-        data.no = no; data.name = name; data.grade = grade; data.className = sube;
+        const studentPayload = buildStudentPayload({
+            no: document.getElementById("newOgrNo").value,
+            name: document.getElementById("newOgrAd").value,
+            grade: document.getElementById("newOgrKademe").value,
+            className: document.getElementById("newOgrSube").value
+        });
+        if (!studentPayload) { Swal.fire('Eksik', 'Bilgileri doldurunuz.', 'warning'); return; }
+        Object.assign(data, studentPayload);
         endpoint = "/api/addStudent";
     } else {
         const bName = document.getElementById("newKitapAd").value;
@@ -1002,6 +1015,9 @@ async function loadSettings() {
             document.getElementById("setting_lib_open_time").value = s.lib_open_time || '';
             document.getElementById("setting_lib_close_time").value = s.lib_close_time || '';
 
+            const allowLendingArchivedEl = document.getElementById("setting_allow_lending_to_archived");
+            if (allowLendingArchivedEl) allowLendingArchivedEl.checked = !!s.allow_lending_to_archived;
+
             document.getElementById("setting_staff_pass_mode").value = s.staff_pass_mode || 'fixed';
             if (s.staff_pass_mode === 'fixed') {
                 document.getElementById("setting_fixed_staff_name").value = s.fixed_staff_name || s.staff_names || '';
@@ -1059,22 +1075,24 @@ async function saveAcademicYear() {
 }
 
 // --- YENİ EKLENEN: Dinamik Kural Satırı Oluşturma Fonksiyonu ---
-window.addDynamicRuleRow = function (pages = '', min = '', max = '') {
-    const container = document.getElementById('dynamic-rules-container');
-    const row = document.createElement('div');
-    row.className = 'dynamic-rule-row';
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.alignItems = 'center';
+if (typeof window !== 'undefined') {
+    window.addDynamicRuleRow = function (pages = '', min = '', max = '') {
+        const container = document.getElementById('dynamic-rules-container');
+        const row = document.createElement('div');
+        row.className = 'dynamic-rule-row';
+        row.style.display = 'flex';
+        row.style.gap = '8px';
+        row.style.alignItems = 'center';
 
-    row.innerHTML = `
-        <div style="flex:1;"><input type="number" placeholder="Max Syf (Örn:100)" value="${pages}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
-        <div style="flex:1;"><input type="number" placeholder="Min Gün (Örn:1)" value="${min}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
-        <div style="flex:1;"><input type="number" placeholder="Max Gün (Örn:7)" value="${max}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
-        <button onclick="this.parentElement.remove()" type="button" style="background:#ef4444; color:white; border:none; padding:8px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Sil"><span class="material-symbols-rounded" style="font-size:16px;">delete</span></button>
-    `;
-    container.appendChild(row);
-};
+        row.innerHTML = `
+            <div style="flex:1;"><input type="number" placeholder="Max Syf (Örn:100)" value="${pages}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+            <div style="flex:1;"><input type="number" placeholder="Min Gün (Örn:1)" value="${min}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+            <div style="flex:1;"><input type="number" placeholder="Max Gün (Örn:7)" value="${max}" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem;"></div>
+            <button onclick="this.parentElement.remove()" type="button" style="background:#ef4444; color:white; border:none; padding:8px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Sil"><span class="material-symbols-rounded" style="font-size:16px;">delete</span></button>
+        `;
+        container.appendChild(row);
+    };
+}
 
 async function saveSettings(type) {
     const code = localStorage.getItem("kutuphane_code");
@@ -1102,7 +1120,8 @@ async function saveSettings(type) {
             max_borrow_limit: document.getElementById("setting_max_borrow_limit").value ? parseInt(document.getElementById("setting_max_borrow_limit").value) : null,
             dynamic_rules: dynamicRules.length > 0 ? dynamicRules : null, // Sabit günler JSON'dan tamamen çıkarıldı
             lib_open_time: document.getElementById("setting_lib_open_time").value || null,
-            lib_close_time: document.getElementById("setting_lib_close_time").value || null
+            lib_close_time: document.getElementById("setting_lib_close_time").value || null,
+            allow_lending_to_archived: document.getElementById("setting_allow_lending_to_archived").checked
         };
     } else if (type === 'staff') {
         const mode = document.getElementById("setting_staff_pass_mode").value;
@@ -1510,13 +1529,170 @@ function handleExcelUpload(event, type) {
             const result = await res.json();
 
             if (result.status === 'success') {
-                Swal.fire('Başarılı', `${mappedData.length} kayıt başarıyla eklendi!`, 'success');
+                const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
+                const duplicateCount = Number(result.duplicateCount || 0);
+                const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
+
+                if (duplicateCount > 0 || duplicates.length > 0) {
+                    const duplicateList = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
+                    const html = `
+                        <div style="text-align:left;">
+                            <div><b>${insertedCount}</b> öğrenci eklendi.</div>
+                            <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
+                            ${duplicateList ? `<div style="margin-top:10px; max-height:150px; overflow-y:auto;">${duplicateList}</div>` : ''}
+                        </div>
+                    `;
+                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html, confirmButtonText: 'Tamam' });
+                } else {
+                    Swal.fire('Başarılı', `${insertedCount} kayıt başarıyla eklendi!`, 'success');
+                }
                 if (typeof getStats === 'function') getStats();
             } else {
                 Swal.fire('Hata', result.message || 'Yükleme başarısız', 'error');
             }
         } catch (error) {
             Swal.fire('Hata', 'Dosya okunurken bir hata oluştu.', 'error');
+        } finally {
+            event.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parseEokulStudentRows(rows, grade, className) {
+    if (!Array.isArray(rows) || rows.length < 2) {
+        return [];
+    }
+
+    const mappedData = [];
+    for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const studentNo = String(row[1] ?? '').trim();
+        const namePart = String(row[4] ?? '').trim();
+        const surnamePart = String(row[9] ?? '').trim();
+
+        if (!studentNo) continue;
+
+        const fullName = [namePart, surnamePart].filter(Boolean).join(' ');
+        if (!fullName) continue;
+
+        mappedData.push({
+            student_no: studentNo,
+            full_name: fullName,
+            grade,
+            class_name: className
+        });
+    }
+
+    return mappedData;
+}
+
+function buildStudentPayload({ no, name, grade, className }) {
+    if (!no || !name || !grade || !className) return null;
+    return { no, name, grade, className };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { parseEokulStudentRows, buildStudentPayload };
+}
+
+function triggerEokulStudentImport() {
+    const grade = document.getElementById('newOgrKademe')?.value;
+    const className = document.getElementById('newOgrSube')?.value;
+
+    if (!grade || !className) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen önce Kademe ve Şube seçin.' });
+        return;
+    }
+
+    const fileInput = document.getElementById('eOkulStudentUpload');
+    if (fileInput) {
+        fileInput.value = '';
+        fileInput.click();
+    }
+}
+
+async function handleEOkulStudentUpload(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const grade = document.getElementById('newOgrKademe')?.value;
+    const className = document.getElementById('newOgrSube')?.value;
+
+    if (!grade || !className) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen önce Kademe ve Şube seçin.' });
+        event.target.value = '';
+        return;
+    }
+
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const firstSheet = workbook.Sheets[firstSheetName];
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, blankrows: false });
+
+            if (!rows || rows.length < 2) {
+                Swal.fire('Hata', 'Excel dosyası boş veya formatı hatalı.', 'error');
+                return;
+            }
+
+            const mappedData = parseEokulStudentRows(rows, grade, className);
+
+            if (mappedData.length === 0) {
+                Swal.fire('Hata', 'Dosyada kullanılabilir öğrenci verisi bulunamadı. B sütununda öğrenci no, E sütununda ad, J sütununda soyad olmalıdır.', 'error');
+                return;
+            }
+
+            const code = localStorage.getItem('kutuphane_code');
+            const pass = localStorage.getItem('kutuphane_pass');
+
+            Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> öğrenci işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+            const response = await fetch('/api/students/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: mappedData })
+            });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
+                const duplicateCount = Number(result.duplicateCount || 0);
+                const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
+
+                if (duplicateCount > 0 || duplicates.length > 0) {
+                    const duplicateHtml = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'İçe Aktarım Tamamlandı',
+                        html: `
+                            <div style="text-align:left;">
+                                <div><b>${insertedCount}</b> öğrenci başarıyla eklendi.</div>
+                                <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
+                                ${duplicateHtml ? `<div style="margin-top:10px; max-height:140px; overflow-y:auto;">${duplicateHtml}</div>` : ''}
+                            </div>
+                        `,
+                        confirmButtonText: 'Tamam'
+                    });
+                } else {
+                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', text: `${insertedCount} öğrenci başarıyla eklendi.` });
+                }
+
+                if (typeof getStats === 'function') getStats();
+            } else {
+                Swal.fire({ icon: 'error', title: 'Hata', text: result.message || 'İçe aktarma başarısız oldu.' });
+            }
+        } catch (error) {
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Excel dosyası okunurken bir hata oluştu.' });
         } finally {
             event.target.value = '';
         }
@@ -1681,6 +1857,8 @@ async function checkMagicToken() {
 }
 
 // Dosya yüklendiğinde bilet yakalayıcıyı otomatik çalıştır
-document.addEventListener('DOMContentLoaded', () => {
-    checkMagicToken();
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
+        checkMagicToken();
+    });
+}
