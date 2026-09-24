@@ -87,6 +87,22 @@ const isDuplicateStudentConstraintError = (error) => {
     return /duplicate key|unique constraint|students.*student_no|school_id.*student_no/i.test(details);
 };
 
+// İsim karşılaştırmasında Türkçe karakter/boşluk farklarını tolere eden normalizasyon
+const normalizeStudentName = (name) => {
+    return String(name ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/İ/g, 'i')
+        .replace(/I/g, 'i')
+        .replace(/ı/g, 'i')
+        .toLowerCase()
+        .replace(/ş/g, 's')
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c');
+};
+
 exports.login = async (req, res) => {
     try {
         console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
@@ -764,7 +780,7 @@ exports.addStudent = async (req, res) => {
 
 exports.bulkAddStudents = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, data } = req.body;
+        const { schoolCode, schoolPass, data, updateExistingClass } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
@@ -785,31 +801,51 @@ exports.bulkAddStudents = async (req, res) => {
             .filter(Boolean);
 
         if (cleanedItems.length === 0) {
-            return res.json({ status: 'success', insertedCount: 0, duplicateCount: 0, duplicates: [], message: 'İçe aktarılacak öğrenci bulunamadı.' });
+            return res.json({ status: 'success', insertedCount: 0, updatedCount: 0, duplicateCount: 0, nameMismatchCount: 0, duplicates: [], updated: [], nameMismatches: [], message: 'İçe aktarılacak öğrenci bulunamadı.' });
         }
 
         const uniqueNos = [...new Set(cleanedItems.map(item => item.student_no))];
         const { data: existingRows, error: lookupError } = await supabase
             .from('students')
-            .select('student_no, full_name')
+            .select('id, student_no, full_name')
             .eq('school_id', auth.id)
+            .eq('is_active', true)
             .in('student_no', uniqueNos);
 
         if (lookupError) throw lookupError;
 
-        const existingSet = new Set((existingRows || []).map(item => String(item.student_no).trim()));
+        const existingMap = new Map((existingRows || []).map(row => [String(row.student_no).trim(), row]));
         const toInsert = [];
+        const toUpdate = [];
         const duplicates = [];
+        const nameMismatches = [];
 
         cleanedItems.forEach(item => {
             const studentNo = String(item.student_no).trim();
-            if (existingSet.has(studentNo)) {
+            const existing = existingMap.get(studentNo);
+
+            if (!existing) {
+                toInsert.push(item);
+                return;
+            }
+
+            if (!updateExistingClass) {
                 duplicates.push({ student_no: studentNo, full_name: item.full_name || 'Bilinmeyen öğrenci' });
                 return;
             }
-            toInsert.push(item);
-            existingSet.add(studentNo);
+
+            if (normalizeStudentName(existing.full_name) === normalizeStudentName(item.full_name)) {
+                toUpdate.push({ id: existing.id, student_no: studentNo, full_name: existing.full_name, grade: item.grade, class_name: item.class_name });
+            } else {
+                nameMismatches.push({ student_no: studentNo, existing_name: existing.full_name, file_name: item.full_name });
+            }
         });
+
+        // Mutabakat kontrolü: hiçbir satır sessizce kaybolmasın
+        const categorizedTotal = toInsert.length + toUpdate.length + duplicates.length + nameMismatches.length;
+        if (categorizedTotal !== cleanedItems.length) {
+            throw new Error(`İçe aktarma mutabakat hatası: ${cleanedItems.length} satır işlenecekti, ${categorizedTotal} satır kategorize edildi.`);
+        }
 
         let insertedCount = 0;
         if (toInsert.length > 0) {
@@ -820,8 +856,12 @@ exports.bulkAddStudents = async (req, res) => {
                     return res.json({
                         status: 'success',
                         insertedCount: 0,
-                        duplicateCount: raceDuplicates.length,
-                        duplicates: raceDuplicates,
+                        updatedCount: 0,
+                        duplicateCount: duplicates.length + raceDuplicates.length,
+                        nameMismatchCount: nameMismatches.length,
+                        duplicates: [...duplicates, ...raceDuplicates],
+                        updated: [],
+                        nameMismatches,
                         message: 'Bazı öğrenciler eşzamanlı ekleme nedeniyle mükerrer olarak atlandı.'
                     });
                 }
@@ -830,16 +870,30 @@ exports.bulkAddStudents = async (req, res) => {
             insertedCount = toInsert.length;
         }
 
+        const updated = [];
+        if (toUpdate.length > 0) {
+            const updateResults = await Promise.all(toUpdate.map(item =>
+                supabase.from('students').update({ grade: item.grade, class_name: item.class_name }).eq('id', item.id)
+            ));
+            const updateError = updateResults.find(r => r.error);
+            if (updateError) throw updateError.error;
+            updated.push(...toUpdate.map(({ id, ...rest }) => rest));
+        }
+
         return res.json({
             status: 'success',
             insertedCount,
+            updatedCount: updated.length,
             duplicateCount: duplicates.length,
+            nameMismatchCount: nameMismatches.length,
             duplicates,
+            updated,
+            nameMismatches,
             message: 'Toplu öğrenci ekleme başarılı'
         });
     } catch (error) {
         if (isDuplicateStudentConstraintError(error)) {
-            return res.json({ status: 'success', insertedCount: 0, duplicateCount: 1, duplicates: [{ full_name: 'Bilinmeyen öğrenci', student_no: 'Bilinmeyen numara' }], message: 'Mükerrer öğrenci olduğu için kayıt atlandı.' });
+            return res.json({ status: 'success', insertedCount: 0, updatedCount: 0, duplicateCount: 1, nameMismatchCount: 0, duplicates: [{ full_name: 'Bilinmeyen öğrenci', student_no: 'Bilinmeyen numara' }], updated: [], nameMismatches: [], message: 'Mükerrer öğrenci olduğu için kayıt atlandı.' });
         }
         return res.status(500).json({ status: 'error', message: error.message });
     }

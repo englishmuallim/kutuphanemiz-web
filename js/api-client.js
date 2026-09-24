@@ -1465,6 +1465,44 @@ function downloadExcelTemplate(type) {
     XLSX.writeFile(wb, filename);
 }
 
+function buildBulkStudentImportSummaryHtml(result) {
+    const insertedCount = Number(result.insertedCount || 0);
+    const updatedCount = Number(result.updatedCount || 0);
+    const duplicateCount = Number(result.duplicateCount || 0);
+    const nameMismatchCount = Number(result.nameMismatchCount || 0);
+    const updated = Array.isArray(result.updated) ? result.updated : [];
+    const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
+    const nameMismatches = Array.isArray(result.nameMismatches) ? result.nameMismatches : [];
+
+    const lines = [`<div><b>${insertedCount}</b> yeni öğrenci eklendi.</div>`];
+
+    if (updatedCount > 0) {
+        const list = updated.map(item => `<div style="margin-top:4px;">• ${item.full_name || item.student_no} (${item.student_no})</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px;"><b>${updatedCount}</b> öğrencinin sınıfı güncellendi.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    if (duplicateCount > 0) {
+        const list = duplicates.map(item => `<div style="margin-top:4px;">• ${item.full_name || item.student_no} (${item.student_no})</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px;"><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    if (nameMismatchCount > 0) {
+        const list = nameMismatches.map(item => `<div style="margin-top:4px;">• No: ${item.student_no} — Sistemde: "${item.existing_name}", Dosyada: "${item.file_name}"</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px; color:#b91c1c;"><b>${nameMismatchCount}</b> öğrenci isim uyuşmazlığı nedeniyle atlandı.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    return `<div style="text-align:left;">${lines.join('')}</div>`;
+}
+
 function handleExcelUpload(event, type) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1517,6 +1555,9 @@ function handleExcelUpload(event, type) {
             const code = localStorage.getItem("kutuphane_code");
             const pass = localStorage.getItem("kutuphane_pass");
             const payload = { schoolCode: code, schoolPass: pass, data: mappedData };
+            if (type === 'student') {
+                payload.updateExistingClass = !!document.getElementById('bulkImportUpdateClass')?.checked;
+            }
             const endpoint = type === 'student' ? '/api/students/bulk' : '/api/books/bulk';
 
             Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> kayıt işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
@@ -1529,22 +1570,26 @@ function handleExcelUpload(event, type) {
             const result = await res.json();
 
             if (result.status === 'success') {
-                const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
-                const duplicateCount = Number(result.duplicateCount || 0);
-                const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
-
-                if (duplicateCount > 0 || duplicates.length > 0) {
-                    const duplicateList = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
-                    const html = `
-                        <div style="text-align:left;">
-                            <div><b>${insertedCount}</b> öğrenci eklendi.</div>
-                            <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
-                            ${duplicateList ? `<div style="margin-top:10px; max-height:150px; overflow-y:auto;">${duplicateList}</div>` : ''}
-                        </div>
-                    `;
-                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html, confirmButtonText: 'Tamam' });
+                if (type === 'student') {
+                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildBulkStudentImportSummaryHtml(result), confirmButtonText: 'Tamam' });
                 } else {
-                    Swal.fire('Başarılı', `${insertedCount} kayıt başarıyla eklendi!`, 'success');
+                    const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
+                    const duplicateCount = Number(result.duplicateCount || 0);
+                    const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
+
+                    if (duplicateCount > 0 || duplicates.length > 0) {
+                        const duplicateList = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
+                        const html = `
+                            <div style="text-align:left;">
+                                <div><b>${insertedCount}</b> öğrenci eklendi.</div>
+                                <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
+                                ${duplicateList ? `<div style="margin-top:10px; max-height:150px; overflow-y:auto;">${duplicateList}</div>` : ''}
+                            </div>
+                        `;
+                        Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html, confirmButtonText: 'Tamam' });
+                    } else {
+                        Swal.fire('Başarılı', `${insertedCount} kayıt başarıyla eklendi!`, 'success');
+                    }
                 }
                 if (typeof getStats === 'function') getStats();
             } else {
@@ -1654,39 +1699,19 @@ async function handleEOkulStudentUpload(event) {
 
             const code = localStorage.getItem('kutuphane_code');
             const pass = localStorage.getItem('kutuphane_pass');
+            const updateExistingClass = !!document.getElementById('bulkImportUpdateClass')?.checked;
 
             Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> öğrenci işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
             const response = await fetch('/api/students/bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: mappedData })
+                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: mappedData, updateExistingClass })
             });
             const result = await response.json();
 
             if (result.status === 'success') {
-                const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
-                const duplicateCount = Number(result.duplicateCount || 0);
-                const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
-
-                if (duplicateCount > 0 || duplicates.length > 0) {
-                    const duplicateHtml = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'İçe Aktarım Tamamlandı',
-                        html: `
-                            <div style="text-align:left;">
-                                <div><b>${insertedCount}</b> öğrenci başarıyla eklendi.</div>
-                                <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
-                                ${duplicateHtml ? `<div style="margin-top:10px; max-height:140px; overflow-y:auto;">${duplicateHtml}</div>` : ''}
-                            </div>
-                        `,
-                        confirmButtonText: 'Tamam'
-                    });
-                } else {
-                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', text: `${insertedCount} öğrenci başarıyla eklendi.` });
-                }
-
+                Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildBulkStudentImportSummaryHtml(result), confirmButtonText: 'Tamam' });
                 if (typeof getStats === 'function') getStats();
             } else {
                 Swal.fire({ icon: 'error', title: 'Hata', text: result.message || 'İçe aktarma başarısız oldu.' });

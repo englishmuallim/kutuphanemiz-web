@@ -227,7 +227,7 @@
                 <div id="yonetim-form-student" class="hidden" style="margin-top:10px;">
                     <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
                                 class="material-symbols-rounded">arrow_back</span></button>Öğrenci Kaydı</div>
-                    <div style="display:flex; gap:10px; margin-bottom:15px; padding:0 5px;">
+                    <div style="display:flex; gap:10px; margin-bottom:10px; padding:0 5px;">
                         <button type="button" class="action-btn"
                             style="flex:1; background:#10b981; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px;"
                             onclick="downloadExcelTemplate('student')"><span class="material-symbols-rounded"
@@ -237,12 +237,33 @@
                                 class="material-symbols-rounded" style="font-size:16px;">upload</span> Excel Yükle<input
                                 type="file" id="excelStudentUpload" accept=".xlsx" style="display:none;"
                                 onchange="handleExcelUpload(event, 'student')"></label>
+                    </div>
+                    <div
+                        style="margin:0 5px 10px 5px; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:10px 12px; font-size:0.78rem; color:#5b21b6; line-height:1.5;">
+                        <div style="font-weight:600; margin-bottom:4px;">📋 E-Okul Excel dosyasını indirmek için:</div>
+                        <ol style="margin:0; padding-left:18px;">
+                            <li>Kurum İşlemleri</li>
+                            <li>İlkokul-Ortaokul Öğrenci İşleri</li>
+                            <li>Yazdır</li>
+                            <li>HTML/Excel seçiniz</li>
+                            <li>Sınıf/Şube seçiniz (örn: 5-A)</li>
+                            <li>Sol üst köşedeki sağ ok işaretine tıklayıp "Excel Sadece Veri" seçip kaydediniz.</li>
+                        </ol>
+                    </div>
+                    <div style="margin:0 5px 15px 5px;">
                         <button type="button" class="action-btn"
-                            style="flex:1; background:#8b5cf6; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px;"
+                            style="width:100%; background:#8b5cf6; font-size:0.8rem; padding:8px; display:flex; align-items:center; justify-content:center; gap:5px; margin-bottom:0;"
                             onclick="triggerEokulStudentImport()"><span class="material-symbols-rounded"
                                 style="font-size:16px;">download</span> 📥 E-Okul Excel Yükle</button>
                         <input type="file" id="eOkulStudentUpload" accept=".xlsx" style="display:none;"
                             onchange="handleEOkulStudentUpload(event)">
+                    </div>
+                    <div style="margin: 0 5px 12px 5px;">
+                        <label
+                            style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; color:#374151;">
+                            <input type="checkbox" id="bulkImportUpdateClass" checked style="width:16px; height:16px;">
+                            Aynı numarayla zaten kayıtlı öğrencilerin sınıfını güncelle (isim eşleşmezse atlanır)
+                        </label>
                     </div>
                     <div class="input-group"><span class="material-symbols-rounded input-icon">tag</span><input
                             type="number" id="newOgrNo" placeholder="Okul No"></div>
