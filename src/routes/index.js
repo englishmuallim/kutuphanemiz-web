@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const libraryController = require('../controllers/libraryController');
+const studentManagementController = require('../controllers/studentManagementController');
 
 // Kullanıcı & Oturum İşlemleri
 router.post('/login', libraryController.login);
@@ -60,5 +61,13 @@ router.post('/getStudentByNo', libraryController.getStudentByNo);
 
 // İşlem Geçmişi
 router.post('/getLogs', libraryController.getLogs);
+
+// Öğrenci İşlemleri (Geniş Ekran) Sayfası - YENİ
+router.post('/listStudents', studentManagementController.listStudents);
+router.post('/getGradeOptions', studentManagementController.getGradeOptions);
+router.post('/bulkTransferStudents', studentManagementController.bulkTransferStudents);
+router.post('/archiveStudent', studentManagementController.archiveStudent);
+router.post('/restoreStudent', studentManagementController.restoreStudent);
+router.post('/deleteStudent', studentManagementController.deleteStudent);
 
 module.exports = router;

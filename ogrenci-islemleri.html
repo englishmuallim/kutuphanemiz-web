@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Öğrenci İşlemleri | Kütüphanemiz</title>
+    <link rel="icon" type="image/png" href="app_logo.png">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="css/student-management.css">
+</head>
+
+<body>
+    <div class="page-wrap">
+
+        <!-- Üst Bar -->
+        <div class="topbar">
+            <div class="topbar-left">
+                <img src="app_logo.png" alt="Logo" class="topbar-logo">
+                <div>
+                    <h1 class="topbar-title">Öğrenci İşlemleri</h1>
+                    <p class="topbar-subtitle">Yeni öğrenci ekleyin, bilgilerini güncelleyin ve sınıf işlemlerini
+                        yönetin.</p>
+                </div>
+            </div>
+            <div class="topbar-actions">
+                <button type="button" class="btn btn-ghost" onclick="window.location.href='index.html'">
+                    <span class="material-symbols-rounded" style="font-size:18px;">home</span> Ana Sayfa
+                </button>
+                <button type="button" class="btn btn-ghost" onclick="logoutFromPage()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">logout</span> Çıkış Yap
+                </button>
+            </div>
+        </div>
+
+        <!-- Öğrenci Kayıt Yönetimi -->
+        <div class="card card-green">
+            <div>
+                <h2>Öğrenci Kayıt Yönetimi</h2>
+                <p>Sisteme yeni öğrenci ekleyin.</p>
+            </div>
+            <button type="button" class="btn btn-success" onclick="openStudentModal('add')">
+                <span class="material-symbols-rounded" style="font-size:18px;">person_add</span> Yeni Öğrenci Ekle
+            </button>
+        </div>
+
+        <!-- Arama / Filtreleme -->
+        <div class="card">
+            <h2>Öğrenci Sorgulama &amp; Listeleme</h2>
+            <div class="filter-row">
+                <div class="field-search">
+                    <input type="text" id="sm_searchInput" placeholder="Öğrenci Adı, Soyadı veya No..."
+                        onkeydown="if(event.key==='Enter'){event.preventDefault(); runSearch();}">
+                </div>
+                <select id="sm_gradeFilter" onchange="runSearch()">
+                    <option value="">-- Kademe --</option>
+                </select>
+                <select id="sm_classFilter" onchange="runSearch()">
+                    <option value="">-- Şube --</option>
+                </select>
+                <select id="sm_statusFilter" onchange="runSearch()">
+                    <option value="active" selected>Durum: Aktif</option>
+                    <option value="archived">Durum: Arşiv</option>
+                    <option value="all">Durum: Tümü</option>
+                </select>
+                <button type="button" class="btn btn-primary" onclick="runSearch()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">search</span> Ara / Filtrele
+                </button>
+                <button type="button" class="btn btn-outline" onclick="listAllStudents()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">list</span> Tümünü Listele
+                </button>
+                <button type="button" id="sm_bulkTransferBtn" class="btn btn-warning hidden" disabled
+                    onclick="openBulkTransferModal()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Seçilileri
+                    Aktar
+                </button>
+            </div>
+        </div>
+
+        <!-- Sonuçlar -->
+        <div class="card hidden" id="sm_resultsCard">
+            <div class="results-header">
+                <h2>Sonuçlar</h2>
+                <span class="results-count" id="sm_resultsCount"></span>
+            </div>
+            <div class="table-scroll">
+                <table class="students-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="sm_selectAll" onchange="toggleSelectAll()"></th>
+                            <th>Öğrenci No</th>
+                            <th>Ad Soyad</th>
+                            <th>Sınıf / Şube</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sm_resultsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Öğrenci Ekle/Düzenle Modalı -->
+    <div class="modal-overlay hidden" id="sm_studentModal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <h3 id="sm_studentModalTitle">Yeni Öğrenci Ekle</h3>
+                <button type="button" class="modal-close" onclick="closeStudentModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="sm_editOldNo">
+                <div>
+                    <label>Öğrenci No *</label>
+                    <input type="text" id="sm_formNo" placeholder="Öğrenci No">
+                </div>
+                <div>
+                    <label>Ad Soyad *</label>
+                    <input type="text" id="sm_formName" placeholder="Ad Soyad">
+                </div>
+                <div>
+                    <label>Kademe</label>
+                    <select id="sm_formGrade">
+                        <option value="">-- Kademe --</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Şube</label>
+                    <input type="text" id="sm_formClass" placeholder="Örn: A">
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-outline" onclick="closeStudentModal()">İptal</button>
+                <button type="button" class="btn btn-success" onclick="saveStudentFromModal()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">save</span> Kaydet
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toplu Aktarma Modalı -->
+    <div class="modal-overlay hidden" id="sm_bulkTransferModal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <h3>Seçili Öğrencileri Aktar</h3>
+                <button type="button" class="modal-close" onclick="closeBulkTransferModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div>
+                    <label>Yeni Kademe *</label>
+                    <select id="sm_bulkGrade">
+                        <option value="">-- Kademe --</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Yeni Şube *</label>
+                    <select id="sm_bulkClass" onchange="handleBulkClassChange()">
+                        <option value="">-- Şube --</option>
+                        <option value="__new__">Yeni Şube Tanımla</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-outline" onclick="closeBulkTransferModal()">İptal</button>
+                <button type="button" class="btn btn-warning" onclick="submitBulkTransfer()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Aktar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/student-management.js"></script>
+</body>
+
+</html>

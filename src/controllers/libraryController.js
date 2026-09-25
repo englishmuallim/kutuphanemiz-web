@@ -1,9 +1,10 @@
 const supabase = require('../api/supabase');
+const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter } = require('../utils/studentUtils');
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
     const { data } = await supabase.from('schools')
-        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings')
+        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings, school_type')
         .eq('school_code', code)
         .single();
 
@@ -64,13 +65,18 @@ async function getSchoolAuth(code, pass) {
         }
     }
 
-    return { id: data.id, role, app_roles, settings };
+    return { id: data.id, role, app_roles, settings, schoolType: data.school_type };
 }
 
 async function getSchoolId(code, pass) {
     const auth = await getSchoolAuth(code, pass);
     return auth ? auth.id : null;
 }
+
+// studentManagementController.js gibi diğer controller'ların aynı yetkilendirme/lisans
+// mantığını kopyalamadan kullanabilmesi için dışa aktarılıyor (tek kaynak).
+exports.getSchoolAuth = getSchoolAuth;
+exports.isAdmin = (auth) => auth.role === 'admin' || auth.app_roles?.kutuphanemiz?.role === 'admin';
 
 const buildDuplicateStudentError = (student = {}) => {
     const fullName = student.full_name || student.fullName || student.name || 'Bilinmeyen öğrenci';
@@ -86,22 +92,10 @@ const isDuplicateStudentConstraintError = (error) => {
     const details = [error.message, error.details, error.hint].filter(Boolean).join(' ');
     return /duplicate key|unique constraint|students.*student_no|school_id.*student_no/i.test(details);
 };
+exports.isDuplicateStudentConstraintError = isDuplicateStudentConstraintError;
 
 // İsim karşılaştırmasında Türkçe karakter/boşluk farklarını tolere eden normalizasyon
-const normalizeStudentName = (name) => {
-    return String(name ?? '')
-        .trim()
-        .replace(/\s+/g, ' ')
-        .replace(/İ/g, 'i')
-        .replace(/I/g, 'i')
-        .replace(/ı/g, 'i')
-        .toLowerCase()
-        .replace(/ş/g, 's')
-        .replace(/ğ/g, 'g')
-        .replace(/ü/g, 'u')
-        .replace(/ö/g, 'o')
-        .replace(/ç/g, 'c');
-};
+const normalizeStudentName = normalizeTurkishText;
 
 exports.login = async (req, res) => {
     try {
@@ -985,33 +979,8 @@ exports.searchStudentsAdvanced = async (req, res) => {
             return res.json({ status: 'success', data: [] });
         }
 
-        // Arama terimini al ve virgülleri temizle (Supabase OR sintaksını bozmaması için)
-        const baseQuery = query.trim().replace(/,/g, '');
-
-        // --- VARYASYON TEKNİĞİ (searchBooks ile aynı mantık) ---
-        const variations = new Set();
-
-        // 1. Orijinal hali
-        variations.add(baseQuery);
-        // 2. Türkçe küçük harf (ı, i destekli)
-        variations.add(baseQuery.toLocaleLowerCase('tr-TR'));
-        // 3. Türkçe büyük harf (I, İ destekli)
-        variations.add(baseQuery.toLocaleUpperCase('tr-TR'));
-        // 4. İngilizce standart dönüşümler (güvenlik ağı)
-        variations.add(baseQuery.toLowerCase());
-        variations.add(baseQuery.toUpperCase());
-        // 5. i/ı ve İ/I çapraz dönüşümleri (asıl Türkçe çözümü)
-        variations.add(baseQuery.replace(/i/g, 'ı').replace(/İ/g, 'I'));
-        variations.add(baseQuery.replace(/ı/g, 'i').replace(/I/g, 'İ'));
-        variations.add(baseQuery.toLocaleUpperCase('tr-TR').replace(/İ/g, 'I'));
-
-        const validVariations = Array.from(variations).filter(v => v);
-
-        // Her varyasyon için hem student_no hem full_name aranır (kitap aramasındaki gibi)
-        const orQueryString = validVariations
-            .map(v => `student_no.ilike.%${v}%,full_name.ilike.%${v}%`)
-            .join(',');
-        // --- VARYASYON TEKNİĞİ BİTİŞİ ---
+        // Türkçe karakter varyasyonlarını genişleten ortak arama filtresi (studentUtils)
+        const orQueryString = buildStudentSearchOrFilter(query);
 
         const { data, error } = await supabase.from('students')
             .select('full_name, student_no, grade, class_name')
@@ -1929,9 +1898,6 @@ exports.promoteAllStudents = async (req, res) => {
             });
         }
 
-        // "2025-2026" -> "2026"
-        const endYear = String(activeYear).split('-')[1];
-
         // Okuldaki tüm AKTİF öğrencileri sayfalı çek (PostgREST varsayılan satır limitini aşmamak için)
         const allStudents = [];
         const PAGE_SIZE = 1000;
@@ -1958,7 +1924,7 @@ exports.promoteAllStudents = async (req, res) => {
             if (Number.isNaN(gradeNum)) return; // Geçersiz/eksik sınıf bilgisi olan öğrenciye dokunma
 
             if (gradeNum === 4 || gradeNum === 8 || gradeNum === 12) {
-                toGraduate.push({ id: student.id, student_no: `${student.student_no}${endYear}` });
+                toGraduate.push({ id: student.id, student_no: buildGraduatedStudentNo(student.student_no, activeYear) });
             } else {
                 toPromote.push({ id: student.id, grade: String(gradeNum + 1) });
             }
