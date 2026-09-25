@@ -1895,3 +1895,109 @@ exports.updateAcademicYear = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
+
+// ==========================================
+// YENİ: SINIF ATLATMA (YIL SONU TOPLU TERFİ/MEZUNİYET)
+// ==========================================
+exports.promoteAllStudents = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, force } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (!(auth.role === 'admin' || auth.app_roles?.kutuphanemiz?.role === 'admin')) {
+            return res.json({ success: false, message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+
+        const { data: school, error: schoolError } = await supabase
+            .from('schools')
+            .select('active_academic_year, last_promotion_academic_year')
+            .eq('id', auth.id)
+            .single();
+        if (schoolError) throw schoolError;
+
+        const activeYear = school?.active_academic_year;
+        if (!activeYear) {
+            return res.json({ success: false, message: 'Önce Ayarlar sayfasından Aktif Akademik Yıl seçilmeli.' });
+        }
+
+        if (school.last_promotion_academic_year === activeYear && force !== true) {
+            return res.json({
+                success: false,
+                requiresConfirmation: true,
+                message: `Bu okul ${activeYear} akademik yılı için sınıf atlatma işlemini zaten yapmış görünüyor. Yine de devam etmek istiyor musunuz?`
+            });
+        }
+
+        // "2025-2026" -> "2026"
+        const endYear = String(activeYear).split('-')[1];
+
+        // Okuldaki tüm AKTİF öğrencileri sayfalı çek (PostgREST varsayılan satır limitini aşmamak için)
+        const allStudents = [];
+        const PAGE_SIZE = 1000;
+        let from = 0;
+        while (true) {
+            const { data: page, error: pageError } = await supabase
+                .from('students')
+                .select('id, student_no, grade')
+                .eq('school_id', auth.id)
+                .eq('is_active', true)
+                .range(from, from + PAGE_SIZE - 1);
+            if (pageError) throw pageError;
+            if (!page || page.length === 0) break;
+            allStudents.push(...page);
+            if (page.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
+        }
+
+        const toGraduate = [];
+        const toPromote = [];
+
+        allStudents.forEach(student => {
+            const gradeNum = parseInt(student.grade, 10);
+            if (Number.isNaN(gradeNum)) return; // Geçersiz/eksik sınıf bilgisi olan öğrenciye dokunma
+
+            if (gradeNum === 4 || gradeNum === 8 || gradeNum === 12) {
+                toGraduate.push({ id: student.id, student_no: `${student.student_no}${endYear}` });
+            } else {
+                toPromote.push({ id: student.id, grade: String(gradeNum + 1) });
+            }
+        });
+
+        if (toGraduate.length > 0) {
+            const graduateResults = await Promise.all(toGraduate.map(item =>
+                supabase.from('students').update({ is_active: false, student_no: item.student_no }).eq('id', item.id)
+            ));
+            const graduateError = graduateResults.find(r => r.error);
+            if (graduateError) throw graduateError.error;
+        }
+
+        if (toPromote.length > 0) {
+            const promoteResults = await Promise.all(toPromote.map(item =>
+                supabase.from('students').update({ grade: item.grade }).eq('id', item.id)
+            ));
+            const promoteError = promoteResults.find(r => r.error);
+            if (promoteError) throw promoteError.error;
+        }
+
+        // Ana işlem tamamlandı; bu güncelleme başarısız olsa bile yanıtı "başarısız" göstermeyeceğiz
+        try {
+            const { error: markError } = await supabase
+                .from('schools')
+                .update({ last_promotion_academic_year: activeYear })
+                .eq('id', auth.id);
+            if (markError) console.error('last_promotion_academic_year güncellenemedi:', markError);
+        } catch (markCatchError) {
+            console.error('last_promotion_academic_year güncellenemedi:', markCatchError);
+        }
+
+        return res.json({
+            success: true,
+            promotedCount: toPromote.length,
+            graduatedCount: toGraduate.length,
+            message: `İşlem tamamlandı: ${toPromote.length} öğrenci üst sınıfa geçirildi, ${toGraduate.length} öğrenci mezun/arşiv edildi.`
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};

@@ -1087,6 +1087,85 @@ async function saveAcademicYear() {
     }
 }
 
+// YENİ: Sınıf Atlatma (Yıl Sonu Toplu Terfi/Mezuniyet)
+async function startClassPromotion() {
+    const { value: confirmationText, isConfirmed } = await Swal.fire({
+        icon: 'warning',
+        title: 'Sınıfları Atlat',
+        html: `
+            <div style="text-align:left; font-size:0.9rem; color:#374151;">
+                <p>Bu işlem <b>geri alınamaz</b>:</p>
+                <ul style="margin:8px 0; padding-left:20px;">
+                    <li>4, 8 ve 12. sınıftaki tüm aktif öğrenciler <b>mezun/arşiv</b> edilecek.</li>
+                    <li>Diğer tüm aktif öğrencilerin sınıfı <b>bir üst sınıfa</b> geçirilecek.</li>
+                </ul>
+                <p>Devam etmek için aşağıya büyük harflerle <b>ONAYLIYORUM</b> yazın.</p>
+            </div>
+        `,
+        input: 'text',
+        inputPlaceholder: 'ONAYLIYORUM',
+        showCancelButton: true,
+        confirmButtonText: 'Devam Et',
+        cancelButtonText: 'Vazgeç',
+        confirmButtonColor: '#dc2626',
+        inputValidator: (value) => {
+            if (value !== 'ONAYLIYORUM') {
+                return 'Devam etmek için büyük harflerle tam olarak "ONAYLIYORUM" yazmalısınız.';
+            }
+        }
+    });
+
+    if (!isConfirmed || confirmationText !== 'ONAYLIYORUM') return;
+
+    requestClassPromotion(false);
+}
+
+async function requestClassPromotion(force) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+
+    Swal.fire({ title: 'İşleniyor...', html: 'Öğrenciler güncelleniyor, lütfen bekleyin...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+    try {
+        const res = await fetch('/api/promoteAllStudents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, force: !!force })
+        });
+        const result = await res.json();
+
+        if (result.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Sınıflar Atlatıldı',
+                html: `<div><b>${result.promotedCount}</b> öğrenci üst sınıfa geçirildi.</div><div><b>${result.graduatedCount}</b> öğrenci mezun/arşiv edildi.</div>`
+            });
+            if (typeof getStats === 'function') getStats();
+            return;
+        }
+
+        if (result.requiresConfirmation) {
+            const confirmAgain = await Swal.fire({
+                icon: 'question',
+                title: 'Emin misiniz?',
+                text: result.message,
+                showCancelButton: true,
+                confirmButtonText: 'Evet, yine de devam et',
+                cancelButtonText: 'Vazgeç',
+                confirmButtonColor: '#dc2626'
+            });
+            if (confirmAgain.isConfirmed) {
+                requestClassPromotion(true);
+            }
+            return;
+        }
+
+        Swal.fire({ icon: 'error', title: 'Hata', text: result.message || 'İşlem başarısız oldu.' });
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+    }
+}
+
 // --- YENİ EKLENEN: Dinamik Kural Satırı Oluşturma Fonksiyonu ---
 if (typeof window !== 'undefined') {
     window.addDynamicRuleRow = function (pages = '', min = '', max = '') {

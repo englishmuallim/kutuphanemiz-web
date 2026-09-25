@@ -49,6 +49,7 @@ router.post('/deleteBook', libraryController.deleteBook);
 router.post('/getSettings', libraryController.getSettings);
 router.post('/updateSettings', libraryController.updateSettings);
 router.post('/updateAcademicYear', libraryController.updateAcademicYear); // YENİ: Eğitim Yılı
+router.post('/promoteAllStudents', libraryController.promoteAllStudents); // YENİ: Sınıf Atlatma
 
 // Öğretmen İşlemleri Modülü
 router.post('/getTeachers', libraryController.getTeachers);
