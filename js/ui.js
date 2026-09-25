@@ -303,7 +303,14 @@ function startScanner(inputId) {
     html5QrCode = new Html5Qrcode("reader");
     html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        {
+            fps: 10,
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+                // EAN-13 gibi barkodların yatay oranına uygun dikdörtgen tarama alanı (~2.5:1)
+                const w = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
+                return { width: w, height: Math.floor(w * 0.4) };
+            }
+        },
         (decodedText) => {
             playBeep();
             document.getElementById(inputId).value = decodedText;
