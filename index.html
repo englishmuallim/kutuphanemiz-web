@@ -385,9 +385,25 @@
                                 type="text" id="newKitapRaf" placeholder="Raf"></div>
                         <div class="input-group"><span
                                 class="material-symbols-rounded input-icon">library_books</span><input type="number"
-                                id="newKitapAdet" placeholder="Adet" value="1"
+                                id="newKitapAdet" placeholder="Adet" value="1" oninput="updateBookBarcodeFieldState()"
                                 style="font-weight:bold; border:2px solid #f59e0b;"></div>
                     </div>
+
+                    <div id="customBarcodeRangeOption" class="hidden"
+                        style="display:flex; align-items:center; gap:6px; margin:0 5px 10px 5px; font-size:0.85rem; color:#374151;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+                            <input type="checkbox" id="newKitapBarkodRangeMode" onchange="updateBookBarcodeFieldState()"
+                                style="width:16px; height:16px;">
+                            Başlangıç Barkodu Belirle
+                        </label>
+                        <span class="material-symbols-rounded" tabindex="0"
+                            title="İşaretlerseniz, girdiğiniz barkod numarasından başlayarak eklediğiniz kitap adedi kadar ardışık barkod otomatik atanır. Örn: Başlangıç 1521, Adet 5 ise → 1521'den 1525'e kadar 5 barkod verilir. Bu aralıkta zaten kayıtlı bir barkod varsa işlem durur."
+                            style="font-size:26px; color:#6b7280; cursor:help;">info</span>
+                    </div>
+
+                    <div class="input-group"><span class="material-symbols-rounded input-icon">qr_code_2</span><input
+                            type="text" id="newKitapBarkod" placeholder="Barkod (Boş bırakırsanız otomatik verilir)"
+                            autocomplete="off"></div>
 
                     <select id="newKitapDurum"
                         style="width:100%; border:1px solid #d1d5db; padding:12px; border-radius:8px; background:#fff; margin-bottom:15px; font-size:1rem; outline:none; cursor:pointer;">

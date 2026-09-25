@@ -253,6 +253,35 @@ function toggleStaffGroups() {
     }
 }
 
+function updateBookBarcodeFieldState() {
+    const qtyInput = document.getElementById("newKitapAdet");
+    const rangeCheckbox = document.getElementById("newKitapBarkodRangeMode");
+    const rangeOptionWrapper = document.getElementById("customBarcodeRangeOption");
+    const barkodInput = document.getElementById("newKitapBarkod");
+    if (!qtyInput || !rangeCheckbox || !rangeOptionWrapper || !barkodInput) return;
+
+    const qty = parseInt(qtyInput.value) || 1;
+
+    if (qty > 1) {
+        rangeOptionWrapper.classList.remove("hidden");
+    } else {
+        rangeOptionWrapper.classList.add("hidden");
+        rangeCheckbox.checked = false;
+    }
+
+    if (qty === 1) {
+        barkodInput.disabled = false;
+        barkodInput.placeholder = "Boş bırakırsanız otomatik verilir";
+    } else if (rangeCheckbox.checked) {
+        barkodInput.disabled = false;
+        barkodInput.placeholder = "Başlangıç barkodu girin";
+    } else {
+        barkodInput.disabled = true;
+        barkodInput.value = "";
+        barkodInput.placeholder = "Otomatik atanır";
+    }
+}
+
 // --- YARDIMCI FONKSİYONLAR ---
 function handleEnter(e, type) {
     if (e.key === "Enter") {

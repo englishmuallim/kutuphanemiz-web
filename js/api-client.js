@@ -433,8 +433,16 @@ async function kaydet(type) {
         const shlf = document.getElementById("newKitapRaf").value;
         const qty = document.getElementById("newKitapAdet").value;
         const cond = document.getElementById("newKitapDurum").value;
+        const brc = document.getElementById("newKitapBarkod").value.trim();
+        const rangeMode = document.getElementById("newKitapBarkodRangeMode")?.checked || false;
         if (!bName) { Swal.fire('Eksik', 'Kitap Adı zorunludur.', 'warning'); return; }
+        if (rangeMode && (parseInt(qty) || 1) > 1 && !brc) {
+            Swal.fire('Eksik', '"Başlangıç Barkodu Belirle" işaretliyken başlangıç barkodunu giriniz.', 'warning');
+            return;
+        }
         data.name = bName; data.author = auth; data.page = pg; data.type = typ; data.shelf = shlf; data.quantity = qty; data.condition = cond;
+        data.barcode = brc;
+        data.customBarcodeRange = rangeMode;
         endpoint = "/api/addBook";
     }
 
@@ -447,14 +455,19 @@ async function kaydet(type) {
                 let barcodesHtml = r.barcodes && r.barcodes.length > 5 ? `Barkod: ${r.barcodes[0]} - ${r.barcodes[r.barcodes.length - 1]}` : `Barkod: ${r.barcodes.join(', ')}`;
                 Swal.fire({ icon: 'success', title: '📚 Kitaplar Eklendi', html: `<div><b>${data.name}</b> (${data.quantity} adet)</div><div style="color:#059669; font-weight:bold;">${barcodesHtml}</div>` });
             } else { Swal.fire('Başarılı', r.message, 'success'); }
-            document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => { if (i.id !== 'newKitapAdet') i.value = ''; else i.value = '1'; });
+            document.querySelectorAll('#yonetim-form-' + type + ' input').forEach(i => {
+                if (i.type === 'checkbox') { i.checked = false; }
+                else if (i.id !== 'newKitapAdet') { i.value = ''; }
+                else { i.value = '1'; }
+            });
+            if (type === 'book' && typeof updateBookBarcodeFieldState === 'function') updateBookBarcodeFieldState();
         } else {
             const errorMessage = r && r.message ? r.message : 'İşlem başarısız oldu.';
-            Swal.fire({ icon: 'error', title: 'Hata', text: errorMessage });
+            Swal.fire({ icon: 'error', title: 'Hata', html: errorMessage.replace(/\n/g, '<br>') });
         }
     } catch (e) {
         const fallbackMessage = e && e.message ? e.message : 'Sunucu hatası.';
-        Swal.fire({ icon: 'error', title: 'Hata', text: fallbackMessage });
+        Swal.fire({ icon: 'error', title: 'Hata', html: fallbackMessage.replace(/\n/g, '<br>') });
     }
 }
 

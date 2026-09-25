@@ -517,29 +517,92 @@ exports.getClasses = async (req, res) => {
 
 exports.addBook = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, name, author, page, type, shelf, quantity, condition } = req.body;
+        const { schoolCode, schoolPass, name, author, page, type, shelf, quantity, condition, barcode, customBarcodeRange } = req.body;
         const schoolId = await getSchoolId(schoolCode, schoolPass);
         if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
         const loopCount = parseInt(quantity) || 1;
+        const trimmedBarcode = String(barcode ?? '').trim();
+        const rangeMode = !!customBarcodeRange;
 
-        // Barkodları otomatik bul ve oluştur (En büyük barkodu bulup +1 ekler)
-        const { data: lastBook } = await supabase.from('books').select('barcode').eq('school_id', schoolId).order('barcode', { ascending: false }).limit(1).single();
-
-        let startBarcode = lastBook && lastBook.barcode ? parseInt(lastBook.barcode) : 10000;
-        let newBooks = [];
         let assignedBarcodes = [];
 
-        for (let i = 1; i <= loopCount; i++) {
-            let newBarcode = (startBarcode + i).toString();
-            newBooks.push({
-                school_id: schoolId, barcode: newBarcode, book_name: name,
-                author: author, page_count: page, category: type, shelf: shelf, status: 'available', condition: condition || 'Yeni'
-            });
-            assignedBarcodes.push(newBarcode);
+        if (loopCount === 1 && trimmedBarcode) {
+            // Adet=1, özel barkod girilmiş: benzersizlik kontrolü yapıp bu barkodu kullan
+            const { data: existing, error: lookupError } = await supabase
+                .from('books').select('book_name')
+                .eq('school_id', schoolId).eq('barcode', trimmedBarcode)
+                .maybeSingle();
+            if (lookupError) throw lookupError;
+            if (existing) {
+                return res.json({ status: 'error', message: `Bu barkod zaten kayıtlı: ${existing.book_name}` });
+            }
+            assignedBarcodes = [trimmedBarcode];
+        } else if (loopCount > 1 && rangeMode) {
+            // Adet>1, "Başlangıç Barkodu Belirle" işaretli: ardışık aralık üret ve tek sorguda çakışma kontrolü yap
+            if (!trimmedBarcode) {
+                return res.json({ status: 'error', message: '"Başlangıç Barkodu Belirle" işaretliyken başlangıç barkodu girilmelidir.' });
+            }
+            if (!/^\d+$/.test(trimmedBarcode)) {
+                return res.json({ status: 'error', message: 'Başlangıç barkodu sadece rakamlardan oluşmalıdır.' });
+            }
+
+            let startBig;
+            try {
+                startBig = BigInt(trimmedBarcode);
+            } catch {
+                return res.json({ status: 'error', message: 'Geçersiz başlangıç barkodu.' });
+            }
+
+            const candidateBarcodes = [];
+            for (let i = 0; i < loopCount; i++) {
+                candidateBarcodes.push((startBig + BigInt(i)).toString());
+            }
+
+            const { data: conflicts, error: conflictError } = await supabase
+                .from('books').select('barcode, book_name')
+                .eq('school_id', schoolId)
+                .in('barcode', candidateBarcodes);
+            if (conflictError) throw conflictError;
+
+            if (conflicts && conflicts.length > 0) {
+                // Aralıktaki sırayı korumak için candidateBarcodes sırasına göre filtrele
+                const conflictNameByBarcode = new Map(conflicts.map(c => [c.barcode, c.book_name]));
+                const conflictList = candidateBarcodes
+                    .filter(bc => conflictNameByBarcode.has(bc))
+                    .map(bc => ({ barcode: bc, book_name: conflictNameByBarcode.get(bc) }));
+
+                const shown = conflictList.slice(0, 10);
+                const lines = shown.map(c => `- ${c.barcode} (${c.book_name})`);
+                if (conflictList.length > 10) {
+                    lines.push(`...ve ${conflictList.length - 10} tane daha`);
+                }
+
+                return res.json({ status: 'error', message: `Aşağıdaki barkodlar zaten kayıtlı, işlem iptal edildi:\n${lines.join('\n')}` });
+            }
+
+            assignedBarcodes = candidateBarcodes;
+        } else if (loopCount > 1 && trimmedBarcode) {
+            // Arayüzde bu alan devre dışı bırakılmalıydı: API üzerinden gelen tutarsız istek
+            return res.json({ status: 'error', message: 'Birden fazla adet eklerken özel barkod girmek için "Başlangıç Barkodu Belirle" seçeneğini işaretleyin.' });
         }
 
+        if (assignedBarcodes.length === 0) {
+            // Barkod girilmemiş: mevcut otomatik üretim mantığı (en büyük barkod + 1)
+            const { data: lastBook } = await supabase.from('books').select('barcode').eq('school_id', schoolId).order('barcode', { ascending: false }).limit(1).single();
+            let startBarcode = lastBook && lastBook.barcode ? parseInt(lastBook.barcode) : 10000;
+            for (let i = 1; i <= loopCount; i++) {
+                assignedBarcodes.push((startBarcode + i).toString());
+            }
+        }
 
-        await supabase.from('books').insert(newBooks);
+        const newBooks = assignedBarcodes.map(bc => ({
+            school_id: schoolId, barcode: bc, book_name: name,
+            author: author, page_count: page, category: type, shelf: shelf, status: 'available', condition: condition || 'Yeni'
+        }));
+
+        const { error: insertError } = await supabase.from('books').insert(newBooks);
+        if (insertError) throw insertError;
+
         res.json({ status: 'success', message: 'Eklendi', barcodes: assignedBarcodes });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
