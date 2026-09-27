@@ -1,6 +1,6 @@
 :root {
     --primary: #274ae4;
-    --success: #10b981;
+    --success: #047857;
     --warning: #f59e0b;
     --danger: #ef4444;
     --bg: #f3f4f6;
@@ -95,13 +95,13 @@ body {
 .card h2 { margin: 0 0 16px 0; font-size: 1.05rem; }
 
 /* --- Filtre Satırı --- */
+/* Mobil/dar ekran: varsayılan olarak alt alta (dikey), tam genişlik */
 .filter-row {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 10px;
-    align-items: center;
 }
-.filter-row .field-search { flex: 2; min-width: 220px; }
+.filter-row .field-search { width: 100%; }
 .filter-row select, .filter-row input[type="text"] {
     width: 100%;
     padding: 10px 12px;
@@ -111,8 +111,22 @@ body {
     outline: none;
     background: #fff;
 }
-.filter-row select { min-width: 140px; cursor: pointer; }
+.filter-row select { cursor: pointer; }
 .filter-row input:focus, .filter-row select:focus { border-color: var(--primary); }
+.filter-row .btn { width: 100%; justify-content: center; }
+
+/* Geniş ekran: tek satırda yan yana */
+@media (min-width: 900px) {
+    .filter-row {
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+    }
+    .filter-row .field-search { width: auto; flex: 2 1 180px; min-width: 160px; }
+    .filter-row select, .filter-row input[type="text"] { width: auto; }
+    .filter-row select { flex: 1 1 110px; min-width: 110px; }
+    .filter-row .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }
+}
 
 /* --- Sonuç Tablosu --- */
 .results-header {
@@ -175,7 +189,9 @@ table.students-table tr:hover td { background: #f9fafb; }
 .modal-head h3 { margin: 0; font-size: 1.05rem; }
 .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); line-height: 1; }
 .modal-body { padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
-.modal-body label { font-size: 0.78rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: 4px; }
+/* :not(.btn) önemli: dosya seçimi için <label class="btn ...">Excel Yükle</label> gibi
+   buton-etiketli label'lar bu genel form-etiketi stilini (gri renk, display:block) miras almasın */
+.modal-body label:not(.btn) { font-size: 0.78rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: 4px; }
 .modal-body input, .modal-body select {
     width: 100%;
     padding: 10px 12px;
@@ -191,6 +207,5 @@ table.students-table tr:hover td { background: #f9fafb; }
 @media (max-width: 640px) {
     .page-wrap { padding: 12px; }
     .topbar { flex-direction: column; align-items: flex-start; }
-    .topbar-actions { width: 100%; }
     .card-green { flex-direction: column; align-items: flex-start; }
 }

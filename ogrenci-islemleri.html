@@ -9,6 +9,7 @@
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="css/student-management.css">
 </head>
 
@@ -25,25 +26,25 @@
                         yönetin.</p>
                 </div>
             </div>
-            <div class="topbar-actions">
-                <button type="button" class="btn btn-ghost" onclick="window.location.href='index.html'">
-                    <span class="material-symbols-rounded" style="font-size:18px;">home</span> Ana Sayfa
-                </button>
-                <button type="button" class="btn btn-ghost" onclick="logoutFromPage()">
-                    <span class="material-symbols-rounded" style="font-size:18px;">logout</span> Çıkış Yap
-                </button>
-            </div>
         </div>
 
         <!-- Öğrenci Kayıt Yönetimi -->
         <div class="card card-green">
             <div>
                 <h2>Öğrenci Kayıt Yönetimi</h2>
-                <p>Sisteme yeni öğrenci ekleyin.</p>
+                <p>Sisteme yeni öğrenci ekleyin veya toplu içe aktarın.</p>
             </div>
-            <button type="button" class="btn btn-success" onclick="openStudentModal('add')">
-                <span class="material-symbols-rounded" style="font-size:18px;">person_add</span> Yeni Öğrenci Ekle
-            </button>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline" onclick="openBulkImportModal()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">folder_open</span> Toplu Aktar
+                </button>
+                <button type="button" class="btn btn-outline" onclick="openEokulImportModal()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">download</span> E-Okul Excel Yükle
+                </button>
+                <button type="button" class="btn btn-success" onclick="openStudentModal('add')">
+                    <span class="material-symbols-rounded" style="font-size:18px;">person_add</span> Yeni Öğrenci Ekle
+                </button>
+            </div>
         </div>
 
         <!-- Arama / Filtreleme -->
@@ -167,6 +168,81 @@
                 <button type="button" class="btn btn-warning" onclick="submitBulkTransfer()">
                     <span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Aktar
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toplu Aktar (Şablon/Excel Yükleme) Modalı -->
+    <div class="modal-overlay hidden" id="sm_bulkImportModal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <h3>Toplu Aktar</h3>
+                <button type="button" class="modal-close" onclick="closeBulkImportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex; gap:10px;">
+                    <button type="button" class="btn btn-success" style="flex:1;" onclick="downloadStudentTemplate()">
+                        <span class="material-symbols-rounded" style="font-size:18px;">download</span> Şablon İndir
+                    </button>
+                    <label class="btn btn-primary" style="flex:1; cursor:pointer; justify-content:center;">
+                        <span class="material-symbols-rounded" style="font-size:18px;">upload</span> Excel Yükle
+                        <input type="file" id="sm_bulkImportFile" accept=".xlsx" style="display:none;"
+                            onchange="handleBulkImportFile(event)">
+                    </label>
+                </div>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; color:#374151;">
+                    <input type="checkbox" id="sm_bulkImportUpdateClass" checked style="width:16px; height:16px;">
+                    Aynı numarayla zaten kayıtlı öğrencilerin sınıfını güncelle (isim eşleşmezse atlanır)
+                </label>
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-outline" onclick="closeBulkImportModal()">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- E-Okul Excel Yükle Modalı -->
+    <div class="modal-overlay hidden" id="sm_eokulImportModal">
+        <div class="modal-box">
+            <div class="modal-head">
+                <h3>E-Okul Excel Yükle</h3>
+                <button type="button" class="modal-close" onclick="closeEokulImportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div
+                    style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:10px 12px; font-size:0.78rem; color:#5b21b6; line-height:1.5;">
+                    <div style="font-weight:600; margin-bottom:4px;">📋 E-Okul Excel dosyasını indirmek için:</div>
+                    <ol style="margin:0; padding-left:18px;">
+                        <li>Kurum İşlemleri</li>
+                        <li>İlkokul-Ortaokul Öğrenci İşleri</li>
+                        <li>Yazdır</li>
+                        <li>HTML/Excel seçiniz</li>
+                        <li>Sınıf/Şube seçiniz (örn: 5-A)</li>
+                        <li>Sol üst köşedeki sağ ok işaretine tıklayıp "Excel Sadece Veri" seçip kaydediniz.</li>
+                    </ol>
+                </div>
+                <div>
+                    <label>Kademe *</label>
+                    <select id="sm_eokulGrade">
+                        <option value="">-- Kademe --</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Şube *</label>
+                    <input type="text" id="sm_eokulClass" placeholder="Örn: A">
+                </div>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; color:#374151;">
+                    <input type="checkbox" id="sm_eokulUpdateClass" checked style="width:16px; height:16px;">
+                    Aynı numarayla zaten kayıtlı öğrencilerin sınıfını güncelle (isim eşleşmezse atlanır)
+                </label>
+                <button type="button" class="btn btn-primary" onclick="triggerEokulFileSelect()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">upload</span> E-Okul Excel Yükle
+                </button>
+                <input type="file" id="sm_eokulImportFile" accept=".xlsx" style="display:none;"
+                    onchange="handleEokulImportFile(event)">
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-outline" onclick="closeEokulImportModal()">Kapat</button>
             </div>
         </div>
     </div>

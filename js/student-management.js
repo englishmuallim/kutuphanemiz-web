@@ -21,22 +21,6 @@ function redirectToLogin() {
     window.location.href = 'index.html';
 }
 
-function logoutFromPage() {
-    Swal.fire({
-        title: 'Çıkış?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Evet',
-        cancelButtonText: 'Hayır'
-    }).then((res) => {
-        if (res.isConfirmed) {
-            ['kutuphane_code', 'kutuphane_pass', 'beni_hatirla', 'okul_ismi', 'kutuphane_identity', 'kutuphane_user', 'kutuphane_login_type']
-                .forEach(k => localStorage.removeItem(k));
-            redirectToLogin();
-        }
-    });
-}
-
 function getAuthPayload() {
     return {
         schoolCode: localStorage.getItem('kutuphane_code'),
@@ -69,6 +53,7 @@ async function loadGradeOptions() {
         document.getElementById('sm_gradeFilter').innerHTML = `<option value="">-- Kademe --</option>${optionsHtml}`;
         document.getElementById('sm_formGrade').innerHTML = `<option value="">-- Kademe --</option>${optionsHtml}`;
         document.getElementById('sm_bulkGrade').innerHTML = `<option value="">-- Kademe --</option>${optionsHtml}`;
+        document.getElementById('sm_eokulGrade').innerHTML = `<option value="">-- Kademe --</option>${optionsHtml}`;
     } catch (e) { console.error('Kademe listesi yüklenemedi', e); }
 }
 
@@ -445,4 +430,233 @@ async function deleteStudentAction(id) {
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
     }
+}
+
+// --- Toplu İçe Aktarma (Şablon / Excel) ---
+function openBulkImportModal() {
+    document.getElementById('sm_bulkImportModal').classList.remove('hidden');
+}
+
+function closeBulkImportModal() {
+    document.getElementById('sm_bulkImportModal').classList.add('hidden');
+}
+
+function downloadStudentTemplate() {
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        return;
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["Öğrenci No", "Ad Soyad", "Kademe", "Şube"]]);
+    XLSX.utils.book_append_sheet(wb, ws, "Şablon");
+    XLSX.writeFile(wb, "Ogrenci_Sablonu.xlsx");
+}
+
+function buildImportSummaryHtml(result) {
+    const insertedCount = Number(result.insertedCount || 0);
+    const updatedCount = Number(result.updatedCount || 0);
+    const duplicateCount = Number(result.duplicateCount || 0);
+    const nameMismatchCount = Number(result.nameMismatchCount || 0);
+    const updated = Array.isArray(result.updated) ? result.updated : [];
+    const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
+    const nameMismatches = Array.isArray(result.nameMismatches) ? result.nameMismatches : [];
+
+    const lines = [`<div><b>${insertedCount}</b> yeni öğrenci eklendi.</div>`];
+
+    if (updatedCount > 0) {
+        const list = updated.map(item => `<div style="margin-top:4px;">• ${escapeHtmlText(item.full_name || item.student_no)} (${escapeHtmlText(item.student_no)})</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px;"><b>${updatedCount}</b> öğrencinin sınıfı güncellendi.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    if (duplicateCount > 0) {
+        const list = duplicates.map(item => `<div style="margin-top:4px;">• ${escapeHtmlText(item.full_name || item.student_no)} (${escapeHtmlText(item.student_no)})</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px;"><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    if (nameMismatchCount > 0) {
+        const list = nameMismatches.map(item => `<div style="margin-top:4px;">• No: ${escapeHtmlText(item.student_no)} — Sistemde: "${escapeHtmlText(item.existing_name)}", Dosyada: "${escapeHtmlText(item.file_name)}"</div>`).join('');
+        lines.push(`
+            <div style="margin-top:10px; color:#b91c1c;"><b>${nameMismatchCount}</b> öğrenci isim uyuşmazlığı nedeniyle atlandı.</div>
+            <div style="margin-top:4px; max-height:120px; overflow-y:auto;">${list}</div>
+        `);
+    }
+
+    return `<div style="text-align:left;">${lines.join('')}</div>`;
+}
+
+async function submitStudentBulkData(mappedData, updateExistingClass) {
+    if (mappedData.length === 0) {
+        Swal.fire('Hata', 'Geçerli veri bulunamadı.', 'error');
+        return;
+    }
+
+    Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> kayıt işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+    try {
+        const res = await fetch('/api/students/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...getAuthPayload(), data: mappedData, updateExistingClass })
+        });
+        if (res.status === 401) { redirectToLogin(); return; }
+        const r = await res.json();
+
+        if (r.status === 'success') {
+            Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildImportSummaryHtml(r), confirmButtonText: 'Tamam' });
+            refreshCurrentList();
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Yükleme başarısız oldu.' });
+        }
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+    }
+}
+
+function handleBulkImportFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    const updateExistingClass = !!document.getElementById('sm_bulkImportUpdateClass')?.checked;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+            if (!jsonData || jsonData.length === 0) {
+                Swal.fire('Hata', 'Excel dosyası boş veya biçimi hatalı.', 'error');
+                return;
+            }
+
+            const mappedData = jsonData.map(row => ({
+                student_no: row["Öğrenci No"] || '',
+                full_name: row["Ad Soyad"] || '',
+                grade: row["Kademe"] ? String(row["Kademe"]) : '',
+                class_name: row["Şube"] || ''
+            })).filter(item => item.student_no && item.full_name);
+
+            if (mappedData.length === 0) {
+                Swal.fire('Hata', 'Geçerli veri bulunamadı. Sütun başlıklarının şablonla tam eşleştiğinden emin olun.', 'error');
+                return;
+            }
+
+            closeBulkImportModal();
+            await submitStudentBulkData(mappedData, updateExistingClass);
+        } catch (error) {
+            Swal.fire('Hata', 'Dosya okunurken bir hata oluştu.', 'error');
+        } finally {
+            event.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// --- E-Okul Excel Yükle ---
+function openEokulImportModal() {
+    document.getElementById('sm_eokulImportModal').classList.remove('hidden');
+}
+
+function closeEokulImportModal() {
+    document.getElementById('sm_eokulImportModal').classList.add('hidden');
+}
+
+function triggerEokulFileSelect() {
+    const grade = document.getElementById('sm_eokulGrade').value;
+    const className = document.getElementById('sm_eokulClass').value.trim();
+
+    if (!grade || !className) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen önce Kademe ve Şube seçin.' });
+        return;
+    }
+
+    const fileInput = document.getElementById('sm_eokulImportFile');
+    fileInput.value = '';
+    fileInput.click();
+}
+
+function parseEokulRows(rows, grade, className) {
+    if (!Array.isArray(rows) || rows.length < 2) return [];
+
+    const mappedData = [];
+    for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const studentNo = String(row[1] ?? '').trim();
+        const namePart = String(row[4] ?? '').trim();
+        const surnamePart = String(row[9] ?? '').trim();
+
+        if (!studentNo) continue;
+
+        const fullName = [namePart, surnamePart].filter(Boolean).join(' ');
+        if (!fullName) continue;
+
+        mappedData.push({ student_no: studentNo, full_name: fullName, grade, class_name: className });
+    }
+
+    return mappedData;
+}
+
+function handleEokulImportFile(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const grade = document.getElementById('sm_eokulGrade').value;
+    const className = document.getElementById('sm_eokulClass').value.trim();
+    const updateExistingClass = !!document.getElementById('sm_eokulUpdateClass')?.checked;
+
+    if (!grade || !className) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen önce Kademe ve Şube seçin.' });
+        event.target.value = '';
+        return;
+    }
+
+    if (typeof XLSX === 'undefined') {
+        Swal.fire('Hata', 'Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, blankrows: false });
+
+            if (!rows || rows.length < 2) {
+                Swal.fire('Hata', 'Excel dosyası boş veya formatı hatalı.', 'error');
+                return;
+            }
+
+            const mappedData = parseEokulRows(rows, grade, className);
+
+            if (mappedData.length === 0) {
+                Swal.fire('Hata', 'Dosyada kullanılabilir öğrenci verisi bulunamadı. B sütununda öğrenci no, E sütununda ad, J sütununda soyad olmalıdır.', 'error');
+                return;
+            }
+
+            closeEokulImportModal();
+            await submitStudentBulkData(mappedData, updateExistingClass);
+        } catch (error) {
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Excel dosyası okunurken bir hata oluştu.' });
+        } finally {
+            event.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
 }
