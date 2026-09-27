@@ -1416,15 +1416,65 @@ exports.getSettings = async (req, res) => {
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        // YENİ: active_academic_year'ı da döndürmek için schools tablosunu ayrıca sorgula
+        // YENİ: active_academic_year ve logo_url'ü de döndürmek için schools tablosunu ayrıca sorgula
         const { data: school } = await supabase
             .from('schools')
-            .select('active_academic_year')
+            .select('active_academic_year, logo_url')
             .eq('id', auth.id)
             .single();
 
-        res.json({ status: 'success', data: { ...auth.settings, active_academic_year: school?.active_academic_year || null } });
+        res.json({
+            status: 'success',
+            data: {
+                ...auth.settings,
+                active_academic_year: school?.active_academic_year || null,
+                logo_url: school?.logo_url || null
+            }
+        });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: OKUL LOGOSU YÜKLEME
+// ==========================================
+exports.uploadSchoolLogo = async (req, res) => {
+    try {
+        const schoolCode = req.headers['x-school-code'];
+        const schoolPass = req.headers['x-school-pass'];
+        const fileExt = String(req.headers['x-file-ext'] || 'png').toLowerCase();
+
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth || !exports.isAdmin(auth)) {
+            return res.json({ success: false, message: 'Yetkisiz işlem.' });
+        }
+
+        const fileName = `logo_${auth.id}.${fileExt}`;
+        const fileBuffer = req.body;
+
+        const { error: uploadError } = await supabase.storage
+            .from('school_logos')
+            .upload(fileName, fileBuffer, {
+                contentType: req.headers['content-type'] || 'application/octet-stream',
+                upsert: true,
+                cacheControl: '3600'
+            });
+
+        if (uploadError) {
+            return res.json({ success: false, message: `Logo yüklenemedi: ${uploadError.message}` });
+        }
+
+        const { data: publicUrlData } = supabase.storage.from('school_logos').getPublicUrl(fileName);
+        const logoUrl = publicUrlData.publicUrl;
+
+        const { error: updateError } = await supabase.from('schools')
+            .update({ logo_url: logoUrl })
+            .eq('id', auth.id);
+        if (updateError) throw updateError;
+
+        res.json({ success: true, logo_url: logoUrl });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Sunucu hatası.' });
+    }
 };
 
 exports.updateSettings = async (req, res) => {

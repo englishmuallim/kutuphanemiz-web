@@ -94,6 +94,7 @@ async function login() {
             document.getElementById("dashboard").classList.remove("hidden");
             getStats(); getOverdueBooks(); loadClasses(); getLeaderboard();
             loadBookSuggestions();
+            if (typeof loadSettings === 'function') loadSettings(); // Header'daki okul logosunu erkenden yükle
 
         } else {
             // 🛑 İŞTE BÜYÜNÜN GERÇEKLEŞTİĞİ YER: LİSANS HATASI KONTROLÜ
@@ -1012,6 +1013,17 @@ async function loadSettings() {
         const res = await response.json();
         if (res.status === 'success') {
             const s = res.data || {};
+
+            // YENİ: Okul logosu (header + Ayarlar sayfasındaki önizleme)
+            const logoPreviewEl = document.getElementById("setting_logo_preview");
+            if (logoPreviewEl) {
+                logoPreviewEl.innerHTML = s.logo_url
+                    ? `<img src="${s.logo_url}" alt="Okul Logosu" style="width:100%; height:100%; object-fit:cover; border-radius:10px;">`
+                    : '🏫';
+            }
+            const headerLogoEl = document.getElementById("appHeaderLogo");
+            if (headerLogoEl) headerLogoEl.src = s.logo_url || 'app_logo.png';
+
             document.getElementById("setting_max_borrow_limit").value = s.max_borrow_limit || '';
 
             // YENİ: Dinamik Kuralları Yükleme Mantığı (Eski sabit atamaların yerine)
@@ -1054,6 +1066,70 @@ async function loadSettings() {
             }
         }
     } catch (e) { console.error("Ayarlar yüklenemedi", e); }
+}
+
+// YENİ: Okul Logosu Seçimi ve Yüklemesi
+let pendingLogoFile = null;
+
+function handleLogoFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const MAX_SIZE = 1 * 1024 * 1024; // 1 MB
+    if (file.size > MAX_SIZE) {
+        Swal.fire({ icon: 'error', title: 'Dosya Çok Büyük', text: "Dosya 1 MB'dan büyük olamaz, lütfen daha küçük bir görsel seçin." });
+        event.target.value = '';
+        pendingLogoFile = null;
+        return;
+    }
+
+    pendingLogoFile = file;
+
+    // Kaydetmeden önce anlık yerel önizleme (ağ isteği yok)
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const previewEl = document.getElementById('setting_logo_preview');
+        if (previewEl) {
+            previewEl.innerHTML = `<img src="${e.target.result}" alt="Okul Logosu" style="width:100%; height:100%; object-fit:cover; border-radius:10px;">`;
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+async function uploadPendingLogo() {
+    if (!pendingLogoFile) return true; // Yüklenecek bir şey yoksa "başarılı" say
+
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    const file = pendingLogoFile;
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+
+    try {
+        const res = await fetch('/api/uploadSchoolLogo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': file.type || 'application/octet-stream',
+                'X-School-Code': code,
+                'X-School-Pass': pass,
+                'X-File-Ext': ext
+            },
+            body: file
+        });
+        const r = await res.json();
+
+        if (r.success) {
+            pendingLogoFile = null;
+            const headerLogoEl = document.getElementById("appHeaderLogo");
+            if (headerLogoEl) headerLogoEl.src = r.logo_url;
+            return true;
+        }
+
+        Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Logo yüklenemedi.' });
+        return false;
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+        return false;
+    }
 }
 
 // YENİ: Eğitim-Öğretim Yılı Kaydetme
@@ -1247,7 +1323,7 @@ async function saveSettings(type) {
         }
     }
 
-    Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: '⏳ Kaydediliyor...', didOpen: () => Swal.showLoading() });
     try {
         const res = await fetch('/api/updateSettings', {
             method: 'POST',
@@ -1275,7 +1351,11 @@ async function saveSettings(type) {
                     Swal.fire('Başarılı', 'Sabit görevli ayarları kaydedildi.', 'success');
                 }
             } else {
-                Swal.fire('Başarılı', 'Ayarlar Kaydedildi', 'success');
+                // YENİ: Genel ayarlar kaydedildikten sonra, bekleyen bir logo seçimi varsa onu da yükle
+                const logoOk = type === 'general' ? await uploadPendingLogo() : true;
+                if (logoOk) {
+                    Swal.fire({ icon: 'success', title: '✅ Kaydedildi!' });
+                }
             }
         } else {
             Swal.fire('Hata', result.message, 'error');

@@ -51,6 +51,8 @@ router.post('/getSettings', libraryController.getSettings);
 router.post('/updateSettings', libraryController.updateSettings);
 router.post('/updateAcademicYear', libraryController.updateAcademicYear); // YENİ: Eğitim Yılı
 router.post('/promoteAllStudents', libraryController.promoteAllStudents); // YENİ: Sınıf Atlatma
+// YENİ: Okul Logosu Yükleme - ham binary body, bu route'a özel raw parser
+router.post('/uploadSchoolLogo', express.raw({ type: '*/*', limit: '1mb' }), libraryController.uploadSchoolLogo);
 
 // Öğretmen İşlemleri Modülü
 router.post('/getTeachers', libraryController.getTeachers);

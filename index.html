@@ -67,7 +67,7 @@
     <div id="dashboard" class="app-container hidden">
         <div class="app-header">
             <div style="display:flex; align-items:center; gap:15px;">
-                <img src="app_logo.png" alt="Logo" class="app-logo">
+                <img id="appHeaderLogo" src="app_logo.png" alt="Logo" class="app-logo">
                 <h2 id="headerTitle" style="margin:0; font-size:1.1rem; line-height:1.2; font-weight:600;">Panel</h2>
             </div>
             <button class="logout-btn" onclick="logout()"><span class="material-symbols-rounded">logout</span></button>
@@ -472,6 +472,33 @@
                             Kapalıyken, arşivlenmiş (mezun/nakil) öğrencilere yeni kitap verilemez. Açıkken bu
                             kısıtlama kaldırılır.
                         </p>
+                    </div>
+
+                    <!-- YENİ: Okul Logosu -->
+                    <div style="margin-top:20px; padding-top:15px; border-top:1px solid #e5e7eb;">
+                        <label
+                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:10px; display:block;">
+                            🖼️ Okul Logosu
+                        </label>
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <div id="setting_logo_preview" title="Logo değiştir"
+                                onclick="document.getElementById('setting_logo_file').click()"
+                                style="width:96px; height:96px; border:2px dashed #d1d5db; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:36px; cursor:pointer; overflow:hidden; flex-shrink:0; background:#f9fafb;">
+                                🏫
+                            </div>
+                            <div>
+                                <button type="button" class="action-btn"
+                                    style="background:#8b5cf6; margin:0; padding:10px 16px; width:auto;"
+                                    onclick="document.getElementById('setting_logo_file').click()">
+                                    📁 Logo Seç / Değiştir
+                                </button>
+                                <input type="file" id="setting_logo_file" accept="image/png,image/jpeg,image/webp"
+                                    style="display:none;" onchange="handleLogoFileSelect(event)">
+                                <p style="font-size:0.78rem; color:#6b7280; margin:8px 0 0 0;">
+                                    PNG, JPG veya WEBP • Önerilen: 256×256px
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     <button class="action-btn" style="background:#3b82f6; margin-top:15px;"
