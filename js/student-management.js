@@ -21,6 +21,17 @@ function redirectToLogin() {
     window.location.href = 'index.html';
 }
 
+function closePage() {
+    window.close();
+    // Sekme index.html'den window.open() ile açıldıysa yukarıdaki satır sekmeyi kapatır ve
+    // buradan sonrası hiç çalışmaz (belge yok edilir). Sekme başka bir yolla (doğrudan URL,
+    // yer imi vb.) açıldıysa tarayıcı güvenliği window.close()'u sessizce engeller; bu durumda
+    // kullanıcıya elle kapatması gerektiğini bildiririz.
+    setTimeout(() => {
+        Swal.fire({ icon: 'info', title: 'Sekme Kapatılamadı', text: 'Bu sekmeyi elle kapatabilirsiniz.' });
+    }, 300);
+}
+
 function getAuthPayload() {
     return {
         schoolCode: localStorage.getItem('kutuphane_code'),

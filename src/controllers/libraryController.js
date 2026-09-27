@@ -1150,7 +1150,7 @@ exports.getReport = async (req, res) => {
                 const sNo = t.students.student_no;
                 if (!acc[sNo]) {
                     const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
-                    acc[sNo] = { name: t.students.full_name, className: cName, totalPage: 0, books: [] };
+                    acc[sNo] = { no: sNo, name: t.students.full_name, className: cName, totalPage: 0, books: [] };
                 }
 
                 const p = t.books.page_count || 0;
@@ -1178,7 +1178,7 @@ exports.getBorrowedReport = async (req, res) => {
 
         // Emanetteki ('borrowed') kitapları çek
         let query = supabase.from('transactions')
-            .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
+            .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(barcode, book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'borrowed');
 
         if (filterGrade && filterGrade !== 'ALL') query = query.eq('students.grade', filterGrade);
@@ -1206,6 +1206,7 @@ exports.getBorrowedReport = async (req, res) => {
                 if (!reportData[sNo]) {
                     const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
                     reportData[sNo] = {
+                        no: sNo,
                         name: t.students.full_name,
                         className: cName,
                         grade: t.students.grade || '',
@@ -1228,7 +1229,7 @@ exports.getBorrowedReport = async (req, res) => {
                     reportData[sNo].hasOverdue = true;
                 }
 
-                reportData[sNo].books.push({ name: t.books.book_name, statusText, statusColor });
+                reportData[sNo].books.push({ name: t.books.book_name, barcode: t.books.barcode, statusText, statusColor });
             });
         }
 

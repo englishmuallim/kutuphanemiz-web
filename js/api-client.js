@@ -657,7 +657,7 @@ async function getReport() {
                     <div class="report-header-row">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <div class="rank-circle">${index + 1}</div>
-                            <div><div style="font-weight:bold; color:#1f2937;">${item.name}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className}</div></div>
+                            <div><div style="font-weight:bold; color:#1f2937;">${item.name}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className} • No: ${item.no}</div></div>
                         </div>
                         <div style="font-weight:bold; color:#4f46e5; text-align:right;">${item.totalPage} syf <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span></div>
                     </div>
@@ -737,7 +737,7 @@ async function getBorrowedReport() {
                 if (item.books && item.books.length > 0) {
                     item.books.forEach(b => {
                         const statusBadge = `<span style="color: ${b.statusColor}; font-size: 0.8rem; font-weight: bold; float:right;">${b.statusText}</span>`;
-                        booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">📕 ${b.name} ${statusBadge}</div>`;
+                        booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">📕 ${b.name} <span style="color:#6b7280; font-size:0.75rem;">#${b.barcode || '-'}</span> ${statusBadge}</div>`;
                     });
                 }
 
@@ -751,7 +751,7 @@ async function getBorrowedReport() {
                     <div class="report-header-row">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <div class="rank-circle" style="background:#f59e0b;">${index + 1}</div>
-                            <div><div style="font-weight:bold; color:#1f2937;">${item.name}${warningIcon}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className}</div></div>
+                            <div><div style="font-weight:bold; color:#1f2937;">${item.name}${warningIcon}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className} • No: ${item.no}</div></div>
                         </div>
                         <div style="font-weight:bold; color:#f59e0b; text-align:right;">${item.books.length} Kitap <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span></div>
                     </div>
@@ -846,7 +846,7 @@ async function showStatDetails(type) {
                     html += `<div style="padding: 10px; border-bottom: 1px solid #e5e7eb; background: ${index % 2 === 0 ? '#f9fafb' : '#fff'}; border-radius: 8px; margin-bottom: 5px;">
                         <div style="font-weight: bold; color: #b91c1c; font-size: 0.95rem;">📖 ${item.books?.book_name || 'Bilinmeyen'} <span style="font-size: 0.75rem; color: #6b7280; font-weight: normal;">(#${item.books?.barcode || '-'})</span></div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
-                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${sinifBilgisi})</span></div>
+                            <div style="font-size: 0.85rem; color: #1f2937;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">person</span> ${item.students?.full_name || 'Bilinmeyen'} <span style="color: #6b7280;">(${sinifBilgisi} | No: ${item.students?.student_no || '-'})</span></div>
                             <div style="font-size: 0.75rem; color: #4f46e5; font-weight: bold;">${dateStr}</div>
                         </div>
                     </div>`;
