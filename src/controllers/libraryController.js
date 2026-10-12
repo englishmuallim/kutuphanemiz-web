@@ -97,6 +97,25 @@ exports.isDuplicateStudentConstraintError = isDuplicateStudentConstraintError;
 // İsim karşılaştırmasında Türkçe karakter/boşluk farklarını tolere eden normalizasyon
 const normalizeStudentName = normalizeTurkishText;
 
+// Barkod temizliği: sayısal barkodları bilimsel gösterime (1E+12 gibi) düşürmeden metne çevirir,
+// baştaki/sondaki boşlukları ve görünmez karakterleri (nbsp, zero-width vb.) temizler.
+// Frontend'deki (js/api-client.js) cleanBarcode fonksiyonuyla aynı mantığı izler.
+const cleanBarcode = (raw) => {
+    if (raw === null || raw === undefined) return '';
+    let str;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        str = BigInt(Math.round(raw)).toString();
+    } else {
+        str = String(raw);
+    }
+    str = str.replace(/[ ​‌‍⁠﻿]/g, '');
+    return str.trim();
+};
+exports.cleanBarcode = cleanBarcode;
+
+// Büyük barkod listelerini Supabase .in() sorgusunun URL'sini şişirmeden parça parça sorgulamak için
+const BARCODE_CHECK_CHUNK_SIZE = 150;
+
 exports.login = async (req, res) => {
     try {
         console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
@@ -607,18 +626,151 @@ exports.bulkAddBooks = async (req, res) => {
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
-        const mappedData = data.map(item => ({
+        const rawItems = Array.isArray(data) ? data : [];
+        const cleanedItems = rawItems
+            .map(item => {
+                const barcode = cleanBarcode(item.barcode);
+                const book_name = String(item.book_name ?? '').trim();
+                if (!barcode || !book_name) return null;
+                return {
+                    barcode,
+                    book_name,
+                    author: item.author ? String(item.author).trim() : null,
+                    publisher: item.publisher ? String(item.publisher).trim() : null,
+                    category: item.category ? String(item.category).trim() : null,
+                    page_count: item.page_count ? (parseInt(item.page_count, 10) || null) : null,
+                    shelf: item.shelf ? String(item.shelf).trim() : null,
+                    condition: item.condition ? String(item.condition).trim() : 'Yeni'
+                };
+            })
+            .filter(Boolean);
+
+        if (cleanedItems.length === 0) {
+            return res.json({ status: 'error', message: 'Yüklenecek geçerli kitap bulunamadı.' });
+        }
+
+        // 1) Gönderilen verinin kendi içinde mükerrer barkod var mı? (tüm-veya-hiç kuralı: hiçbir satır eklenmez)
+        const seenBarcodes = new Map();
+        const fileDuplicateBarcodes = new Set();
+        cleanedItems.forEach(item => {
+            if (seenBarcodes.has(item.barcode)) fileDuplicateBarcodes.add(item.barcode);
+            seenBarcodes.set(item.barcode, item.book_name);
+        });
+
+        if (fileDuplicateBarcodes.size > 0) {
+            return res.json({
+                status: 'error',
+                message: 'Gönderilen veride mükerrer barkod bulundu. Hiçbir kitap eklenmedi.',
+                duplicateBarcodes: [...fileDuplicateBarcodes]
+            });
+        }
+
+        // 2) Bu okulda (school_id) zaten kayıtlı barkod var mı? (savunma: frontend kontrolünü atlayan/yarış durumuna düşen istekler için)
+        const uniqueBarcodes = [...new Set(cleanedItems.map(item => item.barcode))];
+        const existingBooks = [];
+        for (let i = 0; i < uniqueBarcodes.length; i += BARCODE_CHECK_CHUNK_SIZE) {
+            const chunk = uniqueBarcodes.slice(i, i + BARCODE_CHECK_CHUNK_SIZE);
+            const { data: existingRows, error: lookupError } = await supabase
+                .from('books').select('barcode, book_name')
+                .eq('school_id', auth.id)
+                .in('barcode', chunk);
+            if (lookupError) throw lookupError;
+            if (existingRows) existingBooks.push(...existingRows);
+        }
+
+        if (existingBooks.length > 0) {
+            return res.json({
+                status: 'error',
+                message: 'Bu barkodlardan bazıları okulda zaten kayıtlı. Hiçbir kitap eklenmedi.',
+                existing: existingBooks
+            });
+        }
+
+        const mappedData = cleanedItems.map(item => ({
             ...item,
             school_id: auth.id,
             status: 'available',
             is_active: true
         }));
 
-        const { error } = await supabase.from('books').insert(mappedData);
+        const { data: inserted, error } = await supabase.from('books').insert(mappedData).select('id');
         if (error) throw error;
 
-        res.json({ status: 'success', message: 'Toplu kitap ekleme başarılı' });
+        const ids = (inserted || []).map(row => row.id);
+        res.json({ status: 'success', message: 'Toplu kitap ekleme başarılı', insertedCount: ids.length || mappedData.length, ids });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: EXCEL TOPLU YÜKLEME ÖNCESİ BARKOD KONTROLÜ
+// ==========================================
+// Verilen barkod listesinden, bu okulda (school_id) zaten kayıtlı olanları döner.
+// Hiçbir ekleme/silme yapmaz, sadece okur.
+exports.checkBookBarcodes = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, barcodes } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const cleanedBarcodes = [...new Set(
+            (Array.isArray(barcodes) ? barcodes : [])
+                .map(cleanBarcode)
+                .filter(Boolean)
+        )];
+
+        if (cleanedBarcodes.length === 0) {
+            return res.json({ status: 'success', existing: [] });
+        }
+
+        const existing = [];
+        for (let i = 0; i < cleanedBarcodes.length; i += BARCODE_CHECK_CHUNK_SIZE) {
+            const chunk = cleanedBarcodes.slice(i, i + BARCODE_CHECK_CHUNK_SIZE);
+            const { data, error } = await supabase
+                .from('books').select('barcode, book_name')
+                .eq('school_id', auth.id)
+                .in('barcode', chunk);
+            if (error) throw error;
+            if (data) existing.push(...data);
+        }
+
+        res.json({ status: 'success', existing });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// YENİ: EXCEL TOPLU YÜKLEME GERİ ALMA (ROLLBACK)
+// ==========================================
+// Parçalı (chunk) yükleme sırasında bir parça başarısız olursa, önceki parçalarla eklenmiş
+// kitapları id + school_id ile sınırlı şekilde siler. Hem id hem school_id zorunludur.
+exports.bulkDeleteBooks = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, ids } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const idList = (Array.isArray(ids) ? ids : []).filter(Boolean);
+        if (idList.length === 0) {
+            return res.json({ status: 'success', deletedCount: 0 });
+        }
+
+        let deletedCount = 0;
+        for (let i = 0; i < idList.length; i += BARCODE_CHECK_CHUNK_SIZE) {
+            const chunk = idList.slice(i, i + BARCODE_CHECK_CHUNK_SIZE);
+            const { error, count } = await supabase
+                .from('books')
+                .delete({ count: 'exact' })
+                .eq('school_id', auth.id)
+                .in('id', chunk);
+            if (error) throw error;
+            deletedCount += count ?? chunk.length;
+        }
+
+        res.json({ status: 'success', deletedCount });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 exports.kitapVer = async (req, res) => {

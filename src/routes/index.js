@@ -39,6 +39,8 @@ router.post('/searchStudentsAdvanced', libraryController.searchStudentsAdvanced)
 router.post('/updateStudentDetailed', libraryController.updateStudentDetailed);
 router.get('/globalBooks', libraryController.getGlobalBooks);
 router.post('/books/bulk', libraryController.bulkAddBooks);
+router.post('/books/check-barcodes', libraryController.checkBookBarcodes);
+router.post('/books/bulk-delete', libraryController.bulkDeleteBooks);
 router.post('/archive', libraryController.archiveRecord);
 
 // Kitap Arama, Düzenleme, Silme

@@ -1684,6 +1684,13 @@ function handleExcelUpload(event, type) {
         return;
     }
 
+    // Kitap yüklemesi: mükerrer barkod kontrolü + parçalı (chunk) yükleme + geri alma gerektiğinden
+    // ayrı bir akışta yönetiliyor (bkz. handleBookExcelUpload). Öğrenci akışı değişmedi.
+    if (type === 'book') {
+        handleBookExcelUpload(file, event);
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
@@ -1698,26 +1705,12 @@ function handleExcelUpload(event, type) {
                 return;
             }
 
-            let mappedData = [];
-            if (type === 'student') {
-                mappedData = jsonData.map(row => ({
-                    student_no: row["Öğrenci No"] || '',
-                    full_name: row["Ad Soyad"] || '',
-                    grade: row["Kademe"] ? String(row["Kademe"]) : '',
-                    class_name: row["Şube"] || ''
-                })).filter(item => item.student_no && item.full_name);
-            } else {
-                mappedData = jsonData.map(row => ({
-                    barcode: row["Barkod"] || '',
-                    book_name: row["Kitap Adı"] || '',
-                    author: row["Yazar"] || '',
-                    publisher: row["Yayınevi"] || '',
-                    category: row["Tür"] || '',
-                    page_count: parseInt(row["Sayfa Sayısı"]) || 0,
-                    shelf: row["Raf"] || '',
-                    condition: row["Durum (Yeni/Yıpranmış)"] || 'Yeni'
-                })).filter(item => item.barcode && item.book_name);
-            }
+            const mappedData = jsonData.map(row => ({
+                student_no: row["Öğrenci No"] || '',
+                full_name: row["Ad Soyad"] || '',
+                grade: row["Kademe"] ? String(row["Kademe"]) : '',
+                class_name: row["Şube"] || ''
+            })).filter(item => item.student_no && item.full_name);
 
             if (mappedData.length === 0) {
                 Swal.fire('Hata', 'Geçerli veri bulunamadı. Sütun başlıklarının şablonla tam eşleştiğinden emin olun.', 'error');
@@ -1726,15 +1719,16 @@ function handleExcelUpload(event, type) {
 
             const code = localStorage.getItem("kutuphane_code");
             const pass = localStorage.getItem("kutuphane_pass");
-            const payload = { schoolCode: code, schoolPass: pass, data: mappedData };
-            if (type === 'student') {
-                payload.updateExistingClass = !!document.getElementById('bulkImportUpdateClass')?.checked;
-            }
-            const endpoint = type === 'student' ? '/api/students/bulk' : '/api/books/bulk';
+            const payload = {
+                schoolCode: code,
+                schoolPass: pass,
+                data: mappedData,
+                updateExistingClass: !!document.getElementById('bulkImportUpdateClass')?.checked
+            };
 
             Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> kayıt işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-            const res = await fetch(endpoint, {
+            const res = await fetch('/api/students/bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1742,27 +1736,7 @@ function handleExcelUpload(event, type) {
             const result = await res.json();
 
             if (result.status === 'success') {
-                if (type === 'student') {
-                    Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildBulkStudentImportSummaryHtml(result), confirmButtonText: 'Tamam' });
-                } else {
-                    const insertedCount = Number(result.insertedCount || result.totalInserted || mappedData.length);
-                    const duplicateCount = Number(result.duplicateCount || 0);
-                    const duplicates = Array.isArray(result.duplicates) ? result.duplicates : [];
-
-                    if (duplicateCount > 0 || duplicates.length > 0) {
-                        const duplicateList = duplicates.map(item => `<div style="text-align:left; margin-top:6px;">• ${item.full_name || item.student_no}</div>`).join('');
-                        const html = `
-                            <div style="text-align:left;">
-                                <div><b>${insertedCount}</b> öğrenci eklendi.</div>
-                                <div><b>${duplicateCount}</b> öğrenci mükerrer olduğu için atlandı.</div>
-                                ${duplicateList ? `<div style="margin-top:10px; max-height:150px; overflow-y:auto;">${duplicateList}</div>` : ''}
-                            </div>
-                        `;
-                        Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html, confirmButtonText: 'Tamam' });
-                    } else {
-                        Swal.fire('Başarılı', `${insertedCount} kayıt başarıyla eklendi!`, 'success');
-                    }
-                }
+                Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildBulkStudentImportSummaryHtml(result), confirmButtonText: 'Tamam' });
                 if (typeof getStats === 'function') getStats();
             } else {
                 Swal.fire('Hata', result.message || 'Yükleme başarısız', 'error');
@@ -1774,6 +1748,274 @@ function handleExcelUpload(event, type) {
         }
     };
     reader.readAsArrayBuffer(file);
+}
+
+// ==========================================
+// KİTAP EXCEL YÜKLEME (mükerrer barkod kontrolü + parçalı yükleme)
+// ==========================================
+
+// Barkod temizliği: sayısal barkodları bilimsel gösterime (1E+12 gibi) düşürmeden metne çevirir,
+// baştaki/sondaki boşlukları ve görünmez karakterleri (nbsp, zero-width vb.) temizler.
+// Backend'deki (src/controllers/libraryController.js) cleanBarcode fonksiyonuyla aynı mantığı izler.
+function cleanBarcode(raw) {
+    if (raw === null || raw === undefined) return '';
+    let str;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        str = BigInt(Math.round(raw)).toString();
+    } else {
+        str = String(raw);
+    }
+    str = str.replace(/[ ​‌‍⁠﻿]/g, '');
+    return str.trim();
+}
+
+// fetch yanıtını res.json() ile parse etmeden önce gerçekten JSON olup olmadığına bakar.
+// Sunucudan HTML/boş bir hata sayfası dönerse ham SyntaxError kullanıcıya gitmesin.
+async function safeParseJsonResponse(res) {
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
+    try {
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+// Mükerrer barkod uyarısını SweetAlert2 ile, hangi Excel satırının hangi barkodla çakıştığını
+// gösteren kaydırılabilir bir liste olarak gösterir.
+function showDuplicateBarcodeAlert(reasonText, groups) {
+    const body = groups.map(g => {
+        const lines = g.entries.map(e => {
+            const existingPart = e.existingName ? ` — sistemde zaten kayıtlı: "${e.existingName}"` : '';
+            return `<div style="margin-top:2px;">Excel satırı ${e.row}: ${e.name || '(kitap adı yok)'}${existingPart}</div>`;
+        }).join('');
+        return `<div style="margin-top:10px;"><b>Barkod: ${g.barcode}</b>${lines}</div>`;
+    }).join('');
+
+    Swal.fire({
+        icon: 'warning',
+        title: 'Mükerrer Barkod Bulundu',
+        html: `
+            <div style="text-align:left;">
+                <div>Aşağıdaki barkodlar ${reasonText}. Hiçbir kitap eklenmedi; lütfen Excel dosyasını düzeltip tekrar deneyin.</div>
+                <div style="margin-top:10px; max-height:220px; overflow-y:auto; border-top:1px solid #eee; padding-top:8px;">${body}</div>
+            </div>
+        `,
+        confirmButtonText: 'Tamam'
+    });
+}
+
+function handleBookExcelUpload(file, event) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const firstSheet = workbook.Sheets[firstSheetName];
+            // header:1 + blankrows:true ile satırlar ham dizi halinde ve Excel'deki satır
+            // numarasıyla hizalı kalır (rows[0] = başlık = Excel satır 1).
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true, defval: '', blankrows: true });
+
+            if (!rows || rows.length < 2) {
+                Swal.fire('Hata', 'Excel dosyası boş veya biçimi hatalı.', 'error');
+                return;
+            }
+
+            const headerRow = (rows[0] || []).map(h => String(h ?? '').trim());
+            const findCol = (...candidates) => {
+                for (const c of candidates) {
+                    const idx = headerRow.indexOf(c);
+                    if (idx !== -1) return idx;
+                }
+                return -1;
+            };
+            const colIndex = {
+                barcode: findCol('Barkod'),
+                book_name: findCol('Kitap Adı'),
+                author: findCol('Yazar(İsteğe Bağlı)', 'Yazar'),
+                publisher: findCol('Yayınevi(İsteğe Bağlı)', 'Yayınevi'),
+                category: findCol('Tür(İsteğe Bağlı)', 'Tür'),
+                page_count: findCol('Sayfa Sayısı'),
+                shelf: findCol('Raf'),
+                condition: findCol('Durum (Yeni/Yıpranmış)')
+            };
+
+            const cell = (row, idx) => (idx >= 0 ? row[idx] : '');
+            const items = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i] || [];
+                const excelRow = i + 1; // rows[0] Excel satır 1 (başlık) olduğundan, i. satır Excel'de (i+1)
+                const barcode = cleanBarcode(cell(row, colIndex.barcode));
+                const book_name = String(cell(row, colIndex.book_name) ?? '').trim();
+                if (!barcode || !book_name) continue;
+
+                items.push({
+                    excelRow,
+                    barcode,
+                    book_name,
+                    author: String(cell(row, colIndex.author) ?? '').trim(),
+                    publisher: String(cell(row, colIndex.publisher) ?? '').trim(),
+                    category: String(cell(row, colIndex.category) ?? '').trim(),
+                    page_count: parseInt(cell(row, colIndex.page_count)) || 0,
+                    shelf: String(cell(row, colIndex.shelf) ?? '').trim(),
+                    condition: String(cell(row, colIndex.condition) ?? '').trim() || 'Yeni'
+                });
+            }
+
+            if (items.length === 0) {
+                Swal.fire('Hata', 'Geçerli veri bulunamadı. Sütun başlıklarının şablonla tam eşleştiğinden emin olun.', 'error');
+                return;
+            }
+
+            // 1) Dosya içi mükerrer barkod kontrolü — parçalamadan/sunucuya göndermeden ÖNCE.
+            const byBarcode = new Map();
+            items.forEach(item => {
+                if (!byBarcode.has(item.barcode)) byBarcode.set(item.barcode, []);
+                byBarcode.get(item.barcode).push(item);
+            });
+            const fileDuplicates = [...byBarcode.entries()].filter(([, list]) => list.length > 1);
+            if (fileDuplicates.length > 0) {
+                showDuplicateBarcodeAlert(
+                    'Excel dosyasının içinde birden fazla satırda geçiyor',
+                    fileDuplicates.map(([barcode, list]) => ({
+                        barcode,
+                        entries: list.map(it => ({ row: it.excelRow, name: it.book_name }))
+                    }))
+                );
+                return;
+            }
+
+            const code = localStorage.getItem("kutuphane_code");
+            const pass = localStorage.getItem("kutuphane_pass");
+
+            // 2) Bu okulda (school_id) veritabanında zaten kayıtlı barkod var mı?
+            Swal.fire({ title: 'Kontrol ediliyor...', html: 'Barkodlar kontrol ediliyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, allowEscapeKey: false });
+
+            const allBarcodes = items.map(it => it.barcode);
+            let checkRes;
+            try {
+                checkRes = await fetch('/api/books/check-barcodes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schoolCode: code, schoolPass: pass, barcodes: allBarcodes })
+                });
+            } catch (networkError) {
+                Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucuya bağlanırken bir hata oluştu. Hiçbir kitap eklenmedi.' });
+                return;
+            }
+            const checkResult = await safeParseJsonResponse(checkRes);
+            if (!checkResult || checkResult.status !== 'success') {
+                Swal.fire({ icon: 'error', title: 'Hata', text: (checkResult && checkResult.message) || 'Barkod kontrolü yapılırken sunucudan geçersiz bir yanıt alındı. Hiçbir kitap eklenmedi.' });
+                return;
+            }
+
+            const existingList = Array.isArray(checkResult.existing) ? checkResult.existing : [];
+            if (existingList.length > 0) {
+                const existingNameByBarcode = new Map(existingList.map(m => [m.barcode, m.book_name]));
+                const conflictingItems = items.filter(it => existingNameByBarcode.has(it.barcode));
+                const groups = [...new Set(conflictingItems.map(it => it.barcode))].map(barcode => ({
+                    barcode,
+                    entries: conflictingItems
+                        .filter(it => it.barcode === barcode)
+                        .map(it => ({ row: it.excelRow, name: it.book_name, existingName: existingNameByBarcode.get(barcode) }))
+                }));
+                Swal.close();
+                showDuplicateBarcodeAlert('bu okulda veritabanında zaten kayıtlı', groups);
+                return;
+            }
+
+            // 3) Kontroller temiz: 500'lük parçalar halinde yükle.
+            await uploadBooksInChunks(items, code, pass);
+        } catch (error) {
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Excel dosyası okunurken bir hata oluştu.' });
+        } finally {
+            if (event && event.target) event.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+async function uploadBooksInChunks(items, code, pass) {
+    const CHUNK_SIZE = 500;
+    const totalCount = items.length;
+    const insertedIds = [];
+    let uploadedCount = 0;
+
+    Swal.fire({
+        title: 'Yükleniyor...',
+        html: `<b>0 / ${totalCount}</b> kitap yüklendi.`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunkItems = items.slice(i, i + CHUNK_SIZE);
+        // excelRow sadece frontend takibi için var; sunucuya gönderilecek kitap alanlarına dahil değil.
+        const payloadItems = chunkItems.map(({ excelRow, ...rest }) => rest);
+
+        let res;
+        try {
+            res = await fetch('/api/books/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: payloadItems })
+            });
+        } catch (networkError) {
+            await finishFailedBookUpload(insertedIds, code, pass, 'Sunucuya bağlanırken bir hata oluştu.');
+            return;
+        }
+
+        const result = await safeParseJsonResponse(res);
+        if (!result || result.status !== 'success') {
+            const failureMessage = (result && result.message) || 'Kitap yüklenirken bir hata oluştu.';
+            await finishFailedBookUpload(insertedIds, code, pass, failureMessage);
+            return;
+        }
+
+        if (Array.isArray(result.ids)) insertedIds.push(...result.ids);
+        uploadedCount += chunkItems.length;
+        Swal.update({ html: `<b>${uploadedCount} / ${totalCount}</b> kitap yüklendi.` });
+    }
+
+    Swal.fire('Başarılı', `${totalCount} kitap başarıyla eklendi!`, 'success');
+    if (typeof getStats === 'function') getStats();
+}
+
+// Bir chunk başarısız olduğunda, bu yükleme sırasında önceden eklenmiş kitapları geri alır
+// ve kullanıcıya SweetAlert2 ile sonucu bildirir.
+async function finishFailedBookUpload(insertedIds, code, pass, failureMessage) {
+    if (insertedIds.length === 0) {
+        Swal.fire({ icon: 'error', title: 'Yükleme Başarısız', html: `${failureMessage}<br><br>Hiçbir kitap eklenmedi.` });
+        return;
+    }
+
+    const rollbackOk = await rollbackInsertedBooks(insertedIds, code, pass);
+    if (rollbackOk) {
+        Swal.fire({ icon: 'error', title: 'Yükleme Başarısız', html: `${failureMessage}<br><br>Yükleme tamamlanamadı, hiçbir kitap eklenmedi.` });
+    } else {
+        Swal.fire({
+            icon: 'error',
+            title: 'Yükleme Başarısız',
+            html: `${failureMessage}<br><br><b>Önemli:</b> Geri alma işlemi başarısız oldu. Bu yükleme sırasında eklenmiş olan <b>${insertedIds.length}</b> kitap sistemde kalmış olabilir. Lütfen Kitap Düzenle ekranından barkodları kontrol edin.`
+        });
+    }
+}
+
+async function rollbackInsertedBooks(ids, code, pass) {
+    if (!ids || ids.length === 0) return true;
+    try {
+        const res = await fetch('/api/books/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, ids })
+        });
+        const result = await safeParseJsonResponse(res);
+        return !!(result && result.status === 'success');
+    } catch (e) {
+        return false;
+    }
 }
 
 function parseEokulStudentRows(rows, grade, className) {
@@ -1810,7 +2052,7 @@ function buildStudentPayload({ no, name, grade, className }) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { parseEokulStudentRows, buildStudentPayload };
+    module.exports = { parseEokulStudentRows, buildStudentPayload, cleanBarcode };
 }
 
 function triggerEokulStudentImport() {
