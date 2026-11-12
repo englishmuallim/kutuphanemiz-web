@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const libraryController = require('../controllers/libraryController');
 const studentManagementController = require('../controllers/studentManagementController');
+const studentPhotoController = require('../controllers/studentPhotoController');
 
 // Kullanıcı & Oturum İşlemleri
 router.post('/login', libraryController.login);
@@ -73,5 +74,11 @@ router.post('/bulkTransferStudents', studentManagementController.bulkTransferStu
 router.post('/archiveStudent', studentManagementController.archiveStudent);
 router.post('/restoreStudent', studentManagementController.restoreStudent);
 router.post('/deleteStudent', studentManagementController.deleteStudent);
+
+// Öğrenci Fotoğrafı - YENİ
+// Ham binary body (logo yüklemedeki gibi, bu route'a özel raw parser)
+router.post('/uploadStudentPhoto', express.raw({ type: '*/*', limit: '300kb' }), studentPhotoController.uploadStudentPhoto);
+router.post('/deleteStudentPhoto', studentPhotoController.deleteStudentPhoto);
+router.post('/getStudentPhotoUrl', studentPhotoController.getStudentPhotoUrl);
 
 module.exports = router;

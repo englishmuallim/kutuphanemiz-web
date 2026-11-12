@@ -1,6 +1,7 @@
 const supabase = require('../api/supabase');
 const { getSchoolAuth, isAdmin, isDuplicateStudentConstraintError } = require('./libraryController');
 const { getGradesForSchoolType, buildStudentSearchOrFilter, buildGraduatedStudentNo } = require('../utils/studentUtils');
+const { removePhotoFile } = require('./studentPhotoController');
 
 // ==========================================
 // ÖĞRENCİ LİSTELEME (ARAMA + FİLTRE)
@@ -12,7 +13,7 @@ exports.listStudents = async (req, res) => {
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
         let dbQuery = supabase.from('students')
-            .select('id, student_no, full_name, grade, class_name, is_active')
+            .select('id, student_no, full_name, grade, class_name, is_active, photo_path')
             .eq('school_id', auth.id);
 
         if (status === 'active') dbQuery = dbQuery.eq('is_active', true);
@@ -36,7 +37,11 @@ exports.listStudents = async (req, res) => {
         const { data, error } = await dbQuery;
         if (error) throw error;
 
-        res.json({ status: 'success', data: data || [] });
+        // photo_path istemciye hiç gönderilmez (depolama yolu iç bilgisidir); sadece
+        // 350 öğrenci için 350 kez signed URL imzalamamak için has_photo boolean'ı dönülür.
+        const result = (data || []).map(({ photo_path, ...rest }) => ({ ...rest, has_photo: !!photo_path }));
+
+        res.json({ status: 'success', data: result });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }
@@ -255,12 +260,24 @@ exports.deleteStudent = async (req, res) => {
             return res.json({ status: 'error', message: 'Öğrenci ID eksik.' });
         }
 
+        const { data: student, error: findError } = await supabase.from('students')
+            .select('id, photo_path')
+            .eq('id', id)
+            .eq('school_id', auth.id)
+            .maybeSingle();
+        if (findError) throw findError;
+        if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
+
         const { error } = await supabase.from('students')
             .delete()
             .eq('id', id)
             .eq('school_id', auth.id);
 
         if (error) throw error;
+
+        if (student.photo_path) {
+            await removePhotoFile(student.photo_path);
+        }
 
         res.json({ status: 'success', message: 'Öğrenci başarıyla silindi.' });
     } catch (error) {

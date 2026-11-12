@@ -155,6 +155,7 @@ function renderResults(students) {
             <td>${escapeHtmlText(s.full_name)}</td>
             <td>${escapeHtmlText(s.grade ?? '-')} / ${escapeHtmlText(s.class_name || '-')}</td>
             <td class="row-actions">
+                <button type="button" class="btn btn-outline btn-sm" onclick="openPhotoModal('${s.id}')">${s.has_photo ? '🖼️ Fotoğraf' : '📷 Fotoğraf Ekle'}</button>
                 <button type="button" class="btn btn-outline btn-sm" onclick="openStudentModal('edit', '${s.id}')">✏️ Düzenle</button>
                 ${s.is_active
             ? `<button type="button" class="btn btn-warning btn-sm" onclick="archiveStudentAction('${s.id}')">📦 Arşivle</button>
@@ -670,4 +671,190 @@ function handleEokulImportFile(event) {
         }
     };
     reader.readAsArrayBuffer(file);
+}
+
+// --- Öğrenci Fotoğrafı ---
+let pendingPhotoBlob = null;
+let photoModalStudentId = null;
+
+function openPhotoModal(studentId) {
+    const s = currentStudentsById.get(String(studentId));
+    if (!s) return;
+
+    photoModalStudentId = studentId;
+    pendingPhotoBlob = null;
+
+    document.getElementById('sm_photoModalTitle').textContent = `Öğrenci Fotoğrafı — ${s.full_name}`;
+    document.getElementById('sm_photoFileInput').value = '';
+    document.getElementById('sm_photoSaveBtn').disabled = true;
+    document.getElementById('sm_photoDeleteBtn').disabled = !s.has_photo;
+
+    const img = document.getElementById('sm_photoPreviewImg');
+    const placeholder = document.getElementById('sm_photoPlaceholder');
+    img.classList.add('hidden');
+    img.src = '';
+    placeholder.classList.remove('hidden');
+    placeholder.textContent = s.has_photo ? 'Yükleniyor...' : 'Fotoğraf yok';
+
+    document.getElementById('sm_photoModal').classList.remove('hidden');
+
+    if (s.has_photo) loadCurrentPhoto(studentId);
+}
+
+async function loadCurrentPhoto(studentId) {
+    try {
+        const res = await fetch('/api/getStudentPhotoUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...getAuthPayload(), studentId })
+        });
+        if (res.status === 401) { redirectToLogin(); return; }
+        const r = await res.json();
+        const placeholder = document.getElementById('sm_photoPlaceholder');
+        const img = document.getElementById('sm_photoPreviewImg');
+
+        if (r.status === 'success' && r.url) {
+            img.src = r.url;
+            img.classList.remove('hidden');
+            placeholder.classList.add('hidden');
+        } else {
+            placeholder.textContent = 'Fotoğraf yok';
+            placeholder.classList.remove('hidden');
+            img.classList.add('hidden');
+        }
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Fotoğraf yüklenemedi.' });
+    }
+}
+
+function closePhotoModal() {
+    document.getElementById('sm_photoModal').classList.add('hidden');
+    pendingPhotoBlob = null;
+    photoModalStudentId = null;
+}
+
+function handlePhotoFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        Swal.fire({ icon: 'warning', title: 'Geçersiz Dosya', text: 'Lütfen bir resim dosyası seçin.' });
+        event.target.value = '';
+        return;
+    }
+
+    resizeImageToJpegBlob(file, 300, 400, 0.85)
+        .then(blob => {
+            pendingPhotoBlob = blob;
+            const previewUrl = URL.createObjectURL(blob);
+            const previewImg = document.getElementById('sm_photoPreviewImg');
+            previewImg.src = previewUrl;
+            previewImg.classList.remove('hidden');
+            document.getElementById('sm_photoPlaceholder').classList.add('hidden');
+            document.getElementById('sm_photoSaveBtn').disabled = false;
+        })
+        .catch(() => {
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Fotoğraf okunamadı. Dosya bozuk olabilir veya desteklenmeyen bir format olabilir.' });
+        });
+}
+
+// Bağımsız yardımcı (UI'ye bağımlı değil, toplu zip fazında da aynen kullanılabilir):
+// bir File/Blob alır, EXIF yönünü tarayıcının native decode'una uygulatarak (çift
+// döndürme riski olmadan) oranı koruyup en fazla maxW x maxH kutusuna sığdırır
+// (kırpma yok), JPEG Blob olarak döner.
+async function resizeImageToJpegBlob(fileOrBlob, maxW, maxH, quality) {
+    let bitmap;
+    try {
+        bitmap = await createImageBitmap(fileOrBlob, { imageOrientation: 'from-image' });
+    } catch (err) {
+        throw new Error('Görüntü çözülemedi.');
+    }
+
+    try {
+        const srcW = bitmap.width, srcH = bitmap.height; // EXIF düzeltilmiş boyutlar
+        const scale = Math.min(maxW / srcW, maxH / srcH, 1);
+        const drawW = Math.round(srcW * scale);
+        const drawH = Math.round(srcH * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = drawW;
+        canvas.height = drawH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, drawW, drawH);
+
+        return await new Promise((resolve, reject) => {
+            canvas.toBlob(blob => {
+                if (blob) resolve(blob); else reject(new Error('toBlob başarısız'));
+            }, 'image/jpeg', quality);
+        });
+    } finally {
+        bitmap.close();
+    }
+}
+
+async function saveStudentPhoto() {
+    if (!pendingPhotoBlob || !photoModalStudentId) return;
+
+    Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    try {
+        const auth = getAuthPayload();
+        const res = await fetch('/api/uploadStudentPhoto', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'x-school-code': auth.schoolCode,
+                'x-school-pass': auth.schoolPass,
+                'x-student-id': photoModalStudentId
+            },
+            body: pendingPhotoBlob
+        });
+        if (res.status === 401) { redirectToLogin(); return; }
+        const r = await res.json();
+
+        if (r.success) {
+            Swal.fire({ icon: 'success', title: 'Başarılı', text: 'Fotoğraf kaydedildi.' });
+            closePhotoModal();
+            refreshCurrentList();
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Fotoğraf yüklenemedi.' });
+        }
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+    }
+}
+
+async function deletePhotoAction() {
+    if (!photoModalStudentId) return;
+
+    const confirmResult = await Swal.fire({
+        title: 'Fotoğrafı Sil',
+        text: 'Bu öğrencinin fotoğrafını silmek istediğinize emin misiniz?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sil',
+        cancelButtonText: 'İptal',
+        confirmButtonColor: '#ef4444'
+    });
+    if (!confirmResult.isConfirmed) return;
+
+    Swal.fire({ title: 'Siliniyor...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetch('/api/deleteStudentPhoto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...getAuthPayload(), studentId: photoModalStudentId })
+        });
+        if (res.status === 401) { redirectToLogin(); return; }
+        const r = await res.json();
+
+        if (r.status === 'success') {
+            Swal.fire({ icon: 'success', title: 'Başarılı', text: r.message });
+            closePhotoModal();
+            refreshCurrentList();
+        } else {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
+        }
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
+    }
 }
