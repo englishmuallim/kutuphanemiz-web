@@ -1316,25 +1316,36 @@ exports.sorgula = async (req, res) => {
             const trackReadingNow = auth.settings.track_reading_status === true;
             const trackSince = auth.settings.track_reading_status_since || null;
 
-            let history = []; let activeBooks = []; let totalPages = 0;
+            let history = []; let activeBooks = []; let totalPages = 0; let completedWithPages = 0;
 
             if (transactions) {
                 transactions.forEach(t => {
-                    const p = t.books.page_count || 0;
+                    const pageCount = t.books.page_count || 0;
                     const isCompleted = t.status === 'returned';
-                    if (isCompleted) totalPages += p;
-
                     const returnDateIst = istanbulDateStr(t.return_date);
-                    const unspecified = isCompleted && trackReadingNow && !!trackSince && !t.reading_status
-                        && !!returnDateIst && returnDateIst >= trackSince;
+
+                    // YENİ (Faz B): tutarlılık için totalReadPages/totalReadCount ayar açıkken
+                    // getReport ile AYNI kuralı (computeReadPages) kullanır; kapalıyken eski hesap
+                    // (tam page_count) harfiyen korunur.
+                    let rowUnspecified = false;
+                    if (isCompleted) {
+                        if (trackReadingNow) {
+                            const result = computeReadPages(t.reading_status, pageCount, t.pages_read, trackSince, returnDateIst);
+                            totalPages += result.pages;
+                            rowUnspecified = result.unspecified;
+                            if (result.pages > 0) completedWithPages += 1;
+                        } else {
+                            totalPages += pageCount;
+                        }
+                    }
 
                     const record = {
                         name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
                         date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
                         returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
-                        status: isCompleted ? 'Completed' : 'Active', pages: p,
+                        status: isCompleted ? 'Completed' : 'Active', pages: pageCount,
                         readingStatus: t.reading_status || null, pagesRead: t.pages_read || null,
-                        unspecified
+                        unspecified: rowUnspecified
                     };
                     if (isAdminCaller) record.transactionId = t.id;
 
@@ -1343,6 +1354,10 @@ exports.sorgula = async (req, res) => {
                 });
             }
 
+            const totalReadCount = trackReadingNow
+                ? completedWithPages
+                : history.filter(h => h.status === 'Completed').length;
+
             return res.json({
                 status: 'success', result: {
                     type: 'student',
@@ -1350,7 +1365,7 @@ exports.sorgula = async (req, res) => {
                         name: student.full_name, no: student.student_no,
                         grade: student.grade, className: student.class_name,
                         activeBooks: activeBooks, history: history,
-                        totalReadPages: totalPages, totalReadCount: history.filter(h => h.status === 'Completed').length
+                        totalReadPages: totalPages, totalReadCount
                     }
                 }
             });
@@ -1367,15 +1382,24 @@ exports.sorgula = async (req, res) => {
  * @param {string|null} readingStatus - 'read' | 'partially_read' | 'not_read' | null (belirtilmemiş)
  * @param {number} pageCount - kitabın toplam sayfa sayısı (page_count || 0)
  * @param {number|null} pagesRead - 'partially_read' için öğrencinin okuduğu sayfa sayısı
+ * @param {string|null} since - kt_settings.track_reading_status_since ("YYYY-MM-DD") ya da null
+ * @param {string|null} returnDateIst - kaydın iade günü, Europe/Istanbul'a göre ("YYYY-MM-DD") ya da null
  * @returns {{ pages: number, unspecified: boolean }}
  */
-function computeReadPages(readingStatus, pageCount, pagesRead) {
+function computeReadPages(readingStatus, pageCount, pagesRead, since = null, returnDateIst = null) {
     const p = pageCount || 0;
     if (readingStatus === 'read') return { pages: p, unspecified: false };
     if (readingStatus === 'partially_read') return { pages: pagesRead || 0, unspecified: false };
     if (readingStatus === 'not_read') return { pages: 0, unspecified: false };
-    // NULL / belirtilmemiş: mevcut davranış korunur (tam sayfa sayılır), ama ayrıca işaretlenir
-    return { pages: p, unspecified: true };
+
+    // reading_status boş (NULL): since kuralına göre karar verilir.
+    const sinceApplies = !!since && !!returnDateIst && returnDateIst >= since;
+    if (sinceApplies) {
+        // Ayar açıldıktan SONRA iade edilmiş ama durumu hiç belirtilmemiş kayıt: 0 sayfa, "belirtilmedi" sayılır.
+        return { pages: 0, unspecified: true };
+    }
+    // since'den ÖNCEKİ iade ya da since hiç ayarlanmamış: eski davranış (tam sayfa, hiçbir sayaca girmez).
+    return { pages: p, unspecified: false };
 }
 exports.computeReadPages = computeReadPages;
 
@@ -1397,6 +1421,8 @@ exports.getReport = async (req, res) => {
         const schoolId = auth.id;
         const settings = auth.settings || {};
         const trackReading = settings.track_reading_status === true;
+        const trackSince = settings.track_reading_status_since || null;
+        const isAdminCaller = exports.isAdmin(auth);
 
         // YENİ: Hibrit Yıl Kaynağı — önce req.body'den, yoksa DB'den
         let academicYear = reqYear;
@@ -1407,12 +1433,18 @@ exports.getReport = async (req, res) => {
         }
         const { startDate, endDate } = getAcademicYearDates(academicYear);
 
+        // YENİ: Bir kitap artık İADE EDİLDİĞİ aya/döneme/eğitim yılına sayılıyor (borrow_date değil).
+        // return_date timestamptz olduğu için pencere sınırları Türkiye saatine (+03:00, DST yok)
+        // açıkça sabitleniyor; aksi halde Postgres sınırları session saat dilimine göre yorumlardı.
+        const startDateTimeIst = `${startDate}T00:00:00+03:00`;
+        const endDateTimeIst = `${endDate}T23:59:59.999+03:00`;
+
         // Sadece teslim edilmiş kitapları, öğrenci ve kitap bilgileriyle getir
         let query = supabase.from('transactions')
-            .select('borrow_date, reading_status, pages_read, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
+            .select('id, return_date, reading_status, pages_read, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'returned')
-            .gte('borrow_date', startDate)   // YENİ: Akademik yıl başlangıcı
-            .lte('borrow_date', endDate);    // YENİ: Akademik yıl bitişi
+            .gte('return_date', startDateTimeIst)
+            .lte('return_date', endDateTimeIst);
 
         if (filterGrade && filterGrade !== 'ALL') query = query.eq('students.grade', filterGrade);
         if (filterClass && filterClass !== 'ALL') query = query.eq('students.class_name', filterClass);
@@ -1424,15 +1456,16 @@ exports.getReport = async (req, res) => {
 
         if (transactions && transactions.length > 0) {
             reportData = transactions.reduce((acc, t) => {
-                const borrowDate = new Date(t.borrow_date);
-                const monthStr = ("0" + (borrowDate.getMonth() + 1)).slice(-2); // "01", "09" gibi ay formatı
+                // YENİ: Ay/dönem sınırı da artık return_date'ten, Türkiye gününe göre (istanbulDateStr).
+                const returnDateIst = istanbulDateStr(t.return_date);
+                const monthStr = returnDateIst ? returnDateIst.slice(5, 7) : null;
 
                 if (filterMonth && filterMonth !== 'ALL') {
                     const fMonthStr = String(filterMonth).trim().toUpperCase();
                     if (fMonthStr === 'TERM1') {
-                        if (!['07', '08', '09', '10', '11', '12', '01'].includes(monthStr)) return acc;
+                        if (!monthStr || !['07', '08', '09', '10', '11', '12', '01'].includes(monthStr)) return acc;
                     } else if (fMonthStr === 'TERM2') {
-                        if (!['02', '03', '04', '05', '06'].includes(monthStr)) return acc;
+                        if (!monthStr || !['02', '03', '04', '05', '06'].includes(monthStr)) return acc;
                     } else {
                         const targetMonth = String(filterMonth).trim().padStart(2, '0');
                         if (monthStr !== targetMonth) return acc;
@@ -1442,18 +1475,36 @@ exports.getReport = async (req, res) => {
                 const sNo = t.students.student_no;
                 if (!acc[sNo]) {
                     const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
-                    acc[sNo] = { no: sNo, name: t.students.full_name, className: cName, totalPage: 0, unspecifiedCount: 0, books: [] };
+                    acc[sNo] = { no: sNo, name: t.students.full_name, className: cName, totalPage: 0, books: [] };
+                    // YENİ: Bu sayaçlar yalnızca ayar AÇIKKEN eklenir; kapalıyken yanıt şekli harfiyen eskisi gibi kalır.
+                    if (trackReading) {
+                        acc[sNo].readCount = 0; acc[sNo].partialCount = 0; acc[sNo].notReadCount = 0; acc[sNo].unspecifiedCount = 0;
+                    }
                 }
 
                 const pageCount = t.books.page_count || 0;
                 let p = pageCount;
+                const bookEntry = { name: t.books.book_name, page: p };
+
                 if (trackReading) {
-                    const result = computeReadPages(t.reading_status, pageCount, t.pages_read);
+                    const result = computeReadPages(t.reading_status, pageCount, t.pages_read, trackSince, returnDateIst);
                     p = result.pages;
-                    if (result.unspecified) acc[sNo].unspecifiedCount += 1;
+                    bookEntry.page = p;
+                    bookEntry.pageCount = pageCount;
+                    bookEntry.readingStatus = t.reading_status || null;
+                    bookEntry.pagesRead = t.pages_read || null;
+                    bookEntry.returnDate = returnDateIst;
+                    bookEntry.unspecified = result.unspecified;
+                    if (isAdminCaller) bookEntry.transactionId = t.id;
+
+                    if (t.reading_status === 'read') acc[sNo].readCount += 1;
+                    else if (t.reading_status === 'partially_read') acc[sNo].partialCount += 1;
+                    else if (t.reading_status === 'not_read') acc[sNo].notReadCount += 1;
+                    else if (result.unspecified) acc[sNo].unspecifiedCount += 1;
                 }
+
                 acc[sNo].totalPage += p;
-                acc[sNo].books.push({ name: t.books.book_name, page: p });
+                acc[sNo].books.push(bookEntry);
 
                 return acc;
             }, {});

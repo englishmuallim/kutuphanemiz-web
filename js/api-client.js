@@ -341,12 +341,13 @@ async function runLendingPhotoConfirmation(data) {
 // YENİ: kt_settings.track_reading_status açıkken, kitapAl (iade) başarılı olduktan SONRA
 // çağrılır. Hiçbir düğme önceden seçili/odaklı olmasın ve Enter/Esc/dışarı tıklama ile
 // kapanmasın diye runLendingPhotoConfirmation'daki aynı güvenlik ayarları kullanılır.
-// YENİ (Faz A2): opsiyonel 3. parametre ile yönetici düzeltme penceresinde de (aynı fonksiyon,
-// kod çoğaltmadan) "Durumu Temizle" düğmesi, "mevcut durum" satırı ve farklı bir ikincil
-// kapatma etiketi ("Vazgeç") eklenebilir. İade akışındaki çağrı (promptReadingStatus) bu
-// parametreyi hiç geçmediği için davranışı AYNEN korunur.
+// YENİ (Faz A2/B): opsiyonel 3. parametre ile yönetici düzeltme penceresinde de (aynı fonksiyon,
+// kod çoğaltmadan) "Durumu Temizle" düğmesi, "mevcut durum" satırı ve ikincil bir kapatma
+// düğmesi ("Vazgeç") eklenebilir. İade akışındaki çağrı (promptReadingStatus) showSkipOption
+// hiç geçmediği için ikincil düğme hiç render edilmez — pencere yalnızca Okudum/Kısmen
+// okudum/Okumadım ile kapanabilir (Enter/Esc/dışarı tıklama zaten kapalı, kapatma X'i de yok).
 async function showReadingStatusChoice(bookName, hasPages, options = {}) {
-    const { showClearOption = false, currentStatusLabel = null, skipLabel = 'Belirtmeden kapat' } = options;
+    const { showClearOption = false, currentStatusLabel = null, showSkipOption = false, skipLabel = 'Vazgeç' } = options;
     let chosen = null;
     await Swal.fire({
         title: 'Okuma Durumu',
@@ -359,7 +360,7 @@ async function showReadingStatusChoice(bookName, hasPages, options = {}) {
                 ${hasPages ? `<button type="button" id="rs-btn-partial" style="padding:14px; border-radius:10px; border:none; background:#f59e0b; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Kısmen okudum</button>` : ''}
                 <button type="button" id="rs-btn-notread" style="padding:14px; border-radius:10px; border:none; background:#ef4444; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Okumadım</button>
                 ${showClearOption ? `<button type="button" id="rs-btn-clear" style="padding:12px; border-radius:10px; border:1px solid #d1d5db; background:#f3f4f6; color:#374151; font-weight:bold; font-size:0.9rem; cursor:pointer;">Durumu Temizle</button>` : ''}
-                <button type="button" id="rs-btn-skip" style="padding:10px; border-radius:10px; border:1px solid #d1d5db; background:#fff; color:#6b7280; font-weight:bold; font-size:0.85rem; cursor:pointer; margin-top:4px;">${skipLabel}</button>
+                ${showSkipOption ? `<button type="button" id="rs-btn-skip" style="padding:10px; border-radius:10px; border:1px solid #d1d5db; background:#fff; color:#6b7280; font-weight:bold; font-size:0.85rem; cursor:pointer; margin-top:4px;">${skipLabel}</button>` : ''}
             </div>
         `,
         showConfirmButton: false,
@@ -421,42 +422,58 @@ async function showPagesReadInput(bookName, maxPages) {
     return { action: 'back' };
 }
 
+// YENİ (Faz B): bağlantı/sunucu hatasında ("Tekrar Dene" ile aynı isteği yeniden gönderir)
+// kimse takılı kalmasın; iş kuralı reddinde (örn. "zaten belirlenmiş") sadece bilgilendirip
+// kapatır — tekrar denemek aynı reddi vereceği için anlamsız.
 async function submitReadingStatus(transactionId, readingStatus, pagesRead) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     const handlerName = localStorage.getItem("kutuphane_user") || "Bilinmeyen Görevli";
-    try {
-        const res = await fetch('/api/setReadingStatus', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, handlerName, transactionId, readingStatus, pagesRead })
-        });
-        const result = await res.json();
-        if (result.status !== 'success') {
-            Swal.fire({ icon: 'warning', title: 'Okuma Durumu Kaydedilemedi', html: `${result.message}<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>` });
-            return false;
+
+    while (true) {
+        try {
+            const res = await fetch('/api/setReadingStatus', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolCode: code, schoolPass: pass, handlerName, transactionId, readingStatus, pagesRead })
+            });
+            const result = await res.json();
+            if (result.status !== 'success') {
+                await Swal.fire({ icon: 'warning', title: 'Okuma Durumu Kaydedilemedi', html: `${result.message}<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>` });
+                return false;
+            }
+            return true;
+        } catch (e) {
+            const retry = await Swal.fire({
+                icon: 'error',
+                title: 'Bağlantı Hatası',
+                html: 'Okuma durumu kaydedilemedi.<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>',
+                showCancelButton: true,
+                confirmButtonText: 'Tekrar Dene',
+                cancelButtonText: 'Kapat',
+                confirmButtonColor: '#10b981',
+                cancelButtonColor: '#6b7280'
+            });
+            if (!retry.isConfirmed) return false;
+            // "Tekrar Dene" seçildi -> döngü aynı isteği yeniden gönderir
         }
-        return true;
-    } catch (e) {
-        Swal.fire({ icon: 'warning', title: 'Bağlantı Hatası', html: 'Okuma durumu kaydedilemedi.<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>' });
-        return false;
     }
 }
 
-// YENİ (Faz A2): Sorgu > Öğrenci geçmişi panelindeki "düzelt" ikonundan çağrılır (yalnızca
-// admin'e gösterilir). promptReadingStatus'taki "Geri" döngüsünü ve Faz A pencerelerini
-// (showReadingStatusChoice/showPagesReadInput) kod çoğaltmadan yeniden kullanır; farkı,
-// "Durumu Temizle" seçeneği, "Vazgeç" etiketi ve mevcut durumun gösterilmesidir. Kaydedilirse
-// öğrenci tekrar sorgulanır; geçmiş panelinin açık/kapalı durumu korunur.
-async function editReadingStatusForHistoryRow(transactionId, bookName, bookPageCount, studentNo, currentStatus, currentPagesRead) {
+// YENİ (Faz A2/B): geçmiş panelindeki VEYA Rapor Al ekranındaki "düzelt" ikonundan çağrılır
+// (yalnızca admin'e gösterilir). promptReadingStatus'taki "Geri" döngüsünü ve Faz A
+// pencerelerini (showReadingStatusChoice/showPagesReadInput) kod çoğaltmadan yeniden kullanır;
+// farkı "Durumu Temizle" seçeneği, "Vazgeç" düğmesi ve mevcut durumun gösterilmesidir. Hangi
+// ekranın nasıl yenileneceği/hangi panellerin açık kalacağı çağırana ait olduğu için, kaydedilirse
+// yalnızca verilen onSaved() callback'i çağrılır (sorgula'ya özel bir varsayım içermez).
+async function editReadingStatusForHistoryRow(transactionId, bookName, bookPageCount, currentStatus, currentPagesRead, onSaved) {
     const hasPages = !!bookPageCount && bookPageCount > 0;
-    const panelEl = document.getElementById(`history-${studentNo}`);
-    const wasOpen = panelEl ? !panelEl.classList.contains('hidden') : false;
 
     let saved = false;
     while (true) {
         const choice = await showReadingStatusChoice(bookName, hasPages, {
             showClearOption: true,
             currentStatusLabel: readingStatusLabel(currentStatus, currentPagesRead),
+            showSkipOption: true,
             skipLabel: 'Vazgeç'
         });
         if (!choice || choice === 'skip') break;
@@ -476,10 +493,8 @@ async function editReadingStatusForHistoryRow(transactionId, bookName, bookPageC
         }
     }
 
-    if (saved) {
-        await sorgula('student');
-        const refreshedPanel = document.getElementById(`history-${studentNo}`);
-        if (refreshedPanel && wasOpen) refreshedPanel.classList.remove('hidden');
+    if (saved && typeof onSaved === 'function') {
+        await onSaved();
     }
 }
 
@@ -693,7 +708,13 @@ async function sorgula(incomingType) {
                     const idx = parseInt(icon.dataset.idx, 10);
                     const h = std.history[idx];
                     icon.addEventListener('click', () => {
-                        editReadingStatusForHistoryRow(h.transactionId, h.name, h.pages, std.no, h.readingStatus, h.pagesRead);
+                        const panelEl = document.getElementById(`history-${std.no}`);
+                        const wasOpen = panelEl ? !panelEl.classList.contains('hidden') : false;
+                        editReadingStatusForHistoryRow(h.transactionId, h.name, h.pages, h.readingStatus, h.pagesRead, async () => {
+                            await sorgula('student');
+                            const refreshedPanel = document.getElementById(`history-${std.no}`);
+                            if (refreshedPanel && wasOpen) refreshedPanel.classList.remove('hidden');
+                        });
                     });
                 });
             }
@@ -892,6 +913,10 @@ async function getReport() {
     const resDiv = document.getElementById("report-result");
     const printBtn = document.getElementById("printBtn"); // YENİ EKLENDİ
 
+    // YENİ (Faz B): Yeniden çekmeden önce hangi öğrenci kartlarının "Detay"ı açıksa not al,
+    // render bittikten sonra aynı kartları tekrar açık yap (örn. ✏️ ile düzeltme sonrası).
+    const openStudentNos = Array.from(resDiv.querySelectorAll('.report-item.active')).map(el => el.dataset.studentNo);
+
     // Rapor çekilmeye başlarken veya yeni sorguda butonu pasif et
     if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = "0.5"; printBtn.style.cursor = "not-allowed"; }
 
@@ -935,32 +960,91 @@ async function getReport() {
             </div>
             <div style="font-weight:bold; margin-bottom:10px;">Sonuçlar (${r.data.length} Öğrenci): <span style="font-size:0.8rem; font-weight:normal; color:#6b7280; display:inline-block;" class="hide-on-print">(Detaylar için tıklayın)</span></div>`;
 
-            r.data.slice(0, 50).forEach((item, index) => {
+            // YENİ (Faz B): 50 sınırı aşılırsa not — yazdırma çıktısında da görünsün (hide-on-print YOK)
+            if (r.data.length > 50) {
+                html += `<div style="text-align:center; color:#9ca3af; font-size:0.8rem; margin-bottom:10px;">İlk 50 öğrenci gösteriliyor (toplam ${r.data.length}).</div>`;
+            }
+
+            const slicedData = r.data.slice(0, 50);
+
+            slicedData.forEach((item, index) => {
                 let booksHtml = "";
                 if (item.books && item.books.length > 0) {
-                    item.books.forEach(b => {
-                        booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">📕 ${b.name} <span style="color:#6b7280; float:right;">${b.page} syf</span></div>`;
+                    item.books.forEach((b, bookIndex) => {
+                        // YENİ (Faz B): durum rozeti + sayfa biçimi (ayar kapalıyken b.readingStatus
+                        // hiç gelmediği için bu bloklar hiç tetiklenmez, eski görünüm aynen kalır).
+                        let badge = '';
+                        let pageText = `${b.page} syf`;
+                        let rowStyle = '';
+
+                        if (b.readingStatus === 'read') {
+                            badge = '<span style="margin-left:6px; color:#059669; font-weight:bold; font-size:0.75rem;">✅ Okudu</span>';
+                        } else if (b.readingStatus === 'partially_read') {
+                            badge = '<span style="margin-left:6px; color:#b45309; font-weight:bold; font-size:0.75rem;">📖 Kısmen</span>';
+                            pageText = `${b.pagesRead} / ${b.pageCount} syf`;
+                        } else if (b.readingStatus === 'not_read') {
+                            badge = '<span style="margin-left:6px; color:#dc2626; font-weight:bold; font-size:0.75rem;">❌ Okumadı</span>';
+                            rowStyle = 'opacity:0.6;';
+                        } else if (b.unspecified) {
+                            badge = '<span style="margin-left:6px; color:#9ca3af; font-size:0.7rem;">belirtilmedi</span>';
+                            rowStyle = 'color:#9ca3af;';
+                        }
+
+                        // Yalnızca yönetici (sunucu transactionId'yi sadece admin'e döndürür) ve
+                        // kitap adını onclick string'ine gömmeden (tırnak/kaçış riski olmadan)
+                        // render sonrası event listener ile bağlanacak ✏️ ikonu.
+                        let editIcon = '';
+                        if (b.transactionId && localStorage.getItem('kt_role') === 'admin') {
+                            editIcon = `<span class="report-edit-icon hide-on-print" data-item-idx="${index}" data-book-idx="${bookIndex}" style="margin-left:8px; cursor:pointer;" title="Okuma durumunu düzelt">✏️</span>`;
+                        }
+
+                        booksHtml += `<div style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb; ${rowStyle}">📕 ${b.name}${badge}${editIcon} <span style="color:#6b7280; float:right;">${pageText}</span></div>`;
                     });
                 } else {
                     booksHtml = `<div style="color:#9ca3af;">Veri yok.</div>`;
                 }
 
-                html += `<div class="report-item" onclick="this.classList.toggle('active')">
+                // YENİ (Faz B): ayar açıkken (item.readCount tanımlıysa) özet satırı
+                let summaryLine = '';
+                if (item.readCount !== undefined) {
+                    summaryLine = `<div style="font-size:0.75rem; color:#6b7280; margin-top:2px;">✅ ${item.readCount} · 📖 ${item.partialCount} · ❌ ${item.notReadCount} · <span style="color:#9ca3af;">belirtilmedi ${item.unspecifiedCount}</span></div>`;
+                }
+
+                html += `<div class="report-item" data-student-no="${item.no}" onclick="this.classList.toggle('active')">
                     <div class="report-header-row">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <div class="rank-circle">${index + 1}</div>
                             <div><div style="font-weight:bold; color:#1f2937;">${item.name}</div><div style="font-size:0.8rem; color:#6b7280;">${item.className} • No: ${item.no}</div></div>
                         </div>
-                        <div style="font-weight:bold; color:#4f46e5; text-align:right;">${item.totalPage} syf <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span></div>
+                        <div style="font-weight:bold; color:#4f46e5; text-align:right;">${item.totalPage} syf <br><span style="font-size:0.7rem; color:#9ca3af;">▼ Detay</span>${summaryLine}</div>
                     </div>
                     <div class="book-details">
-                        <div style="font-weight:bold; margin-bottom:5px; color:#374151;">Okuduğu Kitaplar:</div>
+                        <div style="font-weight:bold; margin-bottom:5px; color:#374151;">Kitaplar:</div>
                         ${booksHtml}
                     </div>
                 </div>`;
             });
 
             resDiv.innerHTML = html;
+
+            // YENİ (Faz B): önceden açık olan kartları tekrar aç
+            openStudentNos.forEach(no => {
+                const card = resDiv.querySelector(`.report-item[data-student-no="${no}"]`);
+                if (card) card.classList.add('active');
+            });
+
+            // YENİ (Faz B): ✏️ ikonlarına, kitap adını onclick string'ine gömmeden event listener bağla
+            resDiv.querySelectorAll('.report-edit-icon').forEach(icon => {
+                const itemIdx = parseInt(icon.dataset.itemIdx, 10);
+                const bookIdx = parseInt(icon.dataset.bookIdx, 10);
+                const b = slicedData[itemIdx].books[bookIdx];
+                icon.addEventListener('click', (ev) => {
+                    ev.stopPropagation(); // kartın açılıp/kapanmasını tetiklemesin
+                    editReadingStatusForHistoryRow(b.transactionId, b.name, b.pageCount, b.readingStatus, b.pagesRead, async () => {
+                        await getReport(); // aynı filtrelerle yeniden çek; açık kartlar yukarıdaki mantıkla korunur
+                    });
+                });
+            });
 
             // Rapor başarıyla basıldı, PDF butonunu aktif et
             if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = "1"; printBtn.style.cursor = "pointer"; }
@@ -970,6 +1054,40 @@ async function getReport() {
         resDiv.innerHTML = 'Sistem Hatası: ' + e.message;
         console.error("Detaylı Hata:", e);
     }
+}
+
+// YENİ (Faz B): "Rapor Al" ekranını printBorrowedReport'taki gizli iframe deseniyle yazdırır.
+// .book-details normalde yalnızca .active kartlarda görünür; yazdırma çıktısında TÜMÜ açık
+// gösterilsin diye zorla görünür yapılır. ✏️ ikonları (ve diğer .hide-on-print ögeleri) basılmaz.
+function printReadingReport() {
+    const reportContent = document.getElementById('report-result').innerHTML;
+
+    let oldFrame = document.getElementById('kutuphanePrintFrame');
+    if (oldFrame) oldFrame.remove();
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('id', 'kutuphanePrintFrame');
+    iframe.style.visibility = 'hidden';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.write('<html><head><title>Okuma Raporu</title>');
+    doc.write('<style>body{font-family:sans-serif; color:#1f2937; padding:20px;} .hide-on-print{display:none !important;} .report-item{margin-bottom:15px; border-bottom:1px solid #e5e7eb; padding-bottom:10px; page-break-inside: avoid;} .rank-circle{display:inline-block; width:24px; height:24px; background:#f59e0b; color:#fff; border-radius:50%; text-align:center; line-height:24px; font-size:12px; font-weight:bold; margin-right:10px;} .report-header-row{display:flex; align-items:center; justify-content:space-between;} .book-details{display:block !important;}</style>');
+    doc.write('</head><body>');
+    doc.write(reportContent);
+    doc.write('</body></html>');
+    doc.close();
+
+    setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+    }, 500);
 }
 
 // --- YENİ EKLENEN: Emanet Raporunu Çeken Fonksiyon ---
