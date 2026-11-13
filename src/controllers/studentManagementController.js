@@ -3,12 +3,15 @@ const { getSchoolAuth, isAdmin, isDuplicateStudentConstraintError } = require('.
 const { getGradesForSchoolType, buildStudentSearchOrFilter, buildGraduatedStudentNo } = require('../utils/studentUtils');
 const { removePhotoFile } = require('./studentPhotoController');
 
+// Tek bir yerde sabit: listStudents'ın sayfa sınırı, limitReached hesabı da buna bakar.
+const STUDENT_LIST_LIMIT = 500;
+
 // ==========================================
 // ÖĞRENCİ LİSTELEME (ARAMA + FİLTRE)
 // ==========================================
 exports.listStudents = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, query, grade, className, status } = req.body;
+        const { schoolCode, schoolPass, query, grade, className, status, withoutPhoto } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
@@ -22,6 +25,7 @@ exports.listStudents = async (req, res) => {
 
         if (grade) dbQuery = dbQuery.eq('grade', grade);
         if (className) dbQuery = dbQuery.eq('class_name', className);
+        if (withoutPhoto) dbQuery = dbQuery.is('photo_path', null);
 
         if (query && query.trim() !== '') {
             const orQueryString = buildStudentSearchOrFilter(query);
@@ -32,7 +36,7 @@ exports.listStudents = async (req, res) => {
             .order('grade', { ascending: true })
             .order('class_name', { ascending: true })
             .order('full_name', { ascending: true })
-            .limit(500);
+            .limit(STUDENT_LIST_LIMIT);
 
         const { data, error } = await dbQuery;
         if (error) throw error;
@@ -41,7 +45,40 @@ exports.listStudents = async (req, res) => {
         // 350 öğrenci için 350 kez signed URL imzalamamak için has_photo boolean'ı dönülür.
         const result = (data || []).map(({ photo_path, ...rest }) => ({ ...rest, has_photo: !!photo_path }));
 
-        res.json({ status: 'success', data: result });
+        res.json({ status: 'success', data: result, limitReached: result.length >= STUDENT_LIST_LIMIT });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
+// YENİ: FOTOĞRAF DURUMU ÖZETİ (sadece yönetici)
+// ==========================================
+// count:'exact', head:true ile satır çekmeden sadece COUNT(*) yapılır; listStudents'taki
+// STUDENT_LIST_LIMIT'ten tamamen bağımsızdır, okulda 500'den fazla öğrenci olsa da doğru sayar.
+exports.getStudentPhotoStats = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+
+        const [totalRes, withPhotoRes] = await Promise.all([
+            supabase.from('students').select('id', { count: 'exact', head: true })
+                .eq('school_id', auth.id).eq('is_active', true),
+            supabase.from('students').select('id', { count: 'exact', head: true })
+                .eq('school_id', auth.id).eq('is_active', true).not('photo_path', 'is', null)
+        ]);
+
+        if (totalRes.error) throw totalRes.error;
+        if (withPhotoRes.error) throw withPhotoRes.error;
+
+        res.json({
+            status: 'success',
+            data: { total: totalRes.count || 0, withPhoto: withPhotoRes.count || 0 }
+        });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }

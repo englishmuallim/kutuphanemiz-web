@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
     await Promise.all([loadGradeOptions(), loadClassOptions()]);
+    refreshPhotoCounter();
 });
 
 function redirectToLogin() {
@@ -92,13 +93,29 @@ function runSearch() {
     const grade = document.getElementById('sm_gradeFilter').value;
     const className = document.getElementById('sm_classFilter').value;
     const status = document.getElementById('sm_statusFilter').value;
+    const withoutPhoto = document.getElementById('sm_withoutPhotoFilter').checked;
 
-    if (text.length < 2 && !className && !grade && status === 'active') {
+    if (text.length < 2 && !className && !grade && !withoutPhoto && status === 'active') {
         Swal.fire({ icon: 'warning', title: 'Eksik Bilgi', text: 'Lütfen aramak için en az 2 karakter girin veya bir filtre seçin.' });
         return;
     }
 
-    fetchAndRenderStudents({ query: text, grade, className, status });
+    fetchAndRenderStudents({ query: text, grade, className, status, withoutPhoto });
+}
+
+// Kademe/Şube/Durum seçicileri ve "Sadece fotoğrafı olmayanlar" onay kutusu değiştiğinde
+// (onchange) çağrılır. runSearch'ten farkı: hiçbir ölçüt kalmasa da "Eksik Bilgi" uyarısı
+// GÖSTERMEZ, o anki alan durumunu olduğu gibi sunucuya gönderir (ölçüt yoksa bu doğal
+// olarak "tüm aktif öğrenciler" sorgusuna denk gelir) — alanları SIFIRLAMAZ.
+function applyFilters() {
+    const rawText = document.getElementById('sm_searchInput').value.trim();
+    const text = rawText.length >= 2 ? rawText : ''; // 1 karakterlik yarım yazım sunucuya gönderilmez
+    const grade = document.getElementById('sm_gradeFilter').value;
+    const className = document.getElementById('sm_classFilter').value;
+    const status = document.getElementById('sm_statusFilter').value;
+    const withoutPhoto = document.getElementById('sm_withoutPhotoFilter').checked;
+
+    fetchAndRenderStudents({ query: text, grade, className, status, withoutPhoto });
 }
 
 function listAllStudents() {
@@ -106,11 +123,44 @@ function listAllStudents() {
     document.getElementById('sm_gradeFilter').value = '';
     document.getElementById('sm_classFilter').value = '';
     document.getElementById('sm_statusFilter').value = 'active';
-    fetchAndRenderStudents({ query: '', grade: '', className: '', status: 'active' });
+    document.getElementById('sm_withoutPhotoFilter').checked = false;
+    fetchAndRenderStudents({ query: '', grade: '', className: '', status: 'active', withoutPhoto: false });
 }
 
 function refreshCurrentList() {
     if (lastSearchParams) fetchAndRenderStudents(lastSearchParams);
+}
+
+// YENİ: Öğrenci İşlemleri sayfasının üstündeki "fotoğraf durumu" özet satırı — sadece
+// yönetici erişebiliyor (getStudentPhotoStats admin-only), ikincil bilgi olduğu için
+// yüklenemezse/erişim yoksa kullanıcıya hata göstermez, sessizce gizlenir.
+async function refreshPhotoCounter() {
+    const line = document.getElementById('sm_photoCounterLine');
+    if (!line) return;
+
+    try {
+        const res = await fetch('/api/getStudentPhotoStats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(getAuthPayload())
+        });
+        if (res.status === 401) { redirectToLogin(); return; }
+        const r = await res.json();
+
+        if (r.status !== 'success' || !r.data || !r.data.total) {
+            line.classList.add('hidden');
+            return;
+        }
+
+        const { total, withPhoto } = r.data;
+        const missing = total - withPhoto;
+        line.textContent = missing > 0
+            ? `Fotoğraf durumu: ${withPhoto} / ${total} öğrencide var (${missing} eksik)`
+            : `Tüm öğrencilerin fotoğrafı var (${total} / ${total})`;
+        line.classList.remove('hidden');
+    } catch (e) {
+        line.classList.add('hidden');
+    }
 }
 
 async function fetchAndRenderStudents(params) {
@@ -127,17 +177,20 @@ async function fetchAndRenderStudents(params) {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
             return;
         }
-        renderResults(r.data || []);
+        renderResults(r.data || [], !!r.limitReached);
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
     }
 }
 
-function renderResults(students) {
+function renderResults(students, limitReached) {
     currentStudentsById = new Map(students.map(s => [String(s.id), s]));
 
     document.getElementById('sm_resultsCard').classList.remove('hidden');
-    document.getElementById('sm_resultsCount').textContent = students.length > 0 ? `${students.length} kayıt bulundu` : '0 kayıt';
+    const countText = students.length > 0 ? `${students.length} kayıt bulundu` : '0 kayıt';
+    document.getElementById('sm_resultsCount').textContent = limitReached
+        ? `${countText} — İlk 500 kayıt gösteriliyor, filtreleri daraltın.`
+        : countText;
     document.getElementById('sm_selectAll').checked = false;
 
     const tbody = document.getElementById('sm_resultsBody');
@@ -350,6 +403,7 @@ async function archiveStudentAction(id) {
         if (r.status === 'success') {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: r.message });
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
         }
@@ -408,6 +462,7 @@ async function restoreStudentAction(id) {
         if (r.status === 'success') {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: r.message });
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
         }
@@ -436,6 +491,7 @@ async function deleteStudentAction(id) {
         if (r.status === 'success') {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: r.message });
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
         }
@@ -966,6 +1022,7 @@ async function saveStudentPhoto() {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: 'Fotoğraf kaydedildi.' });
             closePhotoModal();
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Fotoğraf yüklenemedi.' });
         }
@@ -1002,6 +1059,7 @@ async function deletePhotoAction() {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: r.message });
             closePhotoModal();
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
         }
@@ -1384,4 +1442,5 @@ function renderBulkPhotoReport(r) {
     document.getElementById('sm_bulkPhotoReport').classList.remove('hidden');
 
     refreshCurrentList();
+    refreshPhotoCounter();
 }

@@ -119,7 +119,9 @@ body {
 @media (min-width: 900px) {
     .filter-row {
         flex-direction: row;
-        flex-wrap: nowrap;
+        /* wrap: öğeler sığdığında görünüm aynı kalır, ileride satıra eklenecek
+           bir öğe kartın dışına taşmak yerine ikinci satıra düşer. */
+        flex-wrap: wrap;
         align-items: center;
     }
     .filter-row .field-search { width: auto; flex: 2 1 180px; min-width: 160px; }

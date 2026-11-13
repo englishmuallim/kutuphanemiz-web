@@ -62,18 +62,19 @@
         <!-- Arama / Filtreleme -->
         <div class="card">
             <h2>Öğrenci Sorgulama &amp; Listeleme</h2>
+            <p id="sm_photoCounterLine" class="hidden" style="font-size:0.85rem; color:var(--muted); margin:-6px 0 10px;"></p>
             <div class="filter-row">
                 <div class="field-search">
                     <input type="text" id="sm_searchInput" placeholder="Öğrenci Adı, Soyadı veya No..."
                         onkeydown="if(event.key==='Enter'){event.preventDefault(); runSearch();}">
                 </div>
-                <select id="sm_gradeFilter" onchange="runSearch()">
+                <select id="sm_gradeFilter" onchange="applyFilters()">
                     <option value="">-- Kademe --</option>
                 </select>
-                <select id="sm_classFilter" onchange="runSearch()">
+                <select id="sm_classFilter" onchange="applyFilters()">
                     <option value="">-- Şube --</option>
                 </select>
-                <select id="sm_statusFilter" onchange="runSearch()">
+                <select id="sm_statusFilter" onchange="applyFilters()">
                     <option value="active" selected>Durum: Aktif</option>
                     <option value="archived">Durum: Arşiv</option>
                     <option value="all">Durum: Tümü</option>
@@ -89,6 +90,12 @@
                     <span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Seçilileri
                     Aktar
                 </button>
+            </div>
+            <div style="margin-top:10px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; color:var(--text); white-space:nowrap; cursor:pointer;">
+                    <input type="checkbox" id="sm_withoutPhotoFilter" onchange="applyFilters()" style="width:16px; height:16px;">
+                    Sadece fotoğrafı olmayanlar
+                </label>
             </div>
         </div>
 
