@@ -88,6 +88,20 @@ window.switchLoginTab = function (type) {
 window.applyPermissions = function () {
     const kt_role = localStorage.getItem("kt_role");
     const user_role = localStorage.getItem("user_role");
+
+    // YENİ: her çağrıda sıfırla (SPA içinde farklı bir kullanıcı giriş yapabilir)
+    window.__teacherNoClassScope = false;
+    window.__noClassWarningShown = false;
+
+    // YENİ: "Rapor Oluştur" / "Emanet Rapor Oluştur" durumu HER çağrıda baştan (idempotent)
+    // hesaplanır — SPA'da sayfa yenilenmediği için, önceki bir girişte (örn. hiç sınıfı
+    // olmayan bir öğretmenle) disabled kalmış olabilir; burada rol/kapsam ne olursa olsun
+    // önce ikisi de normale döndürülür, yalnızca aşağıdaki özel durumda tekrar kapatılır.
+    const reportBtn = document.querySelector('button[onclick="getReport()"]');
+    const borrowedReportBtn = document.querySelector('button[onclick="getBorrowedReport()"]');
+    if (reportBtn) { reportBtn.disabled = false; reportBtn.style.opacity = ''; reportBtn.style.cursor = ''; }
+    if (borrowedReportBtn) { borrowedReportBtn.disabled = false; borrowedReportBtn.style.opacity = ''; borrowedReportBtn.style.cursor = ''; }
+
     try {
         const kt_classes = JSON.parse(localStorage.getItem("kutuphane_classes") || "[]");
 
@@ -137,39 +151,23 @@ window.applyPermissions = function () {
 
             // Eğer öğretmenin sadece belirli sınıflara yetkisi varsa, dropdownları filtrele
             if (!kt_classes.includes('ALL')) {
-                const allowedGrades = [...new Set(kt_classes.map(c => String(c).split('/')[0]))];
+                if (kt_classes.length === 0) {
+                    // YENİ: Öğretmenin hiç sınıf yetkisi yok — seçicilerle hiç uğraşma (zaten
+                    // içlerinde seçilebilir bir şey olmayacak), sadece rapor oluşturma
+                    // düğmelerini kilitle. Uyarı mesajı rapor formuna GİRİLDİĞİNDE (bkz.
+                    // showYonetimForm) bir kez gösterilir, burada değil.
+                    window.__teacherNoClassScope = true;
 
-                document.querySelectorAll(".grade-selector").forEach(sel => {
-                    if (!sel.options) return;
-                    // Kademe filtresi
-                    Array.from(sel.options).forEach(opt => {
-                        if (opt.value !== "" && opt.value !== "ALL" && !allowedGrades.includes(opt.value)) {
-                            opt.style.display = 'none';
-                            opt.disabled = true;
-                        } else if (opt.value === "ALL") {
-                            opt.style.display = 'none';
-                            opt.disabled = true;
-                        } else {
-                            opt.style.display = '';
-                            opt.disabled = false;
-                        }
-                    });
+                    if (reportBtn) { reportBtn.disabled = true; reportBtn.style.opacity = '0.5'; reportBtn.style.cursor = 'not-allowed'; }
+                    if (borrowedReportBtn) { borrowedReportBtn.disabled = true; borrowedReportBtn.style.opacity = '0.5'; borrowedReportBtn.style.cursor = 'not-allowed'; }
+                } else {
+                    const allowedGrades = [...new Set(kt_classes.map(c => String(c).split('/')[0]))];
 
-                    if (sel.options[sel.selectedIndex]?.disabled) { sel.value = ""; }
-
-                    // Şube Filtresi - Change listener
-                    sel.addEventListener('change', function () {
-                        const selectedGrade = this.value;
-                        const row = this.closest('div[style*="display:flex"]');
-                        if (!row) return;
-                        const targetClassSel = row.querySelector('.class-selector');
-                        if (!targetClassSel) return;
-                        targetClassSel.value = "";
-
-                        const allowedClassesForThisGrade = kt_classes.filter(c => c.startsWith(selectedGrade + '/')).map(c => c.split('/')[1]);
-
-                        Array.from(targetClassSel.options).forEach(opt => {
-                            if (opt.value !== "" && opt.value !== "ALL" && !allowedClassesForThisGrade.includes(opt.value)) {
+                    document.querySelectorAll(".grade-selector").forEach(sel => {
+                        if (!sel.options) return;
+                        // Kademe filtresi
+                        Array.from(sel.options).forEach(opt => {
+                            if (opt.value !== "" && opt.value !== "ALL" && !allowedGrades.includes(opt.value)) {
                                 opt.style.display = 'none';
                                 opt.disabled = true;
                             } else if (opt.value === "ALL") {
@@ -180,11 +178,50 @@ window.applyPermissions = function () {
                                 opt.disabled = false;
                             }
                         });
-                    });
 
-                    // İlk açılışta tetikle
-                    sel.dispatchEvent(new Event('change'));
-                });
+                        // YENİ: Seçili option disabled olduysa sel.value="" atamıyoruz (bu,
+                        // hiçbir option'a karşılık gelmediği için selectedIndex'i -1'e düşürüp
+                        // seçiciyi tamamen boşaltıyordu). Bunun yerine ilk izinli (disabled
+                        // olmayan, değeri boş olmayan) option otomatik seçiliyor — kademe asla
+                        // boş değerle kalmıyor.
+                        if (sel.options[sel.selectedIndex]?.disabled) {
+                            const firstAllowed = Array.from(sel.options).find(o => !o.disabled && o.value !== "");
+                            if (firstAllowed) sel.value = firstAllowed.value;
+                        }
+
+                        // Şube Filtresi - Change listener
+                        sel.addEventListener('change', function () {
+                            const selectedGrade = this.value;
+                            const row = this.closest('div[style*="display:flex"]');
+                            if (!row) return;
+                            const targetClassSel = row.querySelector('.class-selector');
+                            if (!targetClassSel) return;
+
+                            const allowedClassesForThisGrade = kt_classes.filter(c => c.startsWith(selectedGrade + '/')).map(c => c.split('/')[1]);
+
+                            Array.from(targetClassSel.options).forEach(opt => {
+                                if (opt.value !== "" && opt.value !== "ALL" && !allowedClassesForThisGrade.includes(opt.value)) {
+                                    opt.style.display = 'none';
+                                    opt.disabled = true;
+                                } else if (opt.value === "ALL") {
+                                    opt.style.display = 'none';
+                                    opt.disabled = true;
+                                } else {
+                                    opt.style.display = '';
+                                    opt.disabled = false;
+                                }
+                            });
+
+                            // YENİ: Kademe değişince/ilk yüklemede şube seçicisi de o kademeye
+                            // izinli şubelerden ilkini otomatik seçsin — boş kalmasın.
+                            const firstAllowedClass = Array.from(targetClassSel.options).find(o => !o.disabled && o.value !== "");
+                            targetClassSel.value = firstAllowedClass ? firstAllowedClass.value : "";
+                        });
+
+                        // İlk açılışta tetikle
+                        sel.dispatchEvent(new Event('change'));
+                    });
+                }
             }
 
         } else if (kt_role === 'duty') {
@@ -226,6 +263,20 @@ function showTab(tabName, eventObj = null) {
 function showYonetimForm(type) {
     document.getElementById("yonetim-menu").classList.add("hidden");
     document.getElementById("yonetim-form-" + type).classList.remove("hidden");
+
+    // YENİ: Hiç sınıf yetkisi olmayan öğretmen, rapor formuna (Rapor Al veya Emanet Raporu)
+    // GİRDİĞİNDE bir kez uyarılsın — Raporlar sekmesi her açıldığında değil, spamlanmasın.
+    if ((type === 'report' || type === 'borrowed-report') && window.__teacherNoClassScope && !window.__noClassWarningShown) {
+        window.__noClassWarningShown = true;
+        Swal.fire({
+            icon: 'info',
+            title: 'Sınıf Yetkisi Yok',
+            text: 'Size tanımlı sınıf bulunmuyor, lütfen yöneticinizle iletişime geçin.',
+            allowEnterKey: false,
+            focusConfirm: false,
+            focusCancel: false
+        });
+    }
 
     if (type === 'logs') {
         const dateInput = document.getElementById('logDateFilter');

@@ -906,6 +906,13 @@ async function getReport() {
     const clsSelect = document.getElementById("reportClass");
     const monSelect = document.getElementById("reportMonth");
 
+    // YENİ: Bir seçicide hiçbir option seçili değilse (selectedIndex -1 — örn. kısıtlı sınıf
+    // yetkili bir öğretmende seçenekler henüz filtrelenmemişse) .text erişimi çökerdi.
+    if (grdSelect.selectedIndex < 0 || clsSelect.selectedIndex < 0 || monSelect.selectedIndex < 0) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen kademe ve şube seçin.', allowEnterKey: false, focusConfirm: false, focusCancel: false });
+        return;
+    }
+
     const grd = grdSelect.value;
     const cls = clsSelect.value;
     const mon = monSelect.value;
@@ -930,9 +937,9 @@ async function getReport() {
         if (r.status === 'success') {
             if (r.data.length === 0) { resDiv.innerHTML = '<div style="text-align:center; color:red;">Kayıt yok.</div>'; return; }
 
-            const grdText = grdSelect.options[grdSelect.selectedIndex].text;
-            const clsText = clsSelect.options[clsSelect.selectedIndex].text;
-            const monText = monSelect.options[monSelect.selectedIndex].text;
+            const grdText = grdSelect.options[grdSelect.selectedIndex]?.text || '';
+            const clsText = clsSelect.options[clsSelect.selectedIndex]?.text || '';
+            const monText = monSelect.options[monSelect.selectedIndex]?.text || '';
 
             let titleClass = '';
             const gradeMatch = grdText.match(/\d+/);
@@ -1099,6 +1106,12 @@ async function getBorrowedReport() {
     const clsSelect = document.getElementById("borrowedReportClass");
     const statSelect = document.getElementById("borrowedReportStatus");
 
+    // YENİ: Bir seçicide hiçbir option seçili değilse (selectedIndex -1) .text erişimi çökerdi.
+    if (grdSelect.selectedIndex < 0 || clsSelect.selectedIndex < 0) {
+        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen kademe ve şube seçin.', allowEnterKey: false, focusConfirm: false, focusCancel: false });
+        return;
+    }
+
     const grd = grdSelect.value;
     const cls = clsSelect.value;
     const stat = statSelect.value;
@@ -1121,8 +1134,8 @@ async function getBorrowedReport() {
         if (r.status === 'success') {
             if (r.data.length === 0) { resDiv.innerHTML = '<div style="text-align:center; color:red;">Kayıt yok.</div>'; return; }
 
-            const grdText = grdSelect.options[grdSelect.selectedIndex].text;
-            const clsText = clsSelect.options[clsSelect.selectedIndex].text;
+            const grdText = grdSelect.options[grdSelect.selectedIndex]?.text || '';
+            const clsText = clsSelect.options[clsSelect.selectedIndex]?.text || '';
 
             let titleClass = '';
             const gradeMatch = grdText.match(/\d+/);
