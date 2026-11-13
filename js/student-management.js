@@ -366,6 +366,7 @@ async function saveStudentFromModal() {
             Swal.fire({ icon: 'success', title: 'Başarılı', text: isEdit ? 'Öğrenci bilgileri başarıyla güncellendi.' : 'Yeni öğrenci sisteme eklendi.' });
             closeStudentModal();
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'İşlem başarısız oldu.' });
         }
@@ -578,6 +579,7 @@ async function submitStudentBulkData(mappedData, updateExistingClass) {
         if (r.status === 'success') {
             Swal.fire({ icon: 'success', title: 'İçe Aktarım Tamamlandı', html: buildImportSummaryHtml(r), confirmButtonText: 'Tamam' });
             refreshCurrentList();
+            refreshPhotoCounter();
         } else {
             Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Yükleme başarısız oldu.' });
         }
