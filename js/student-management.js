@@ -676,6 +676,40 @@ function handleEokulImportFile(event) {
 // --- Öğrenci Fotoğrafı ---
 let pendingPhotoBlob = null;
 let photoModalStudentId = null;
+let cropperInstance = null;
+let cropSourceObjectUrl = null;
+
+function resetPhotoFileInputs() {
+    const captureInput = document.getElementById('sm_photoCaptureInput');
+    const fileInput = document.getElementById('sm_photoFileInput');
+    if (captureInput) captureInput.value = '';
+    if (fileInput) fileInput.value = '';
+}
+
+function destroyCropper() {
+    if (cropperInstance) {
+        cropperInstance.destroy();
+        cropperInstance = null;
+    }
+}
+
+function revokeCropSourceUrl() {
+    if (cropSourceObjectUrl) {
+        URL.revokeObjectURL(cropSourceObjectUrl);
+        cropSourceObjectUrl = null;
+    }
+}
+
+// Kırpma adımından önizleme adımına (veya başlangıç durumuna) döner.
+function resetToPhotoPreviewStep() {
+    document.getElementById('sm_photoCropStep').classList.add('hidden');
+    document.getElementById('sm_photoPreviewStep').classList.remove('hidden');
+    document.getElementById('sm_photoDeleteBtn').classList.remove('hidden');
+    document.getElementById('sm_photoCloseBtn').classList.remove('hidden');
+    document.getElementById('sm_photoSaveBtn').classList.remove('hidden');
+    document.getElementById('sm_photoCropCancelBtn').classList.add('hidden');
+    document.getElementById('sm_photoCropUseBtn').classList.add('hidden');
+}
 
 function openPhotoModal(studentId) {
     const s = currentStudentsById.get(String(studentId));
@@ -685,9 +719,13 @@ function openPhotoModal(studentId) {
     pendingPhotoBlob = null;
 
     document.getElementById('sm_photoModalTitle').textContent = `Öğrenci Fotoğrafı — ${s.full_name}`;
-    document.getElementById('sm_photoFileInput').value = '';
+    resetPhotoFileInputs();
     document.getElementById('sm_photoSaveBtn').disabled = true;
     document.getElementById('sm_photoDeleteBtn').disabled = !s.has_photo;
+
+    destroyCropper();
+    revokeCropSourceUrl();
+    resetToPhotoPreviewStep();
 
     const img = document.getElementById('sm_photoPreviewImg');
     const placeholder = document.getElementById('sm_photoPlaceholder');
@@ -728,6 +766,8 @@ async function loadCurrentPhoto(studentId) {
 }
 
 function closePhotoModal() {
+    destroyCropper();
+    revokeCropSourceUrl();
     document.getElementById('sm_photoModal').classList.add('hidden');
     pendingPhotoBlob = null;
     photoModalStudentId = null;
@@ -743,19 +783,127 @@ function handlePhotoFileSelect(event) {
         return;
     }
 
-    resizeImageToJpegBlob(file, 300, 400, 0.85)
-        .then(blob => {
-            pendingPhotoBlob = blob;
-            const previewUrl = URL.createObjectURL(blob);
-            const previewImg = document.getElementById('sm_photoPreviewImg');
-            previewImg.src = previewUrl;
-            previewImg.classList.remove('hidden');
-            document.getElementById('sm_photoPlaceholder').classList.add('hidden');
-            document.getElementById('sm_photoSaveBtn').disabled = false;
-        })
+    prepareImageForCropping(file)
+        .then(blobUrl => openCropStep(blobUrl))
         .catch(() => {
             Swal.fire({ icon: 'error', title: 'Hata', text: 'Fotoğraf okunamadı. Dosya bozuk olabilir veya desteklenmeyen bir format olabilir.' });
+        })
+        .finally(() => {
+            event.target.value = '';
         });
+}
+
+// Seçilen dosyayı EXIF yönünü düzelterek (createImageBitmap, imageOrientation:'from-image')
+// decode eder, en uzun kenarı en fazla 2000px olacak şekilde oranı koruyarak küçültür ve
+// kırpma ekranına verilecek EXIF'siz, yüksek kaliteli bir ara JPEG Blob URL'i döner.
+// Çıktının EXIF taşımaması önemli: Cropper.js'in kendi EXIF düzeltmesini (checkOrientation)
+// kapattık, bu adımdaki decode TEK düzeltme noktası olmalı (çift döndürme riskini önler).
+const CROP_SOURCE_MAX_DIM = 2000;
+const CROP_SOURCE_QUALITY = 0.92;
+
+async function prepareImageForCropping(file) {
+    let bitmap;
+    try {
+        bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch (err) {
+        throw new Error('Görüntü çözülemedi.');
+    }
+
+    try {
+        const srcW = bitmap.width, srcH = bitmap.height;
+        const scale = Math.min(CROP_SOURCE_MAX_DIM / srcW, CROP_SOURCE_MAX_DIM / srcH, 1);
+        const drawW = Math.round(srcW * scale);
+        const drawH = Math.round(srcH * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = drawW;
+        canvas.height = drawH;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bitmap, 0, 0, drawW, drawH);
+
+        const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(b => { if (b) resolve(b); else reject(new Error('toBlob başarısız')); }, 'image/jpeg', CROP_SOURCE_QUALITY);
+        });
+
+        return URL.createObjectURL(blob);
+    } finally {
+        bitmap.close();
+    }
+}
+
+function openCropStep(blobUrl) {
+    revokeCropSourceUrl();
+    cropSourceObjectUrl = blobUrl;
+
+    document.getElementById('sm_photoPreviewStep').classList.add('hidden');
+    document.getElementById('sm_photoCropStep').classList.remove('hidden');
+    document.getElementById('sm_photoDeleteBtn').classList.add('hidden');
+    document.getElementById('sm_photoCloseBtn').classList.add('hidden');
+    document.getElementById('sm_photoSaveBtn').classList.add('hidden');
+    document.getElementById('sm_photoCropCancelBtn').classList.remove('hidden');
+    document.getElementById('sm_photoCropUseBtn').classList.remove('hidden');
+
+    const cropImg = document.getElementById('sm_photoCropImg');
+    destroyCropper();
+
+    cropImg.onload = () => {
+        cropperInstance = new Cropper(cropImg, {
+            aspectRatio: 3 / 4,
+            viewMode: 1,
+            autoCropArea: 0.9,
+            // EXIF düzeltmesi prepareImageForCropping'de (createImageBitmap ile) zaten
+            // yapıldı ve kaynak bir canvas çıktısı olduğu için EXIF etiketi taşımıyor.
+            // Cropper'ın kendi EXIF okuyup bir de kendisinin döndürmesine izin verirsek
+            // çift döndürme hatasına (bu projede daha önce yaşandı) geri döneriz.
+            checkOrientation: false
+        });
+    };
+    cropImg.src = blobUrl;
+}
+
+function cancelCropStep() {
+    destroyCropper();
+    revokeCropSourceUrl();
+    resetToPhotoPreviewStep();
+    resetPhotoFileInputs();
+}
+
+function confirmCropStep() {
+    if (!cropperInstance) return;
+
+    const canvas = cropperInstance.getCroppedCanvas({
+        width: 300,
+        height: 400,
+        fillColor: '#fff',
+        imageSmoothingQuality: 'high'
+    });
+
+    if (!canvas) {
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Fotoğraf kırpılamadı.' });
+        return;
+    }
+
+    canvas.toBlob(blob => {
+        if (!blob) {
+            Swal.fire({ icon: 'error', title: 'Hata', text: 'Fotoğraf işlenemedi.' });
+            return;
+        }
+
+        pendingPhotoBlob = blob;
+        const previewUrl = URL.createObjectURL(blob);
+        const previewImg = document.getElementById('sm_photoPreviewImg');
+        previewImg.src = previewUrl;
+        previewImg.classList.remove('hidden');
+        document.getElementById('sm_photoPlaceholder').classList.add('hidden');
+        document.getElementById('sm_photoSaveBtn').disabled = false;
+
+        destroyCropper();
+        revokeCropSourceUrl();
+        resetToPhotoPreviewStep();
+        resetPhotoFileInputs();
+    }, 'image/jpeg', 0.85);
 }
 
 // Bağımsız yardımcı (UI'ye bağımlı değil, toplu zip fazında da aynen kullanılabilir):
