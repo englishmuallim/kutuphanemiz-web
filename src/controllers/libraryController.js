@@ -119,8 +119,6 @@ const BARCODE_CHECK_CHUNK_SIZE = 150;
 
 exports.login = async (req, res) => {
     try {
-        console.log("🚨 FRONTEND'DEN GELEN TÜM VERİ:", req.body);
-
         const { schoolCode, schoolPass, loginType } = req.body;
         const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
 
@@ -1639,6 +1637,20 @@ exports.getSettings = async (req, res) => {
             .select('active_academic_year, logo_url')
             .eq('id', auth.id)
             .single();
+
+        // YENİ (güvenlik): kt_settings'in TAMAMI (şifreler, magic_token, nöbetçi isimleri dahil)
+        // sadece yöneticiye dönsün. Öğretmen/nöbetçi arayüzünün gerçekte ihtiyaç duyduğu tek
+        // şeyler header logosu ve require_photo_confirm bayrağı — diğer tüm kurallar zaten
+        // sunucu tarafında (kitapVer/kitapAl) ayrıca zorlanıyor, istemcide bilinmesi gerekmiyor.
+        if (!exports.isAdmin(auth)) {
+            return res.json({
+                status: 'success',
+                data: {
+                    logo_url: school?.logo_url || null,
+                    require_photo_confirm: auth.settings.require_photo_confirm
+                }
+            });
+        }
 
         res.json({
             status: 'success',
