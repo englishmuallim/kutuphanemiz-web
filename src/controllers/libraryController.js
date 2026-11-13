@@ -1,5 +1,6 @@
 const supabase = require('../api/supabase');
 const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter } = require('../utils/studentUtils');
+const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
@@ -773,47 +774,63 @@ exports.bulkDeleteBooks = async (req, res) => {
     }
 };
 
+// ==========================================
+// ORTAK DOĞRULAMA: kitapVer ve kitapVerPreflight tarafından paylaşılır
+// ==========================================
+// kitapVer'in eski haliyle BİREBİR aynı kontroller/mesajlar (sadece fonksiyon sınırına
+// çıkarıldı). Yazma YAPMAZ. Başarılıysa { ok: true, book, student } döner; student
+// nesnesi artık fotoğraf/sınıf bilgisi için de yeterli kolonları içerir (kitapVer bunların
+// fazlasını kullanmıyor, davranışı değiştirmez).
+async function validateKitapVerRequest(auth, { barkod, ogrNo }) {
+    const schoolId = auth.id;
+    const settings = auth.settings;
+
+    if (settings.lib_open_time && settings.lib_close_time) {
+        const currentHourStr = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', hour12: false });
+        if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
+            return { ok: false, message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` };
+        }
+    }
+
+    const [bookRes, studentRes] = await Promise.all([
+        supabase.from('books').select('id, book_name, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single(),
+        supabase.from('students').select('id, full_name, is_active, student_no, grade, class_name, photo_path').eq('school_id', schoolId).eq('student_no', ogrNo).single()
+    ]);
+
+    const book = bookRes.data;
+    const student = studentRes.data;
+
+    if (!book) return { ok: false, message: 'Kitap bulunamadı' };
+    if (book.status === 'borrowed') return { ok: false, message: 'Kitap başkasında!' };
+    if (!student) return { ok: false, message: 'Öğrenci bulunamadı' };
+
+    if (student.is_active === false && !settings.allow_lending_to_archived) {
+        return { ok: false, message: 'Bu öğrenci arşivlenmiş (mezun/nakil), kitap verilemez. Ayarlar sayfasından bu kısıtlamayı kaldırabilirsiniz.' };
+    }
+
+    const { count: activeCount } = await supabase.from('transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', schoolId)
+        .eq('student_id', student.id)
+        .eq('status', 'borrowed');
+
+    const limit = settings.max_borrow_limit !== undefined ? settings.max_borrow_limit : 2;
+    if (activeCount >= limit) {
+        return { ok: false, message: `Öğrenci kitap alma sınırını aşmıştır. (Maksimum: ${limit})` };
+    }
+
+    return { ok: true, book, student };
+}
+
 exports.kitapVer = async (req, res) => {
     try {
         const { schoolCode, schoolPass, barkod, ogrNo, condition, handlerName } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-        const schoolId = auth.id;
-        const settings = auth.settings;
 
-        if (settings.lib_open_time && settings.lib_close_time) {
-            const currentHourStr = new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', hour12: false });
-            if (currentHourStr < settings.lib_open_time || currentHourStr > settings.lib_close_time) {
-                return res.json({ status: 'error', message: `Mesai saatleri dışındasınız. Kütüphane çalışma saatleri: ${settings.lib_open_time} - ${settings.lib_close_time}` });
-            }
-        }
-
-        const [bookRes, studentRes] = await Promise.all([
-            supabase.from('books').select('id, book_name, status, condition').eq('school_id', schoolId).eq('barcode', barkod).single(),
-            supabase.from('students').select('id, full_name, is_active').eq('school_id', schoolId).eq('student_no', ogrNo).single()
-        ]);
-
-        const book = bookRes.data;
-        const student = studentRes.data;
-
-        if (!book) return res.json({ status: 'error', message: 'Kitap bulunamadı' });
-        if (book.status === 'borrowed') return res.json({ status: 'error', message: 'Kitap başkasında!' });
-        if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı' });
-
-        if (student.is_active === false && !settings.allow_lending_to_archived) {
-            return res.json({ status: 'error', message: 'Bu öğrenci arşivlenmiş (mezun/nakil), kitap verilemez. Ayarlar sayfasından bu kısıtlamayı kaldırabilirsiniz.' });
-        }
-
-        const { count: activeCount } = await supabase.from('transactions')
-            .select('id', { count: 'exact', head: true })
-            .eq('school_id', schoolId)
-            .eq('student_id', student.id)
-            .eq('status', 'borrowed');
-
-        const limit = settings.max_borrow_limit !== undefined ? settings.max_borrow_limit : 2;
-        if (activeCount >= limit) {
-            return res.json({ status: 'error', message: `Öğrenci kitap alma sınırını aşmıştır. (Maksimum: ${limit})` });
-        }
+        const validation = await validateKitapVerRequest(auth, { barkod, ogrNo });
+        if (!validation.ok) return res.json({ status: 'error', message: validation.message });
+        const { book, student } = validation;
 
         const now = new Date();
         const today = now.toISOString();
@@ -829,7 +846,7 @@ exports.kitapVer = async (req, res) => {
         if (condition) updateData.condition = condition;
 
         const [transRes, bookUpdRes] = await Promise.all([
-            supabase.from('transactions').insert([{ school_id: schoolId, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: handlerName || 'Bilinmeyen', borrow_condition: condition || book.condition }]),
+            supabase.from('transactions').insert([{ school_id: auth.id, student_id: student.id, book_id: book.id, status: 'borrowed', borrow_date: today, academic_year: academicYear, handed_by: handlerName || 'Bilinmeyen', borrow_condition: condition || book.condition }]),
             supabase.from('books').update(updateData).eq('id', book.id)
         ]);
 
@@ -839,6 +856,46 @@ exports.kitapVer = async (req, res) => {
 
         res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${student.full_name}</b> isimli öğrenciye verildi.` });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
+// ==========================================
+// YENİ: KİTAP VERME ÖN-KONTROLÜ (fotoğraflı onay için) — YAZMA YAPMAZ
+// ==========================================
+exports.kitapVerPreflight = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, barkod, ogrNo } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        const validation = await validateKitapVerRequest(auth, { barkod, ogrNo });
+        if (!validation.ok) return res.json({ status: 'error', message: validation.message });
+        const { book, student } = validation;
+
+        let photoUrl = null;
+        if (student.photo_path) {
+            const urlMap = await createSignedPhotoUrlMap([student.photo_path], 300); // 5 dakika
+            photoUrl = urlMap.get(student.photo_path) || null;
+        }
+
+        res.json({
+            status: 'success',
+            data: {
+                student: {
+                    fullName: student.full_name,
+                    studentNo: student.student_no,
+                    grade: student.grade,
+                    className: student.class_name
+                },
+                book: {
+                    bookName: book.book_name,
+                    barcode: barkod
+                },
+                photoUrl
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 
@@ -912,7 +969,7 @@ exports.kitapAl = async (req, res) => {
         if (book.status === 'available') return res.json({ status: 'error', message: 'Bu kitap zaten rafta.' });
 
         // Aktif işlemi ve öğrenciyi bul
-        const { data: trans } = await supabase.from('transactions').select('id, borrow_date, student_id, students(student_no, full_name)').eq('book_id', book.id).eq('status', 'borrowed').single();
+        const { data: trans } = await supabase.from('transactions').select('id, borrow_date, student_id, students(student_no, full_name, photo_path)').eq('book_id', book.id).eq('status', 'borrowed').single();
 
         if (!trans) return res.json({ status: 'error', message: 'Aktif bir ödünç işlemi bulunamadı.' });
 
@@ -947,7 +1004,15 @@ exports.kitapAl = async (req, res) => {
         if (transRes.error) throw transRes.error;
         if (bookUpdRes.error) throw bookUpdRes.error;
 
-        res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no });
+        // YENİ: Bilgi amaçlı — sadece require_photo_confirm açıksa ve fotoğraf varsa signed URL üret
+        let photoUrl = null;
+        const requirePhotoConfirm = settings.require_photo_confirm !== false;
+        if (requirePhotoConfirm && trans.students.photo_path) {
+            const urlMap = await createSignedPhotoUrlMap([trans.students.photo_path], 300); // 5 dakika
+            photoUrl = urlMap.get(trans.students.photo_path) || null;
+        }
+
+        res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no, photoUrl });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 

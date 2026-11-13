@@ -1,7 +1,7 @@
 const supabase = require('../api/supabase');
 const { getSchoolAuth, isAdmin } = require('./libraryController');
+const { PHOTO_BUCKET, createSignedPhotoUrlMap } = require('../utils/photoStorage');
 
-const PHOTO_BUCKET = 'student_photos';
 const DEFAULT_SIGNED_URL_TTL = 600; // 10 dakika
 
 function isJpegBuffer(buffer) {
@@ -26,21 +26,6 @@ async function findStudentInSchool(schoolId, { studentId, studentNo }) {
     return data;
 }
 
-// Birden çok öğrenci fotoğrafı için tek seferde signed URL üretir (ileride toplu kullanım için
-// yeniden kullanılabilir yardımcı). paths: photo_path değerleri -> Map<path, signedUrl>.
-async function createSignedPhotoUrlMap(paths, expiresIn = DEFAULT_SIGNED_URL_TTL) {
-    const validPaths = [...new Set((paths || []).filter(Boolean))];
-    if (validPaths.length === 0) return new Map();
-
-    const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(validPaths, expiresIn);
-    if (error) throw error;
-
-    const map = new Map();
-    (data || []).forEach(item => {
-        if (item.path && item.signedUrl && !item.error) map.set(item.path, item.signedUrl);
-    });
-    return map;
-}
 exports.createSignedPhotoUrlMap = createSignedPhotoUrlMap;
 
 // deleteStudent gibi diğer controller'lardan öğrenci kalıcı silinirken çağrılır.

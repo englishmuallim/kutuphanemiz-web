@@ -28,6 +28,7 @@ router.post('/getBorrowedReport', libraryController.getBorrowedReport);
 //  Kitap ve Emanet İşlemleri 
 router.post('/addBook', libraryController.addBook);
 router.post('/kitapVer', libraryController.kitapVer);
+router.post('/kitapVerPreflight', libraryController.kitapVerPreflight);
 router.post('/kitapAl', libraryController.kitapAl);
 router.post('/undo', libraryController.undo);
 router.post('/sorgula', libraryController.sorgula);

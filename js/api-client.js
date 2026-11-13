@@ -1,4 +1,11 @@
 // --- VERİ ÇEKME & İŞLEMLER ---
+
+// YENİ: kt_settings.require_photo_confirm önbelleği. Bilerek SADECE bu tek boole değeri
+// tutuluyor (getSettings'in döndürdüğü TÜM kt_settings nesnesi değil) — getSettings
+// nöbetçi şifreleri gibi yönetici-yetkili alanları da döndürüyor; bunları devtools'tan
+// kolayca okunabilecek bir global değişkende tekrar tutup sızıntıyı büyütmemek için.
+let requirePhotoConfirmEnabled = true;
+
 async function loadClasses() {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
@@ -257,6 +264,80 @@ async function forgotPassword() {
     }
 }
 
+// YENİ: kt_settings.require_photo_confirm açıkken kitapVer öncesi çağrılır. Yazma yapmayan
+// /api/kitapVerPreflight ile doğrulamayı tekrarlamadan öğrenci fotoğrafını gösterir ve
+// görevlinin "karşımdaki öğrenci bu" onayını ister. true = onaylandı, false = vazgeçildi/hata.
+async function runLendingPhotoConfirmation(data) {
+    try {
+        // Fiziksel barkod okuyucunun gönderdiği tuş vuruşları henüz kuyrukta olabilir;
+        // odağı kaldırarak pencere açıldığında input'a sızmasını önlüyoruz.
+        const barkodInput = document.getElementById("verBarkod");
+        if (barkodInput) barkodInput.blur();
+
+        const response = await fetch('/api/kitapVerPreflight', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: data.schoolCode, schoolPass: data.schoolPass, barkod: data.barkod, ogrNo: data.ogrNo })
+        });
+        const result = await response.json();
+
+        if (result.status !== 'success') {
+            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
+            return false;
+        }
+
+        const { student, book, photoUrl } = result.data;
+        const photoHtml = photoUrl
+            ? `<div style="width:min(270px, 80vw); height:min(52vh, 420px); border-radius:12px; border:2px solid #e5e7eb; background:#f3f4f6; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                   <img src="${photoUrl}" alt="Öğrenci fotoğrafı" style="max-width:100%; max-height:100%; object-fit:contain; display:block;">
+               </div>`
+            : `<div style="width:160px; height:200px; border-radius:12px; border:2px dashed #ef4444; display:flex; align-items:center; justify-content:center; font-size:48px; font-weight:bold; color:#ef4444; background:#fef2f2;">${(student.fullName || '?').charAt(0).toUpperCase()}</div>
+               <div style="color:#b91c1c; font-weight:bold; font-size:0.85rem; margin-top:6px;">⚠️ Bu öğrencinin fotoğrafı sistemde yok</div>`;
+
+        const popup = await Swal.fire({
+            title: 'Öğrenciyi Doğrulayın',
+            html: `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+                    ${photoHtml}
+                    <div style="font-size:1.1rem; font-weight:bold;">${student.fullName}</div>
+                    <div style="color:#6b7280; font-size:0.9rem;">${student.studentNo} • ${student.grade || '-'} / ${student.className || '-'}</div>
+                    <div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb; width:100%; text-align:center;">
+                        <b>${book.bookName}</b><br>
+                        <span style="color:#6b7280; font-size:0.85rem;">${book.barcode}</span>
+                    </div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Evet, karşımdaki öğrenci bu',
+            cancelButtonText: 'Vazgeç',
+            confirmButtonColor: '#10b981',
+            cancelButtonColor: '#ef4444',
+            allowOutsideClick: false,
+            allowEnterKey: false,
+            focusConfirm: false,
+            focusCancel: false,
+            didOpen: (popupEl) => {
+                // Barkod okuyucunun trailing Enter'ı allowEnterKey:false ile etkisiz zaten,
+                // ama fare/dokunmatik için de görevliye fotoğrafa bakacak minimum bir süre bırak.
+                const confirmBtn = popupEl.querySelector('.swal2-confirm');
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                    confirmBtn.style.opacity = '0.5';
+                    setTimeout(() => {
+                        confirmBtn.disabled = false;
+                        confirmBtn.style.opacity = '1';
+                    }, 700);
+                }
+            }
+        });
+
+        return !!popup.isConfirmed;
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucu hatası' });
+        return false;
+    }
+}
+
 async function islemYap(actionType) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
@@ -272,6 +353,12 @@ async function islemYap(actionType) {
         data.condition = document.getElementById("verKitapDurum").value; // YENİ EKLENDİ
         islemOgrNo = data.ogrNo; islemBarkod = data.barkod;
         if (!data.ogrNo || !data.barkod) { Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Bilgileri giriniz' }); return; }
+
+        // YENİ: Ayar açıksa, gerçek kitapVer çağrısından önce fotoğraflı onay iste
+        if (requirePhotoConfirmEnabled) {
+            const confirmed = await runLendingPhotoConfirmation(data);
+            if (!confirmed) return;
+        }
     } else {
         data.barkod = document.getElementById("alBarkod").value;
         data.condition = document.getElementById("alKitapDurum").value; // YENİ EKLENDİ
@@ -291,6 +378,10 @@ async function islemYap(actionType) {
             playBeep();
             let msg = result.message;
             if (result.raf) msg += `<br><br><div style="font-size:1.2rem; color:#4f46e5;">Raf No: <b>${result.raf}</b></div>`;
+            // YENİ: İade (kitapAl) başarı mesajında, varsa öğrencinin fotoğrafı bilgi amaçlı gösterilir
+            if (actionType === 'kitapAl' && requirePhotoConfirmEnabled && result.photoUrl) {
+                msg += `<br><br><img src="${result.photoUrl}" alt="Öğrenci fotoğrafı" style="max-width:140px; max-height:180px; border-radius:10px; object-fit:contain;">`;
+            }
             const popup = await Swal.fire({ icon: 'success', title: 'Başarılı', html: msg, showConfirmButton: true, confirmButtonText: 'TAMAM', confirmButtonColor: '#10b981', showDenyButton: true, denyButtonText: 'Geri Al', denyButtonColor: '#ef4444', allowOutsideClick: false });
             if (popup.isDenied) {
                 Swal.fire({ title: 'Geri Alınıyor...', didOpen: () => Swal.showLoading() });
@@ -1043,6 +1134,11 @@ async function loadSettings() {
             const allowLendingArchivedEl = document.getElementById("setting_allow_lending_to_archived");
             if (allowLendingArchivedEl) allowLendingArchivedEl.checked = !!s.allow_lending_to_archived;
 
+            // YENİ: require_photo_confirm — alan tanımsızsa varsayılan true kabul edilir
+            requirePhotoConfirmEnabled = (s.require_photo_confirm !== false);
+            const requirePhotoConfirmEl = document.getElementById("setting_require_photo_confirm");
+            if (requirePhotoConfirmEl) requirePhotoConfirmEl.checked = requirePhotoConfirmEnabled;
+
             document.getElementById("setting_staff_pass_mode").value = s.staff_pass_mode || 'fixed';
             if (s.staff_pass_mode === 'fixed') {
                 document.getElementById("setting_fixed_staff_name").value = s.fixed_staff_name || s.staff_names || '';
@@ -1289,7 +1385,8 @@ async function saveSettings(type) {
             dynamic_rules: dynamicRules.length > 0 ? dynamicRules : null, // Sabit günler JSON'dan tamamen çıkarıldı
             lib_open_time: document.getElementById("setting_lib_open_time").value || null,
             lib_close_time: document.getElementById("setting_lib_close_time").value || null,
-            allow_lending_to_archived: document.getElementById("setting_allow_lending_to_archived").checked
+            allow_lending_to_archived: document.getElementById("setting_allow_lending_to_archived").checked,
+            require_photo_confirm: document.getElementById("setting_require_photo_confirm").checked
         };
     } else if (type === 'staff') {
         const mode = document.getElementById("setting_staff_pass_mode").value;
@@ -1351,6 +1448,10 @@ async function saveSettings(type) {
                     Swal.fire('Başarılı', 'Sabit görevli ayarları kaydedildi.', 'success');
                 }
             } else {
+                // YENİ: require_photo_confirm önbelleğini bu oturum için anında güncelle
+                // (sunucu tarafı zaten güncel; yeniden giriş yapılmadan bu sekmede de etkili olsun)
+                if (type === 'general') requirePhotoConfirmEnabled = settingsPayload.require_photo_confirm;
+
                 // YENİ: Genel ayarlar kaydedildikten sonra, bekleyen bir logo seçimi varsa onu da yükle
                 const logoOk = type === 'general' ? await uploadPendingLogo() : true;
                 if (logoOk) {
