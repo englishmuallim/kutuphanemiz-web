@@ -48,6 +48,47 @@ exports.listStudents = async (req, res) => {
 };
 
 // ==========================================
+// YENİ: TOPLU FOTOĞRAF EŞLEŞTİRME İÇİN AKTİF ÖĞRENCİ ROSTER'I (sadece yönetici)
+// ==========================================
+// listStudents'tan ayrı tutuluyor: o sayfalı arama/filtre için var ve limit(500) ile
+// sınırlı; bu endpoint ise toplu zip eşleştirmesi için okulun TÜM aktif öğrencilerini
+// (Supabase'in sorgu başına ~1000 satır sınırını range ile sayfalayarak) döner.
+exports.getActiveStudentRoster = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+
+        const PAGE_SIZE = 1000;
+        let allRows = [];
+        let from = 0;
+
+        while (true) {
+            const { data, error } = await supabase.from('students')
+                .select('id, student_no, full_name, grade, class_name, photo_path')
+                .eq('school_id', auth.id)
+                .eq('is_active', true)
+                .order('id', { ascending: true })
+                .range(from, from + PAGE_SIZE - 1);
+            if (error) throw error;
+
+            allRows = allRows.concat(data || []);
+            if (!data || data.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
+        }
+
+        const result = allRows.map(({ photo_path, ...rest }) => ({ ...rest, has_photo: !!photo_path }));
+
+        res.json({ status: 'success', data: result });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// ==========================================
 // OKUL TÜRÜNE GÖRE KADEME (SINIF) SEÇENEKLERİ
 // ==========================================
 exports.getGradeOptions = async (req, res) => {

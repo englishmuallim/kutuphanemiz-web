@@ -10,6 +10,7 @@
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link rel="stylesheet" href="css/student-management.css">
 </head>
 
@@ -48,6 +49,10 @@
                 </button>
                 <button type="button" class="btn btn-success" onclick="openStudentModal('add')">
                     <span class="material-symbols-rounded" style="font-size:18px;">person_add</span> Yeni Öğrenci Ekle
+                </button>
+                <button type="button" class="btn btn-outline" onclick="openBulkPhotoModal()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">folder_zip</span> Toplu Fotoğraf
+                    Yükle
                 </button>
             </div>
         </div>
@@ -174,6 +179,52 @@
                 <button type="button" class="btn btn-success" id="sm_photoSaveBtn" disabled onclick="saveStudentPhoto()">
                     <span class="material-symbols-rounded" style="font-size:18px;">save</span> Kaydet
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toplu Fotoğraf Yükleme Modalı -->
+    <div class="modal-overlay hidden" id="sm_bulkPhotoModal">
+        <div class="modal-box" style="max-width:540px;">
+            <div class="modal-head">
+                <h3>Toplu Fotoğraf Yükle</h3>
+                <button type="button" class="modal-close" onclick="closeBulkPhotoModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="sm_bulkPhotoIntro">
+                    <div
+                        style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:10px 12px; font-size:0.78rem; color:#5b21b6; line-height:1.5;">
+                        Zip dosyası içindeki her fotoğrafın adı öğrenci numarası olmalıdır (örn. 1234.jpg). Kabul
+                        edilen formatlar: JPG, JPEG, PNG, WEBP.
+                    </div>
+                    <label class="btn btn-primary" style="cursor:pointer; justify-content:center; margin-top:10px;">
+                        <span class="material-symbols-rounded" style="font-size:18px;">folder_zip</span> Zip Dosyası
+                        Seç
+                        <input type="file" accept=".zip" id="sm_bulkPhotoZipInput" style="display:none;"
+                            onchange="handleBulkPhotoZipSelect(event)">
+                    </label>
+                </div>
+
+                <div id="sm_bulkPhotoProgress" class="hidden">
+                    <div
+                        style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--muted); margin-bottom:6px;">
+                        <span id="sm_bulkPhotoProgressLabel">Hazırlanıyor...</span>
+                        <span id="sm_bulkPhotoProgressCount"></span>
+                    </div>
+                    <div style="background:#e5e7eb; border-radius:6px; height:10px; overflow:hidden;">
+                        <div id="sm_bulkPhotoProgressBar"
+                            style="background:var(--primary); height:100%; width:0%; transition:width 0.2s;"></div>
+                    </div>
+                </div>
+
+                <div id="sm_bulkPhotoReport" class="hidden" style="font-size:0.85rem; color:var(--text);"></div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-danger hidden" id="sm_bulkPhotoCancelBtn"
+                    onclick="cancelBulkPhotoUpload()">
+                    <span class="material-symbols-rounded" style="font-size:18px;">cancel</span> İptal
+                </button>
+                <button type="button" class="btn btn-outline" onclick="closeBulkPhotoModal()">Kapat</button>
             </div>
         </div>
     </div>

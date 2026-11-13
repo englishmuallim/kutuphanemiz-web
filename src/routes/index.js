@@ -69,6 +69,7 @@ router.post('/getLogs', libraryController.getLogs);
 
 // Öğrenci İşlemleri (Geniş Ekran) Sayfası - YENİ
 router.post('/listStudents', studentManagementController.listStudents);
+router.post('/getActiveStudentRoster', studentManagementController.getActiveStudentRoster);
 router.post('/getGradeOptions', studentManagementController.getGradeOptions);
 router.post('/bulkTransferStudents', studentManagementController.bulkTransferStudents);
 router.post('/archiveStudent', studentManagementController.archiveStudent);

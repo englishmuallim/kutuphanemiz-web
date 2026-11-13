@@ -780,6 +780,9 @@ async function resizeImageToJpegBlob(fileOrBlob, maxW, maxH, quality) {
         canvas.width = drawW;
         canvas.height = drawH;
         const ctx = canvas.getContext('2d');
+        // Şeffaf PNG/WebP, alfa kanalı olmayan JPEG'e dönüşürken siyah çıkmasın.
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bitmap, 0, 0, drawW, drawH);
 
         return await new Promise((resolve, reject) => {
@@ -857,4 +860,380 @@ async function deletePhotoAction() {
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuya ulaşılamadı.' });
     }
+}
+
+// --- Toplu Fotoğraf Yükleme (Zip) ---
+const BULK_PHOTO_MAX_WARN_BYTES = 500 * 1024 * 1024;
+const BULK_PHOTO_ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp'];
+const BULK_PHOTO_CONCURRENCY = 4;
+
+let bulkPhotoCancelled = false;
+let bulkPhotoRunning = false;
+
+function openBulkPhotoModal() {
+    document.getElementById('sm_bulkPhotoZipInput').value = '';
+    document.getElementById('sm_bulkPhotoIntro').classList.remove('hidden');
+    document.getElementById('sm_bulkPhotoProgress').classList.add('hidden');
+    document.getElementById('sm_bulkPhotoReport').classList.add('hidden');
+    document.getElementById('sm_bulkPhotoCancelBtn').classList.add('hidden');
+    document.getElementById('sm_bulkPhotoModal').classList.remove('hidden');
+}
+
+function closeBulkPhotoModal() {
+    if (bulkPhotoRunning) {
+        Swal.fire({ icon: 'warning', title: 'Devam Ediyor', text: 'Yükleme sürüyor, önce İptal edin.' });
+        return;
+    }
+    document.getElementById('sm_bulkPhotoModal').classList.add('hidden');
+}
+
+// Zip içindeki her dosya yolunu (klasör dahil) inceler; sistem dosyalarını/klasörlerini ve
+// desteklenmeyen uzantıları sayarak eler, kalanları öğrenci no -> [dosya] olarak gruplar.
+// İçerik bu adımda ÇÖZÜLMEZ (lazy) — sadece dosya adları üzerinden filtreleme yapılır.
+function buildBulkPhotoFileLists(zip) {
+    const candidatesByNo = new Map();
+    let ignoredSystemCount = 0;
+    let unsupportedCount = 0;
+
+    Object.keys(zip.files).forEach(path => {
+        const entry = zip.files[path];
+        if (entry.dir) return;
+
+        if (/(^|\/)__MACOSX(\/|$)/i.test(path) || /(^|\/)\.DS_Store$/i.test(path) || /(^|\/)Thumbs\.db$/i.test(path)) {
+            ignoredSystemCount++;
+            return;
+        }
+
+        const baseName = path.split('/').pop();
+        const dotIndex = baseName.lastIndexOf('.');
+        if (dotIndex <= 0) { unsupportedCount++; return; }
+
+        const ext = baseName.slice(dotIndex + 1).toLowerCase();
+        if (!BULK_PHOTO_ALLOWED_EXT.includes(ext)) { unsupportedCount++; return; }
+
+        const studentNo = baseName.slice(0, dotIndex).trim();
+        if (!studentNo) { unsupportedCount++; return; }
+
+        if (!candidatesByNo.has(studentNo)) candidatesByNo.set(studentNo, []);
+        candidatesByNo.get(studentNo).push({ entry, path });
+    });
+
+    let candidateCount = 0;
+    candidatesByNo.forEach(files => { candidateCount += files.length; });
+
+    return { candidatesByNo, ignoredSystemCount, unsupportedCount, candidateCount };
+}
+
+async function fetchActiveRoster() {
+    try {
+        const res = await fetch('/api/getActiveStudentRoster', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(getAuthPayload())
+        });
+        if (res.status === 401) { redirectToLogin(); return null; }
+        const r = await res.json();
+        if (r.status !== 'success') {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Öğrenci listesi alınamadı.' });
+            return null;
+        }
+        return r.data || [];
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Öğrenci listesi alınamadı.' });
+        return null;
+    }
+}
+
+// Dosya adından çıkarılan numaraları okulun aktif öğrencileriyle (roster) eşleştirir.
+// Numara karşılaştırması string olarak yapılır (parseInt/Number KULLANILMAZ) ki baştaki
+// sıfırlar korunsun. Aynı numaraya ait birden fazla dosya varsa ikisi de atlanır.
+function computeBulkPhotoSummary(plan, roster) {
+    const rosterByNo = new Map(roster.map(s => [String(s.student_no).trim(), s]));
+
+    const matched = [];
+    const duplicates = [];
+    const unmatched = [];
+
+    plan.candidatesByNo.forEach((files, studentNo) => {
+        if (files.length > 1) {
+            duplicates.push({ studentNo, fileNames: files.map(f => f.path) });
+            return;
+        }
+
+        const student = rosterByNo.get(studentNo);
+        if (!student) {
+            unmatched.push(files[0].path);
+            return;
+        }
+
+        matched.push({
+            studentNo,
+            studentId: student.id,
+            fullName: student.full_name,
+            hadPhoto: !!student.has_photo,
+            entry: files[0].entry,
+            fileName: files[0].path
+        });
+    });
+
+    const willOverwriteCount = matched.filter(m => m.hadPhoto).length;
+
+    return {
+        roster,
+        matched,
+        duplicates,
+        unmatched,
+        ignoredSystemCount: plan.ignoredSystemCount,
+        unsupportedCount: plan.unsupportedCount,
+        willOverwriteCount
+    };
+}
+
+async function handleBulkPhotoZipSelect(event) {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (typeof JSZip === 'undefined') {
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Zip kütüphanesi yüklenemedi. Lütfen sayfayı yenileyiniz.' });
+        return;
+    }
+
+    if (file.size > BULK_PHOTO_MAX_WARN_BYTES) {
+        const warn = await Swal.fire({
+            icon: 'warning',
+            title: 'Büyük Dosya',
+            text: 'Seçilen zip dosyası 500 MB\'tan büyük. Tarayıcı yavaşlayabilir. Devam edilsin mi?',
+            showCancelButton: true,
+            confirmButtonText: 'Devam Et',
+            cancelButtonText: 'Vazgeç'
+        });
+        if (!warn.isConfirmed) return;
+    }
+
+    Swal.fire({ title: 'Zip inceleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    try {
+        const zip = await JSZip.loadAsync(file);
+        const plan = buildBulkPhotoFileLists(zip);
+
+        if (plan.candidateCount === 0) {
+            Swal.close();
+            Swal.fire({ icon: 'warning', title: 'Dosya Bulunamadı', text: 'Zip içinde desteklenen bir fotoğraf bulunamadı.' });
+            return;
+        }
+
+        const roster = await fetchActiveRoster();
+        Swal.close();
+        if (roster === null) return; // fetchActiveRoster zaten hata gösterdi
+
+        const summary = computeBulkPhotoSummary(plan, roster);
+        await confirmAndRunBulkPhotoUpload(summary);
+    } catch (e) {
+        Swal.close();
+        Swal.fire({ icon: 'error', title: 'Hata', text: 'Zip dosyası okunamadı veya bozuk.' });
+    }
+}
+
+async function confirmAndRunBulkPhotoUpload(summary) {
+    const totalFound = summary.matched.length + summary.duplicates.length + summary.unmatched.length;
+    const ignoredTotal = summary.ignoredSystemCount + summary.unsupportedCount;
+
+    const confirmResult = await Swal.fire({
+        icon: 'question',
+        title: 'Toplu Fotoğraf Yükleme',
+        html: `
+            <div style="text-align:left; font-size:0.9rem;">
+                <div><b>${totalFound}</b> fotoğraf dosyası bulundu.</div>
+                <div style="margin-top:6px;"><b>${summary.matched.length}</b> tanesi bir öğrenciyle eşleşti.</div>
+                <div style="margin-top:6px; color:#b45309;"><b>${summary.willOverwriteCount}</b> tanesinin zaten fotoğrafı var ve üzerine yazılacak.</div>
+                ${summary.duplicates.length > 0 ? `<div style="margin-top:6px; color:#b91c1c;"><b>${summary.duplicates.length}</b> numara mükerrer dosyaya sahip, atlanacak.</div>` : ''}
+                ${summary.unmatched.length > 0 ? `<div style="margin-top:6px; color:#b91c1c;"><b>${summary.unmatched.length}</b> dosya adı hiçbir öğrenciyle eşleşmedi, atlanacak.</div>` : ''}
+                ${ignoredTotal > 0 ? `<div style="margin-top:6px; color:var(--muted);"><b>${ignoredTotal}</b> sistem/desteklenmeyen dosya yok sayıldı.</div>` : ''}
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Yüklemeye Başla',
+        cancelButtonText: 'Vazgeç',
+        confirmButtonColor: '#10b981'
+    });
+
+    if (!confirmResult.isConfirmed) return;
+
+    if (summary.matched.length === 0) {
+        Swal.fire({ icon: 'info', title: 'Yüklenecek Fotoğraf Yok', text: 'Eşleşen fotoğraf bulunamadığı için işlem yapılmadı.' });
+        return;
+    }
+
+    await runBulkPhotoUpload(summary);
+}
+
+// Tek bir dosyayı yükler; 429/5xx/ağ hatasında kısa bir bekleme sonrası 1 kez yeniden dener.
+async function uploadStudentPhotoWithRetry(auth, studentId, blob) {
+    const attempt = async () => {
+        let res;
+        try {
+            res = await fetch('/api/uploadStudentPhoto', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'x-school-code': auth.schoolCode,
+                    'x-school-pass': auth.schoolPass,
+                    'x-student-id': studentId
+                },
+                body: blob
+            });
+        } catch (networkErr) {
+            throw Object.assign(new Error('Ağ hatası.'), { retryable: true });
+        }
+
+        if (res.status === 401) { redirectToLogin(); throw new Error('Yetkisiz.'); }
+        if (res.status === 429 || res.status >= 500) {
+            throw Object.assign(new Error('Sunucu geçici olarak yanıt vermedi.'), { retryable: true });
+        }
+
+        const r = await res.json();
+        if (!r.success) throw new Error(r.message || 'Yükleme başarısız.');
+        return r;
+    };
+
+    try {
+        return await attempt();
+    } catch (err) {
+        if (err.retryable) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return await attempt(); // ikinci deneme de başarısız olursa hata yukarı fırlar
+        }
+        throw err;
+    }
+}
+
+// En fazla BULK_PHOTO_CONCURRENCY paralel işçi ile eşleşen dosyaları sırayla işler:
+// zip girdisini tek tek (lazy) çözer, yeniden boyutlandırır, yükler. İptal edilirse
+// kuyruğa yeni dosya alınmaz, o an işlemde olanlar tamamlanır.
+async function runBulkPhotoUpload(summary) {
+    bulkPhotoCancelled = false;
+    bulkPhotoRunning = true;
+
+    document.getElementById('sm_bulkPhotoIntro').classList.add('hidden');
+    document.getElementById('sm_bulkPhotoReport').classList.add('hidden');
+    document.getElementById('sm_bulkPhotoProgress').classList.remove('hidden');
+    document.getElementById('sm_bulkPhotoCancelBtn').classList.remove('hidden');
+
+    const total = summary.matched.length;
+    const errors = [];
+    let doneCount = 0;
+    let uploadedCount = 0;
+    let overwrittenCount = 0;
+
+    const updateProgress = () => {
+        const pct = total === 0 ? 100 : Math.round((doneCount / total) * 100);
+        document.getElementById('sm_bulkPhotoProgressBar').style.width = pct + '%';
+        document.getElementById('sm_bulkPhotoProgressLabel').textContent = bulkPhotoCancelled ? 'İptal ediliyor, mevcut dosyalar tamamlanıyor...' : 'Yükleniyor...';
+        document.getElementById('sm_bulkPhotoProgressCount').textContent = `${doneCount} / ${total}`;
+    };
+    updateProgress();
+
+    const auth = getAuthPayload();
+    let nextIndex = 0;
+
+    async function worker() {
+        while (true) {
+            if (bulkPhotoCancelled) return;
+            const index = nextIndex;
+            if (index >= summary.matched.length) return;
+            nextIndex++;
+
+            const item = summary.matched[index];
+            try {
+                const rawBlob = await item.entry.async('blob');
+                const resizedBlob = await resizeImageToJpegBlob(rawBlob, 300, 400, 0.85);
+                await uploadStudentPhotoWithRetry(auth, item.studentId, resizedBlob);
+                uploadedCount++;
+                if (item.hadPhoto) overwrittenCount++;
+            } catch (err) {
+                errors.push({ fileName: item.fileName, fullName: item.fullName, message: (err && err.message) || 'Bilinmeyen hata' });
+            } finally {
+                doneCount++;
+                updateProgress();
+            }
+        }
+    }
+
+    const workerCount = Math.min(BULK_PHOTO_CONCURRENCY, total);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    const cancelledRemaining = total - doneCount;
+
+    bulkPhotoRunning = false;
+    document.getElementById('sm_bulkPhotoCancelBtn').classList.add('hidden');
+
+    const freshRoster = await fetchActiveRoster();
+    const freshNoPhotoList = freshRoster ? freshRoster.filter(s => !s.has_photo) : null;
+
+    renderBulkPhotoReport({
+        uploadedCount,
+        overwrittenCount,
+        errors,
+        duplicates: summary.duplicates,
+        unmatched: summary.unmatched,
+        cancelledRemaining,
+        ignoredSystemCount: summary.ignoredSystemCount,
+        unsupportedCount: summary.unsupportedCount,
+        freshNoPhotoList
+    });
+}
+
+function cancelBulkPhotoUpload() {
+    bulkPhotoCancelled = true;
+    document.getElementById('sm_bulkPhotoProgressLabel').textContent = 'İptal ediliyor, mevcut dosyalar tamamlanıyor...';
+}
+
+function renderBulkPhotoReport(r) {
+    document.getElementById('sm_bulkPhotoProgress').classList.add('hidden');
+
+    let html = `<div><b>${r.uploadedCount}</b> fotoğraf başarıyla yüklendi (<b>${r.overwrittenCount}</b> tanesinin üzerine yazıldı).</div>`;
+
+    if (r.cancelledRemaining > 0) {
+        html += `<div style="margin-top:8px; color:#b45309;">İşlem iptal edildi, <b>${r.cancelledRemaining}</b> dosya denenmeden kaldı.</div>`;
+    }
+
+    if (r.unmatched.length > 0) {
+        html += `
+            <div style="margin-top:8px; color:#b91c1c;"><b>${r.unmatched.length}</b> dosya adı öğrenciyle eşleşmedi:</div>
+            <div style="max-height:100px; overflow-y:auto; font-size:0.8rem; margin-top:4px;">${r.unmatched.map(escapeHtmlText).join(', ')}</div>`;
+    }
+
+    if (r.duplicates.length > 0) {
+        html += `
+            <div style="margin-top:8px; color:#b91c1c;"><b>${r.duplicates.length}</b> numara mükerrer dosyaya sahip olduğu için atlandı:</div>
+            <div style="max-height:100px; overflow-y:auto; font-size:0.8rem; margin-top:4px;">${r.duplicates.map(d => escapeHtmlText(d.studentNo)).join(', ')}</div>`;
+    }
+
+    if (r.errors.length > 0) {
+        html += `
+            <div style="margin-top:8px; color:#b91c1c;"><b>${r.errors.length}</b> dosya hata verdi:</div>
+            <div style="max-height:120px; overflow-y:auto; font-size:0.8rem; margin-top:4px;">${r.errors.map(e => `${escapeHtmlText(e.fileName)} (${escapeHtmlText(e.fullName || '')}): ${escapeHtmlText(e.message)}`).join('<br>')}</div>`;
+    }
+
+    const ignoredTotal = r.ignoredSystemCount + r.unsupportedCount;
+    if (ignoredTotal > 0) {
+        html += `<div style="margin-top:8px; color:var(--muted);"><b>${ignoredTotal}</b> sistem/desteklenmeyen dosya yok sayıldı.</div>`;
+    }
+
+    if (r.freshNoPhotoList) {
+        html += `
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer; font-weight:600;">Hâlâ fotoğrafı olmayan ${r.freshNoPhotoList.length} aktif öğrenci</summary>
+                <div style="max-height:160px; overflow-y:auto; font-size:0.8rem; margin-top:6px;">
+                    ${r.freshNoPhotoList.map(s => `${escapeHtmlText(s.student_no)} — ${escapeHtmlText(s.full_name)}`).join('<br>')}
+                </div>
+            </details>`;
+    } else {
+        html += `<div style="margin-top:8px; color:var(--muted);">Fotoğrafsız öğrenci sayısı hesaplanamadı.</div>`;
+    }
+
+    document.getElementById('sm_bulkPhotoReport').innerHTML = html;
+    document.getElementById('sm_bulkPhotoReport').classList.remove('hidden');
+
+    refreshCurrentList();
 }
