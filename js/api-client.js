@@ -341,18 +341,25 @@ async function runLendingPhotoConfirmation(data) {
 // YENİ: kt_settings.track_reading_status açıkken, kitapAl (iade) başarılı olduktan SONRA
 // çağrılır. Hiçbir düğme önceden seçili/odaklı olmasın ve Enter/Esc/dışarı tıklama ile
 // kapanmasın diye runLendingPhotoConfirmation'daki aynı güvenlik ayarları kullanılır.
-async function showReadingStatusChoice(bookName, hasPages) {
+// YENİ (Faz A2): opsiyonel 3. parametre ile yönetici düzeltme penceresinde de (aynı fonksiyon,
+// kod çoğaltmadan) "Durumu Temizle" düğmesi, "mevcut durum" satırı ve farklı bir ikincil
+// kapatma etiketi ("Vazgeç") eklenebilir. İade akışındaki çağrı (promptReadingStatus) bu
+// parametreyi hiç geçmediği için davranışı AYNEN korunur.
+async function showReadingStatusChoice(bookName, hasPages, options = {}) {
+    const { showClearOption = false, currentStatusLabel = null, skipLabel = 'Belirtmeden kapat' } = options;
     let chosen = null;
     await Swal.fire({
         title: 'Okuma Durumu',
         html: `
             <div style="font-weight:bold; margin-bottom:4px;">${bookName || ''}</div>
+            ${currentStatusLabel ? `<div style="color:#374151; font-size:0.85rem; margin-bottom:8px;">Mevcut durum: <b>${currentStatusLabel}</b></div>` : ''}
             <div style="color:#6b7280; font-size:0.85rem; margin-bottom:12px;">Öğrenci bu kitabı okudu mu?</div>
             <div id="rs-buttons" style="display:flex; flex-direction:column; gap:10px;">
                 <button type="button" id="rs-btn-read" style="padding:14px; border-radius:10px; border:none; background:#10b981; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Okudum</button>
                 ${hasPages ? `<button type="button" id="rs-btn-partial" style="padding:14px; border-radius:10px; border:none; background:#f59e0b; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Kısmen okudum</button>` : ''}
                 <button type="button" id="rs-btn-notread" style="padding:14px; border-radius:10px; border:none; background:#ef4444; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Okumadım</button>
-                <button type="button" id="rs-btn-skip" style="padding:10px; border-radius:10px; border:1px solid #d1d5db; background:#fff; color:#6b7280; font-weight:bold; font-size:0.85rem; cursor:pointer; margin-top:4px;">Belirtmeden kapat</button>
+                ${showClearOption ? `<button type="button" id="rs-btn-clear" style="padding:12px; border-radius:10px; border:1px solid #d1d5db; background:#f3f4f6; color:#374151; font-weight:bold; font-size:0.9rem; cursor:pointer;">Durumu Temizle</button>` : ''}
+                <button type="button" id="rs-btn-skip" style="padding:10px; border-radius:10px; border:1px solid #d1d5db; background:#fff; color:#6b7280; font-weight:bold; font-size:0.85rem; cursor:pointer; margin-top:4px;">${skipLabel}</button>
             </div>
         `,
         showConfirmButton: false,
@@ -369,11 +376,20 @@ async function showReadingStatusChoice(bookName, hasPages) {
             buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
             setTimeout(() => buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; }), 700);
 
-            const map = { 'rs-btn-read': 'read', 'rs-btn-partial': 'partially_read', 'rs-btn-notread': 'not_read', 'rs-btn-skip': 'skip' };
+            const map = { 'rs-btn-read': 'read', 'rs-btn-partial': 'partially_read', 'rs-btn-notread': 'not_read', 'rs-btn-clear': 'clear', 'rs-btn-skip': 'skip' };
             buttons.forEach(b => { b.onclick = () => { chosen = map[b.id]; Swal.close(); }; });
         }
     });
     return chosen;
+}
+
+// YENİ (Faz A2): okuma durumunu insan-okunur kısa bir etikete çevirir (düzeltme penceresinde
+// "mevcut durum" satırı için kullanılır).
+function readingStatusLabel(status, pagesRead) {
+    if (status === 'read') return 'Okudu';
+    if (status === 'partially_read') return `Kısmen okudu (${pagesRead} syf)`;
+    if (status === 'not_read') return 'Okumadı';
+    return 'Belirtilmedi';
 }
 
 // "Kısmen okudum" seçildiğinde okunan sayfa sayısını sorar; "Geri" ile ana seçime dönülebilir.
@@ -417,9 +433,53 @@ async function submitReadingStatus(transactionId, readingStatus, pagesRead) {
         const result = await res.json();
         if (result.status !== 'success') {
             Swal.fire({ icon: 'warning', title: 'Okuma Durumu Kaydedilemedi', html: `${result.message}<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>` });
+            return false;
         }
+        return true;
     } catch (e) {
         Swal.fire({ icon: 'warning', title: 'Bağlantı Hatası', html: 'Okuma durumu kaydedilemedi.<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>' });
+        return false;
+    }
+}
+
+// YENİ (Faz A2): Sorgu > Öğrenci geçmişi panelindeki "düzelt" ikonundan çağrılır (yalnızca
+// admin'e gösterilir). promptReadingStatus'taki "Geri" döngüsünü ve Faz A pencerelerini
+// (showReadingStatusChoice/showPagesReadInput) kod çoğaltmadan yeniden kullanır; farkı,
+// "Durumu Temizle" seçeneği, "Vazgeç" etiketi ve mevcut durumun gösterilmesidir. Kaydedilirse
+// öğrenci tekrar sorgulanır; geçmiş panelinin açık/kapalı durumu korunur.
+async function editReadingStatusForHistoryRow(transactionId, bookName, bookPageCount, studentNo, currentStatus, currentPagesRead) {
+    const hasPages = !!bookPageCount && bookPageCount > 0;
+    const panelEl = document.getElementById(`history-${studentNo}`);
+    const wasOpen = panelEl ? !panelEl.classList.contains('hidden') : false;
+
+    let saved = false;
+    while (true) {
+        const choice = await showReadingStatusChoice(bookName, hasPages, {
+            showClearOption: true,
+            currentStatusLabel: readingStatusLabel(currentStatus, currentPagesRead),
+            skipLabel: 'Vazgeç'
+        });
+        if (!choice || choice === 'skip') break;
+
+        if (choice === 'read' || choice === 'not_read' || choice === 'clear') {
+            saved = await submitReadingStatus(transactionId, choice, null);
+            break;
+        }
+
+        if (choice === 'partially_read') {
+            const result = await showPagesReadInput(bookName, bookPageCount);
+            if (result.action === 'save') {
+                saved = await submitReadingStatus(transactionId, 'partially_read', result.pages);
+                break;
+            }
+            // 'back' -> ana seçime dön
+        }
+    }
+
+    if (saved) {
+        await sorgula('student');
+        const refreshedPanel = document.getElementById(`history-${studentNo}`);
+        if (refreshedPanel && wasOpen) refreshedPanel.classList.remove('hidden');
     }
 }
 
@@ -557,6 +617,7 @@ async function sorgula(incomingType) {
         const res = await response.json();
         if (res.status === 'success') {
             let html = '';
+            let std; // YENİ (Faz A2): düzelt ikonlarına listener bağlamak için if/else dışında erişilebilmesi gerekiyor
             if (res.result.type === 'book') {
                 if (res.result.data.length === 0) { resultArea.innerHTML = '<div style="color:red; text-align:center;">Bulunamadı.</div>'; return; }
 
@@ -582,7 +643,7 @@ async function sorgula(incomingType) {
                             </div>`;
                 });
             } else {
-                const std = res.result.data;
+                std = res.result.data;
                 html += `<div class="result-card" style="border-left-color:#6366f1;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div style="font-weight:bold; color:#4f46e5; font-size:1.1rem;">${std.name}</div>
@@ -601,20 +662,41 @@ async function sorgula(incomingType) {
                 html += `<div style="margin-top:10px; text-align:center;"><button onclick="document.getElementById('history-${std.no}').classList.toggle('hidden')" style="background:none; border:none; color:#6366f1; cursor:pointer; font-weight:bold; font-size:0.8rem;">Geçmişi Göster ▼</button></div>
                 <div id="history-${std.no}" class="hidden" style="margin-top:10px; max-height:150px; overflow-y:auto;">`;
 
-                std.history.forEach(h => {
+                std.history.forEach((h, idx) => {
                     if (h.status === 'Completed') {
-                        // YENİ: Okuma durumu rozeti (belirtilmemişse rozet gösterilmez)
+                        // YENİ: Okuma durumu rozeti (belirtilmemişse ve "belirtilmedi" koşulu
+                        // sunucudan gelmemişse hiçbir rozet gösterilmez)
                         let readingBadge = '';
                         if (h.readingStatus === 'read') readingBadge = '<span style="margin-left:6px; color:#059669; font-weight:bold;">✅ Okudu</span>';
                         else if (h.readingStatus === 'partially_read') readingBadge = `<span style="margin-left:6px; color:#b45309; font-weight:bold;">📖 Kısmen (${h.pagesRead} syf)</span>`;
                         else if (h.readingStatus === 'not_read') readingBadge = '<span style="margin-left:6px; color:#dc2626; font-weight:bold;">❌ Okumadı</span>';
+                        else if (h.unspecified) readingBadge = '<span style="margin-left:6px; color:#9ca3af; font-size:0.75rem;">belirtilmedi</span>';
 
-                        html += `<div style="font-size:0.8rem; padding:5px 0; border-bottom:1px solid #f3f4f6;">✅ ${h.name} <span style="color:#6b7280;">(${h.pages} syf)</span>${readingBadge}</div>`;
+                        // YENİ (Faz A2): Düzelt ikonu yalnızca yönetici için ve sunucu bu satıra
+                        // transactionId döndürmüşse (admin olmayanlarda bu alan hiç gelmez).
+                        let editIcon = '';
+                        if (h.transactionId && localStorage.getItem('kt_role') === 'admin') {
+                            editIcon = `<span class="history-edit-icon" data-idx="${idx}" style="margin-left:8px; cursor:pointer;" title="Okuma durumunu düzelt">✏️</span>`;
+                        }
+
+                        html += `<div style="font-size:0.8rem; padding:5px 0; border-bottom:1px solid #f3f4f6;">✅ ${h.name} <span style="color:#6b7280;">(${h.pages} syf)</span>${readingBadge}${editIcon}</div>`;
                     }
                 });
                 html += `</div></div>`;
             }
             resultArea.innerHTML = html;
+
+            // YENİ (Faz A2): Düzelt ikonlarına, kitap adını onclick string'ine gömmeden
+            // (tırnak/kaçış riski olmadan) event listener bağlanır.
+            if (res.result.type === 'student') {
+                resultArea.querySelectorAll('.history-edit-icon').forEach(icon => {
+                    const idx = parseInt(icon.dataset.idx, 10);
+                    const h = std.history[idx];
+                    icon.addEventListener('click', () => {
+                        editReadingStatusForHistoryRow(h.transactionId, h.name, h.pages, std.no, h.readingStatus, h.pagesRead);
+                    });
+                });
+            }
         } else { resultArea.innerHTML = `<div style="color:red; text-align:center;">${res.message}</div>`; }
     } catch (e) { resultArea.innerHTML = 'Hata.'; }
 }

@@ -898,6 +898,30 @@ exports.kitapVerPreflight = async (req, res) => {
 
 
 // ==========================================
+// 🕐 ORTAK YARDIMCI: İstanbul Tarih Dönüştürücüleri
+// ==========================================
+/**
+ * Bir tarih/zaman değerini "YYYY-MM-DD" biçiminde, Türkiye (Europe/Istanbul) gününe göre döner.
+ * Değer zaten düz "YYYY-MM-DD" tarih stringiyse (saat bileşeni yok) hiç dönüştürmeden aynen kullanılır
+ * — zira bu durumda zaten hangi güne ait olduğu bellidir, timezone dönüşümü hataya yol açabilir.
+ * Zaman damgası (timestamptz) içeren değerlerde ise Europe/Istanbul gününe çevrilir.
+ * @param {string|Date|null} value
+ * @returns {string|null}
+ */
+function istanbulDateStr(value) {
+    if (!value) return null;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    return new Date(value).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+}
+exports.istanbulDateStr = istanbulDateStr;
+
+/** Şu anki Türkiye gününü "YYYY-MM-DD" biçiminde döner. */
+function todayIstanbul() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+}
+exports.todayIstanbul = todayIstanbul;
+
+// ==========================================
 // 📐 ORTAK YARDIMCI: Dinamik Gün Hesaplayıcı
 // ==========================================
 /**
@@ -1248,8 +1272,9 @@ exports.updateStudentDetailed = async (req, res) => {
 exports.sorgula = async (req, res) => {
     try {
         const { schoolCode, schoolPass, query, type } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
         const q = query.trim();
 
         if (type === 'book') {
@@ -1281,8 +1306,15 @@ exports.sorgula = async (req, res) => {
 
             // JOIN İşlemi: Öğrencinin tüm işlemlerini ve okuduğu kitapların isimlerini/sayfalarını tek seferde çek!
             const { data: transactions } = await supabase.from('transactions')
-                .select('borrow_date, return_date, status, reading_status, pages_read, books(barcode, book_name, page_count, condition)')
+                .select('id, borrow_date, return_date, status, reading_status, pages_read, books(barcode, book_name, page_count, condition)')
                 .eq('student_id', student.id);
+
+            // YENİ (Faz A2): "Belirtilmedi" rozeti kararı sunucuda verilir — ayar şu an açık,
+            // since dolu ve kayıt since'den sonra (veya o gün) iade edilmişse ve durumu hâlâ
+            // boşsa true. since boşsa (özellik eklenmeden önce açılmış okullar) hep false.
+            const isAdminCaller = exports.isAdmin(auth);
+            const trackReadingNow = auth.settings.track_reading_status === true;
+            const trackSince = auth.settings.track_reading_status_since || null;
 
             let history = []; let activeBooks = []; let totalPages = 0;
 
@@ -1292,13 +1324,20 @@ exports.sorgula = async (req, res) => {
                     const isCompleted = t.status === 'returned';
                     if (isCompleted) totalPages += p;
 
+                    const returnDateIst = istanbulDateStr(t.return_date);
+                    const unspecified = isCompleted && trackReadingNow && !!trackSince && !t.reading_status
+                        && !!returnDateIst && returnDateIst >= trackSince;
+
                     const record = {
                         name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
                         date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
                         returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
                         status: isCompleted ? 'Completed' : 'Active', pages: p,
-                        readingStatus: t.reading_status || null, pagesRead: t.pages_read || null
+                        readingStatus: t.reading_status || null, pagesRead: t.pages_read || null,
+                        unspecified
                     };
+                    if (isAdminCaller) record.transactionId = t.id;
+
                     history.push(record);
                     if (!isCompleted) activeBooks.push(record);
                 });
@@ -1590,7 +1629,14 @@ exports.setReadingStatus = async (req, res) => {
             return res.json({ status: 'error', message: 'Okuma durumu takibi bu okulda açık değil.' });
         }
 
-        if (!['read', 'partially_read', 'not_read'].includes(readingStatus)) {
+        const isAdminCaller = exports.isAdmin(auth);
+
+        // YENİ (Faz A2): 'clear' (durumu temizle) yalnızca yönetici için.
+        if (readingStatus === 'clear' && !isAdminCaller) {
+            return res.json({ status: 'error', message: 'Bu işlem için yetkiniz yok.' });
+        }
+
+        if (!['read', 'partially_read', 'not_read', 'clear'].includes(readingStatus)) {
             return res.json({ status: 'error', message: 'Geçersiz okuma durumu.' });
         }
 
@@ -1601,6 +1647,7 @@ exports.setReadingStatus = async (req, res) => {
         if (!trans) return res.json({ status: 'error', message: 'İşlem bulunamadı.' });
         if (trans.status !== 'returned') return res.json({ status: 'error', message: 'Bu kitap henüz iade edilmemiş.' });
 
+        const newReadingStatus = readingStatus === 'clear' ? null : readingStatus;
         let pages_read = null;
         if (readingStatus === 'partially_read') {
             const pageCount = trans.books?.page_count || 0;
@@ -1615,34 +1662,34 @@ exports.setReadingStatus = async (req, res) => {
         }
 
         let updateQuery = supabase.from('transactions').update({
-            reading_status: readingStatus,
+            reading_status: newReadingStatus,
             pages_read: pages_read,
             reading_status_by: handlerName || 'Bilinmeyen',
             reading_status_at: new Date().toISOString()
         }).eq('id', trans.id).eq('school_id', auth.id);
 
-        // Yönetici dışındaki roller (nöbetçi/öğretmen) yalnızca BUGÜN iade edilmiş ve henüz
-        // durumu belirlenmemiş (NULL) bir kayıtta ilk kez yazabilir; sonradan kurcalanamaz.
-        // Admin, kayıt iade edilmiş olduğu sürece her zaman düzeltebilir.
-        if (!exports.isAdmin(auth)) {
-            const todayIstanbul = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
-            const returnDateIstanbul = trans.return_date
-                ? new Date(trans.return_date).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' })
-                : null;
-            if (returnDateIstanbul !== todayIstanbul) {
+        // Yönetici dışındaki roller (nöbetçi/öğretmen) yalnızca BUGÜN iade edilmiş, henüz durumu
+        // belirlenmemiş (reading_status NULL) VE daha önce bir yönetici tarafından dokunulmamış
+        // (reading_status_at NULL) bir kayıtta ilk kez yazabilir; sonradan kurcalanamaz. Yönetici
+        // bir kaydı düzelttiğinde/temizlediğinde reading_status_at dolacağı için nöbetçi/öğretmen
+        // o kaydı bir daha yazamaz. Admin, kayıt iade edilmiş olduğu sürece her zaman düzeltebilir.
+        if (!isAdminCaller) {
+            const today = todayIstanbul();
+            const returnDateIst = istanbulDateStr(trans.return_date);
+            if (returnDateIst !== today) {
                 return res.json({ status: 'error', message: 'Bu işlem bugün yapılmadığı için okuma durumu artık buradan değiştirilemez.' });
             }
-            updateQuery = updateQuery.is('reading_status', null);
+            updateQuery = updateQuery.is('reading_status', null).is('reading_status_at', null);
         }
 
         const { data: updated, error } = await updateQuery.select('id');
         if (error) throw error;
 
         if (!updated || updated.length === 0) {
-            return res.json({ status: 'error', message: 'Bu kitabın okuma durumu zaten belirlenmiş.' });
+            return res.json({ status: 'error', message: 'Bu kayıt zaten belirlenmiş ya da yönetici tarafından düzenlenmiş.' });
         }
 
-        res.json({ status: 'success', message: 'Okuma durumu kaydedildi.' });
+        res.json({ status: 'success', message: readingStatus === 'clear' ? 'Okuma durumu temizlendi.' : 'Okuma durumu kaydedildi.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
@@ -1830,7 +1877,20 @@ exports.updateSettings = async (req, res) => {
             return res.json({ status: 'error', message: 'Bu işlem için yetkiniz yok.' });
         }
 
+        const previousTrackReading = auth.settings.track_reading_status === true;
         const updatedSettings = { ...auth.settings, ...settings };
+
+        // YENİ (Faz A2): track_reading_status_since YALNIZCA sunucu yazar; istemciden gelen
+        // değer (varsa) her zaman yok sayılır. Kapalı/tanımsız -> açık geçişinde bugünün
+        // tarihi yazılır; kapatılınca alan silinir; açık kalıyorsa eski değer korunur.
+        const newTrackReading = updatedSettings.track_reading_status === true;
+        if (newTrackReading && !previousTrackReading) {
+            updatedSettings.track_reading_status_since = todayIstanbul();
+        } else if (!newTrackReading) {
+            updatedSettings.track_reading_status_since = null;
+        } else {
+            updatedSettings.track_reading_status_since = auth.settings.track_reading_status_since || null;
+        }
 
         Object.keys(updatedSettings).forEach(key => {
             if (updatedSettings[key] === null) delete updatedSettings[key];
