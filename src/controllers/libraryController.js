@@ -1010,7 +1010,17 @@ exports.kitapAl = async (req, res) => {
             photoUrl = urlMap.get(trans.students.photo_path) || null;
         }
 
-        res.json({ status: 'success', message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`, raf: book.shelf, studentNo: trans.students.student_no, photoUrl });
+        res.json({
+            status: 'success',
+            message: `<b>"${book.book_name}"</b> adlı kitap <b>${trans.students.full_name}</b> isimli öğrenciden teslim alındı. Lütfen kitabı rafa yerleştiriniz.`,
+            raf: book.shelf,
+            studentNo: trans.students.student_no,
+            photoUrl,
+            transactionId: trans.id,
+            bookName: book.book_name,
+            bookPageCount: book.page_count || null,
+            trackReadingStatus: settings.track_reading_status === true
+        });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
@@ -1271,7 +1281,7 @@ exports.sorgula = async (req, res) => {
 
             // JOIN İşlemi: Öğrencinin tüm işlemlerini ve okuduğu kitapların isimlerini/sayfalarını tek seferde çek!
             const { data: transactions } = await supabase.from('transactions')
-                .select('borrow_date, return_date, status, books(barcode, book_name, page_count, condition)')
+                .select('borrow_date, return_date, status, reading_status, pages_read, books(barcode, book_name, page_count, condition)')
                 .eq('student_id', student.id);
 
             let history = []; let activeBooks = []; let totalPages = 0;
@@ -1286,7 +1296,8 @@ exports.sorgula = async (req, res) => {
                         name: t.books.book_name, code: t.books.barcode, condition: t.books.condition,
                         date: new Date(t.borrow_date).toLocaleDateString("tr-TR"),
                         returnDate: t.return_date ? new Date(t.return_date).toLocaleDateString("tr-TR") : '',
-                        status: isCompleted ? 'Completed' : 'Active', pages: p
+                        status: isCompleted ? 'Completed' : 'Active', pages: p,
+                        readingStatus: t.reading_status || null, pagesRead: t.pages_read || null
                     };
                     history.push(record);
                     if (!isCompleted) activeBooks.push(record);
@@ -1311,6 +1322,25 @@ exports.sorgula = async (req, res) => {
 
 
 // ==========================================
+// 📖 ORTAK YARDIMCI: Okuma Durumuna Göre Sayfa Hesabı (Ayın Şampiyonları)
+// ==========================================
+/**
+ * @param {string|null} readingStatus - 'read' | 'partially_read' | 'not_read' | null (belirtilmemiş)
+ * @param {number} pageCount - kitabın toplam sayfa sayısı (page_count || 0)
+ * @param {number|null} pagesRead - 'partially_read' için öğrencinin okuduğu sayfa sayısı
+ * @returns {{ pages: number, unspecified: boolean }}
+ */
+function computeReadPages(readingStatus, pageCount, pagesRead) {
+    const p = pageCount || 0;
+    if (readingStatus === 'read') return { pages: p, unspecified: false };
+    if (readingStatus === 'partially_read') return { pages: pagesRead || 0, unspecified: false };
+    if (readingStatus === 'not_read') return { pages: 0, unspecified: false };
+    // NULL / belirtilmemiş: mevcut davranış korunur (tam sayfa sayılır), ama ayrıca işaretlenir
+    return { pages: p, unspecified: true };
+}
+exports.computeReadPages = computeReadPages;
+
+// ==========================================
 // RAPORLAR (Şampiyonlar Ligi)
 // ==========================================
 exports.getReport = async (req, res) => {
@@ -1319,7 +1349,15 @@ exports.getReport = async (req, res) => {
         // YENİ: getSchoolAuth'a geçildi ki schoolId'ye ek olarak DB'den yıl da çekilebisin
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        // Nöbetçi rolü Ayın Şampiyonları'nı hiç görmemeli (UI'da gizlemek yetmez, veri de dönmesin)
+        if (auth.role === 'duty') {
+            return res.json({ status: 'success', data: [], hidden: true });
+        }
+
         const schoolId = auth.id;
+        const settings = auth.settings || {};
+        const trackReading = settings.track_reading_status === true;
 
         // YENİ: Hibrit Yıl Kaynağı — önce req.body'den, yoksa DB'den
         let academicYear = reqYear;
@@ -1332,7 +1370,7 @@ exports.getReport = async (req, res) => {
 
         // Sadece teslim edilmiş kitapları, öğrenci ve kitap bilgileriyle getir
         let query = supabase.from('transactions')
-            .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
+            .select('borrow_date, reading_status, pages_read, students!inner(student_no, full_name, class_name, grade), books!inner(book_name, page_count)')
             .eq('school_id', schoolId).eq('status', 'returned')
             .gte('borrow_date', startDate)   // YENİ: Akademik yıl başlangıcı
             .lte('borrow_date', endDate);    // YENİ: Akademik yıl bitişi
@@ -1365,10 +1403,16 @@ exports.getReport = async (req, res) => {
                 const sNo = t.students.student_no;
                 if (!acc[sNo]) {
                     const cName = t.students.grade ? `${t.students.grade}/${t.students.class_name}` : t.students.class_name;
-                    acc[sNo] = { no: sNo, name: t.students.full_name, className: cName, totalPage: 0, books: [] };
+                    acc[sNo] = { no: sNo, name: t.students.full_name, className: cName, totalPage: 0, unspecifiedCount: 0, books: [] };
                 }
 
-                const p = t.books.page_count || 0;
+                const pageCount = t.books.page_count || 0;
+                let p = pageCount;
+                if (trackReading) {
+                    const result = computeReadPages(t.reading_status, pageCount, t.pages_read);
+                    p = result.pages;
+                    if (result.unspecified) acc[sNo].unspecifiedCount += 1;
+                }
                 acc[sNo].totalPage += p;
                 acc[sNo].books.push({ name: t.books.book_name, page: p });
 
@@ -1525,13 +1569,83 @@ exports.undo = async (req, res) => {
             // Kitap alma işlemini iptal et: En son teslimi bul, tekrar 'borrowed' yap
             const { data: trans } = await supabase.from('transactions').select('id').eq('book_id', book.id).eq('student_id', student.id).eq('status', 'returned').order('return_date', { ascending: false }).limit(1).single();
             if (trans) {
-                await supabase.from('transactions').update({ status: 'borrowed', return_date: null, return_condition: null, received_by: null }).eq('id', trans.id);
+                await supabase.from('transactions').update({ status: 'borrowed', return_date: null, return_condition: null, received_by: null, reading_status: null, pages_read: null, reading_status_by: null, reading_status_at: null }).eq('id', trans.id);
                 await supabase.from('books').update({ status: 'borrowed' }).eq('id', book.id);
             }
         }
         res.json({ status: 'success', message: 'İşlem başarıyla geri alındı.' });
     } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
+
+// ==========================================
+// OKUMA DURUMU (İade Sonrası Öğrenci Beyanı)
+// ==========================================
+exports.setReadingStatus = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass, handlerName, transactionId, readingStatus, pagesRead } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+
+        if (auth.settings.track_reading_status !== true) {
+            return res.json({ status: 'error', message: 'Okuma durumu takibi bu okulda açık değil.' });
+        }
+
+        if (!['read', 'partially_read', 'not_read'].includes(readingStatus)) {
+            return res.json({ status: 'error', message: 'Geçersiz okuma durumu.' });
+        }
+
+        const { data: trans } = await supabase.from('transactions')
+            .select('id, status, return_date, reading_status, books(page_count)')
+            .eq('id', transactionId).eq('school_id', auth.id).single();
+
+        if (!trans) return res.json({ status: 'error', message: 'İşlem bulunamadı.' });
+        if (trans.status !== 'returned') return res.json({ status: 'error', message: 'Bu kitap henüz iade edilmemiş.' });
+
+        let pages_read = null;
+        if (readingStatus === 'partially_read') {
+            const pageCount = trans.books?.page_count || 0;
+            if (pageCount < 1) {
+                return res.json({ status: 'error', message: 'Bu kitabın sayfa sayısı tanımlı olmadığı için "Kısmen okudum" seçilemez.' });
+            }
+            const p = parseInt(pagesRead, 10);
+            if (!Number.isInteger(p) || p < 1 || p > pageCount) {
+                return res.json({ status: 'error', message: `Okunan sayfa sayısı 1 ile ${pageCount} arasında olmalı.` });
+            }
+            pages_read = p;
+        }
+
+        let updateQuery = supabase.from('transactions').update({
+            reading_status: readingStatus,
+            pages_read: pages_read,
+            reading_status_by: handlerName || 'Bilinmeyen',
+            reading_status_at: new Date().toISOString()
+        }).eq('id', trans.id).eq('school_id', auth.id);
+
+        // Yönetici dışındaki roller (nöbetçi/öğretmen) yalnızca BUGÜN iade edilmiş ve henüz
+        // durumu belirlenmemiş (NULL) bir kayıtta ilk kez yazabilir; sonradan kurcalanamaz.
+        // Admin, kayıt iade edilmiş olduğu sürece her zaman düzeltebilir.
+        if (!exports.isAdmin(auth)) {
+            const todayIstanbul = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+            const returnDateIstanbul = trans.return_date
+                ? new Date(trans.return_date).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' })
+                : null;
+            if (returnDateIstanbul !== todayIstanbul) {
+                return res.json({ status: 'error', message: 'Bu işlem bugün yapılmadığı için okuma durumu artık buradan değiştirilemez.' });
+            }
+            updateQuery = updateQuery.is('reading_status', null);
+        }
+
+        const { data: updated, error } = await updateQuery.select('id');
+        if (error) throw error;
+
+        if (!updated || updated.length === 0) {
+            return res.json({ status: 'error', message: 'Bu kitabın okuma durumu zaten belirlenmiş.' });
+        }
+
+        res.json({ status: 'success', message: 'Okuma durumu kaydedildi.' });
+    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
+};
+
 // ==========================================
 // YENİ: GLOBAL KİTAP ÖNERİLERİ
 // ==========================================

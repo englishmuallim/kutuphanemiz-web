@@ -32,6 +32,7 @@ router.post('/kitapVerPreflight', libraryController.kitapVerPreflight);
 router.post('/kitapAl', libraryController.kitapAl);
 router.post('/undo', libraryController.undo);
 router.post('/sorgula', libraryController.sorgula);
+router.post('/setReadingStatus', libraryController.setReadingStatus);
 
 // Öğrenci İşlemleri
 router.post('/addStudent', libraryController.addStudent);

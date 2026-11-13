@@ -338,6 +338,115 @@ async function runLendingPhotoConfirmation(data) {
     }
 }
 
+// YENİ: kt_settings.track_reading_status açıkken, kitapAl (iade) başarılı olduktan SONRA
+// çağrılır. Hiçbir düğme önceden seçili/odaklı olmasın ve Enter/Esc/dışarı tıklama ile
+// kapanmasın diye runLendingPhotoConfirmation'daki aynı güvenlik ayarları kullanılır.
+async function showReadingStatusChoice(bookName, hasPages) {
+    let chosen = null;
+    await Swal.fire({
+        title: 'Okuma Durumu',
+        html: `
+            <div style="font-weight:bold; margin-bottom:4px;">${bookName || ''}</div>
+            <div style="color:#6b7280; font-size:0.85rem; margin-bottom:12px;">Öğrenci bu kitabı okudu mu?</div>
+            <div id="rs-buttons" style="display:flex; flex-direction:column; gap:10px;">
+                <button type="button" id="rs-btn-read" style="padding:14px; border-radius:10px; border:none; background:#10b981; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Okudum</button>
+                ${hasPages ? `<button type="button" id="rs-btn-partial" style="padding:14px; border-radius:10px; border:none; background:#f59e0b; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Kısmen okudum</button>` : ''}
+                <button type="button" id="rs-btn-notread" style="padding:14px; border-radius:10px; border:none; background:#ef4444; color:#fff; font-weight:bold; font-size:1rem; cursor:pointer;">Okumadım</button>
+                <button type="button" id="rs-btn-skip" style="padding:10px; border-radius:10px; border:1px solid #d1d5db; background:#fff; color:#6b7280; font-weight:bold; font-size:0.85rem; cursor:pointer; margin-top:4px;">Belirtmeden kapat</button>
+            </div>
+        `,
+        showConfirmButton: false,
+        showCancelButton: false,
+        showDenyButton: false,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        allowEnterKey: false,
+        focusConfirm: false,
+        didOpen: (popupEl) => {
+            const buttons = Array.from(popupEl.querySelectorAll('#rs-buttons button'));
+            // Fiziksel barkod okuyucunun trailing Enter'ı allowEnterKey:false ile etkisiz,
+            // fare/dokunmatik için de görevliye seçeneklere bakacak minimum bir süre bırakılıyor.
+            buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+            setTimeout(() => buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; }), 700);
+
+            const map = { 'rs-btn-read': 'read', 'rs-btn-partial': 'partially_read', 'rs-btn-notread': 'not_read', 'rs-btn-skip': 'skip' };
+            buttons.forEach(b => { b.onclick = () => { chosen = map[b.id]; Swal.close(); }; });
+        }
+    });
+    return chosen;
+}
+
+// "Kısmen okudum" seçildiğinde okunan sayfa sayısını sorar; "Geri" ile ana seçime dönülebilir.
+async function showPagesReadInput(bookName, maxPages) {
+    const { value, isConfirmed, isDenied } = await Swal.fire({
+        title: 'Kaç Sayfa Okudu?',
+        html: `<div style="font-weight:bold; margin-bottom:10px;">${bookName || ''}</div>`,
+        input: 'number',
+        inputAttributes: { min: 1, max: maxPages, step: 1 },
+        inputPlaceholder: `1 - ${maxPages} arası sayfa`,
+        showDenyButton: true,
+        confirmButtonText: 'Kaydet',
+        denyButtonText: '← Geri',
+        confirmButtonColor: '#10b981',
+        denyButtonColor: '#6b7280',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        allowEnterKey: false,
+        focusConfirm: false,
+        inputValidator: (val) => {
+            const n = parseInt(val, 10);
+            if (!val || isNaN(n) || n < 1 || n > maxPages) {
+                return `Sayfa sayısı 1 ile ${maxPages} arasında bir tam sayı olmalı.`;
+            }
+        }
+    });
+    if (isConfirmed) return { action: 'save', pages: parseInt(value, 10) };
+    if (isDenied) return { action: 'back' };
+    return { action: 'back' };
+}
+
+async function submitReadingStatus(transactionId, readingStatus, pagesRead) {
+    const code = localStorage.getItem("kutuphane_code");
+    const pass = localStorage.getItem("kutuphane_pass");
+    const handlerName = localStorage.getItem("kutuphane_user") || "Bilinmeyen Görevli";
+    try {
+        const res = await fetch('/api/setReadingStatus', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolCode: code, schoolPass: pass, handlerName, transactionId, readingStatus, pagesRead })
+        });
+        const result = await res.json();
+        if (result.status !== 'success') {
+            Swal.fire({ icon: 'warning', title: 'Okuma Durumu Kaydedilemedi', html: `${result.message}<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>` });
+        }
+    } catch (e) {
+        Swal.fire({ icon: 'warning', title: 'Bağlantı Hatası', html: 'Okuma durumu kaydedilemedi.<br><br><small>İade işlemi zaten tamamlandı, bu sadece okuma durumu kaydıyla ilgili.</small>' });
+    }
+}
+
+async function promptReadingStatus(transactionId, bookName, bookPageCount) {
+    const hasPages = !!bookPageCount && bookPageCount > 0;
+
+    // "Kısmen okudum" seçildiğinde sayfa girişinden "Geri" ile ana seçime dönülebilsin diye döngü
+    while (true) {
+        const choice = await showReadingStatusChoice(bookName, hasPages);
+        if (!choice || choice === 'skip') return;
+
+        if (choice === 'read' || choice === 'not_read') {
+            await submitReadingStatus(transactionId, choice, null);
+            return;
+        }
+
+        if (choice === 'partially_read') {
+            const result = await showPagesReadInput(bookName, bookPageCount);
+            if (result.action === 'save') {
+                await submitReadingStatus(transactionId, 'partially_read', result.pages);
+                return;
+            }
+            // 'back' -> ana seçime dön
+        }
+    }
+}
+
 async function islemYap(actionType) {
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
@@ -411,6 +520,9 @@ async function islemYap(actionType) {
                 } catch (err) {
                     Swal.fire('Hata', 'Geri alma isteği gönderilemedi.', 'error');
                 }
+            } else if (actionType === 'kitapAl' && result.trackReadingStatus) {
+                // YENİ: İade geri alınmadıysa ve ayar açıksa, okuma durumu sorulur (iadeyi engellemez)
+                await promptReadingStatus(result.transactionId, result.bookName, result.bookPageCount);
             }
             if (document.getElementById("verBarkod")) document.getElementById("verBarkod").value = "";
             if (document.getElementById("alBarkod")) document.getElementById("alBarkod").value = "";
@@ -491,7 +603,13 @@ async function sorgula(incomingType) {
 
                 std.history.forEach(h => {
                     if (h.status === 'Completed') {
-                        html += `<div style="font-size:0.8rem; padding:5px 0; border-bottom:1px solid #f3f4f6;">✅ ${h.name} <span style="color:#6b7280;">(${h.pages} syf)</span></div>`;
+                        // YENİ: Okuma durumu rozeti (belirtilmemişse rozet gösterilmez)
+                        let readingBadge = '';
+                        if (h.readingStatus === 'read') readingBadge = '<span style="margin-left:6px; color:#059669; font-weight:bold;">✅ Okudu</span>';
+                        else if (h.readingStatus === 'partially_read') readingBadge = `<span style="margin-left:6px; color:#b45309; font-weight:bold;">📖 Kısmen (${h.pagesRead} syf)</span>`;
+                        else if (h.readingStatus === 'not_read') readingBadge = '<span style="margin-left:6px; color:#dc2626; font-weight:bold;">❌ Okumadı</span>';
+
+                        html += `<div style="font-size:0.8rem; padding:5px 0; border-bottom:1px solid #f3f4f6;">✅ ${h.name} <span style="color:#6b7280;">(${h.pages} syf)</span>${readingBadge}</div>`;
                     }
                 });
                 html += `</div></div>`;
@@ -986,6 +1104,14 @@ async function showStatDetails(type) {
 
 async function getLeaderboard() {
     const listEl = document.getElementById("leaderboard-list");
+    const sectionEl = document.getElementById("leaderboard-section");
+
+    // YENİ: Nöbetçi rolünde bölüm hiç yüklenmeden gizlenir, sunucuya istek bile atılmaz.
+    if (localStorage.getItem("kt_role") === 'duty') {
+        if (sectionEl) sectionEl.style.display = 'none';
+        return;
+    }
+
     const code = localStorage.getItem("kutuphane_code");
     const pass = localStorage.getItem("kutuphane_pass");
     try {
@@ -995,6 +1121,13 @@ async function getLeaderboard() {
         });
         const result = await response.json();
         if (result.status === 'success') {
+            // YENİ: Sunucu nöbetçi için hidden:true dönerse (ikinci savunma hattı) bölümü gizle
+            if (result.hidden) {
+                if (sectionEl) sectionEl.style.display = 'none';
+                return;
+            }
+            if (sectionEl) sectionEl.style.display = '';
+
             const top3 = result.data.slice(0, 3);
             const medals = ['🥇', '🥈', '🥉'];
 
@@ -1138,6 +1271,10 @@ async function loadSettings() {
             requirePhotoConfirmEnabled = (s.require_photo_confirm !== false);
             const requirePhotoConfirmEl = document.getElementById("setting_require_photo_confirm");
             if (requirePhotoConfirmEl) requirePhotoConfirmEl.checked = requirePhotoConfirmEnabled;
+
+            // YENİ: track_reading_status — alan tanımsızsa varsayılan KAPALI kabul edilir
+            const trackReadingStatusEl = document.getElementById("setting_track_reading_status");
+            if (trackReadingStatusEl) trackReadingStatusEl.checked = (s.track_reading_status === true);
 
             document.getElementById("setting_staff_pass_mode").value = s.staff_pass_mode || 'fixed';
             if (s.staff_pass_mode === 'fixed') {
@@ -1386,7 +1523,8 @@ async function saveSettings(type) {
             lib_open_time: document.getElementById("setting_lib_open_time").value || null,
             lib_close_time: document.getElementById("setting_lib_close_time").value || null,
             allow_lending_to_archived: document.getElementById("setting_allow_lending_to_archived").checked,
-            require_photo_confirm: document.getElementById("setting_require_photo_confirm").checked
+            require_photo_confirm: document.getElementById("setting_require_photo_confirm").checked,
+            track_reading_status: document.getElementById("setting_track_reading_status").checked
         };
     } else if (type === 'staff') {
         const mode = document.getElementById("setting_staff_pass_mode").value;
