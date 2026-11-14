@@ -89,6 +89,60 @@ const buildStudentSearchOrFilter = (query) => {
         .join(',');
 };
 
+// Deneliz'in class_teacher_of sütunu "kademe-HARF" biçiminde ("8-A"), Kütüphanemiz'in
+// app_roles.kutuphanemiz.classes ise "kademe/HARF" biçiminde ("8/A") tutuyor. Bu ikisi
+// arasında dönüşüm yapar; geçersiz/boş girdide null döner, asla çökmez.
+const classTeacherOfToKtFormat = (code) => {
+    if (typeof code !== 'string') return null;
+    const trimmed = code.trim();
+    if (!trimmed) return null;
+    const idx = trimmed.lastIndexOf('-');
+    if (idx <= 0 || idx === trimmed.length - 1) return null;
+    const grade = trimmed.slice(0, idx).trim();
+    const section = trimmed.slice(idx + 1).trim();
+    if (!grade || !section) return null;
+    return `${grade}/${section}`;
+};
+
+// Tersi dönüşüm: "8/A" -> "8-A". Kütüphanemiz bu adımda class_teacher_of'a YAZMIYOR,
+// bu fonksiyon simetri/test amaçlı sağlanıyor.
+const ktFormatToClassTeacherOf = (code) => {
+    if (typeof code !== 'string') return null;
+    const trimmed = code.trim();
+    if (!trimmed) return null;
+    const idx = trimmed.lastIndexOf('/');
+    if (idx <= 0 || idx === trimmed.length - 1) return null;
+    const grade = trimmed.slice(0, idx).trim();
+    const section = trimmed.slice(idx + 1).trim();
+    if (!grade || !section) return null;
+    return `${grade}-${section}`;
+};
+
+// Sınıf kodu karşılaştırmasında boşluk/büyük-küçük harf/Türkçe karakter farklarını tolere
+// eder (örn. " 8-a " ve "8-A" aynı kabul edilsin diye normalize eder).
+const normalizeClassCode = (code) => {
+    if (typeof code !== 'string') return '';
+    return code.trim().toLocaleUpperCase('tr-TR');
+};
+
+// Bir öğrencinin (grade, class_name) çiftini normalize edilmiş, karşılaştırılabilir tek bir
+// anahtara çevirir. getReport/getBorrowedReport'ta öğretmenin etkin sınıf kapsamıyla
+// (effectiveClasses, "kademe/HARF" biçiminde) eşleştirme için kullanılır.
+const classScopeKey = (grade, className) => {
+    const g = normalizeClassCode(String(grade ?? ''));
+    const c = normalizeClassCode(String(className ?? ''));
+    return `${g}/${c}`;
+};
+
+// "8/A" (etkin kapsam girdisi) -> normalize edilmiş karşılaştırma anahtarı. "/" yoksa/baş ya
+// da sonda ise null döner.
+const classScopeKeyFromCombo = (combo) => {
+    if (typeof combo !== 'string') return null;
+    const idx = combo.lastIndexOf('/');
+    if (idx <= 0 || idx === combo.length - 1) return null;
+    return classScopeKey(combo.slice(0, idx), combo.slice(idx + 1));
+};
+
 module.exports = {
     normalizeTurkishText,
     getAcademicYearEndYear,
@@ -96,4 +150,9 @@ module.exports = {
     getGradesForSchoolType,
     buildStudentSearchOrFilter,
     GRADUATE_GRADE,
+    classTeacherOfToKtFormat,
+    ktFormatToClassTeacherOf,
+    normalizeClassCode,
+    classScopeKey,
+    classScopeKeyFromCombo,
 };

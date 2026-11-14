@@ -1,5 +1,5 @@
 const supabase = require('../api/supabase');
-const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter } = require('../utils/studentUtils');
+const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo } = require('../utils/studentUtils');
 const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
@@ -29,6 +29,7 @@ async function getSchoolAuth(code, pass) {
     const settings = data.kt_settings || {};
     let role = null;
     let app_roles = null;
+    let class_teacher_of = null;
 
     if (data.kt_pass === pass) {
         role = 'admin';
@@ -54,19 +55,25 @@ async function getSchoolAuth(code, pass) {
     } else {
         // Personel/Yönetici users tablosundan kontrol
         const { data: user } = await supabase.from('users')
-            .select('id, role, app_roles')
+            .select('id, role, app_roles, class_teacher_of')
             .eq('school_id', data.id)
             .eq('password', pass)
             .limit(1);
         if (user && user.length > 0) {
             role = user[0].role; // 'admin' veya 'teacher' vb
             app_roles = user[0].app_roles;
+            class_teacher_of = user[0].class_teacher_of; // Deneliz'in sütunu — yalnızca OKUNUR, yazılmaz
         } else {
             return null;
         }
     }
 
-    return { id: data.id, role, app_roles, settings, schoolType: data.school_type };
+    // YENİ: Rapor sınıf kapsamı artık sunucuda, tek bir ortak fonksiyonla hesaplanıyor.
+    const authForScope = { role, app_roles, class_teacher_of };
+    const ktRole = exports.isAdmin(authForScope) ? 'admin' : (exports.isTeacher(authForScope) ? 'teacher' : role);
+    const ktClasses = exports.computeEffectiveClasses(authForScope);
+
+    return { id: data.id, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
 }
 
 async function getSchoolId(code, pass) {
@@ -78,6 +85,34 @@ async function getSchoolId(code, pass) {
 // mantığını kopyalamadan kullanabilmesi için dışa aktarılıyor (tek kaynak).
 exports.getSchoolAuth = getSchoolAuth;
 exports.isAdmin = (auth) => auth.role === 'admin' || auth.app_roles?.kutuphanemiz?.role === 'admin';
+// YENİ: "teacher" sayılma kararı TEK yerde — login'deki mevcut mantıkla (ktRole admin değilse
+// ve kutuphanemiz.role==='teacher' ise) birebir aynı, iki yerde kopyalanmıyor.
+exports.isTeacher = (auth) => !exports.isAdmin(auth) && (auth.role === 'teacher' || auth.app_roles?.kutuphanemiz?.role === 'teacher');
+
+// ==========================================
+// 🏫 ORTAK YARDIMCI: Rapor Sınıf Kapsamı (Etkin Kapsam)
+// ==========================================
+/**
+ * Bir kullanıcının rapor ekranlarında görebileceği etkin sınıf kapsamını hesaplar.
+ * Yönetici ve nöbetçi (ve admin/teacher dışındaki her rol) her zaman ['ALL']. Öğretmen için
+ * kapsam = app_roles.kutuphanemiz.classes ("8/A") ∪ class_teacher_of (Deneliz, "8-A" biçiminden
+ * dönüştürülerek). İkisinden biri "ALL" içeriyorsa kapsam ['ALL']. Hiçbiri yoksa boş dizi
+ * (rapor erişimi kapsamsız kalır — çağıran taraf bunu "hiç veri yok" olarak ele almalı).
+ * @param {{ role: string|null, app_roles: object|null, class_teacher_of: string[]|null }} auth
+ * @returns {string[]}
+ */
+exports.computeEffectiveClasses = (auth) => {
+    if (exports.isAdmin(auth)) return ['ALL'];
+    if (!exports.isTeacher(auth)) return ['ALL']; // nöbetçi vb. — kısıtlama yok
+
+    const ktClasses = Array.isArray(auth.app_roles?.kutuphanemiz?.classes) ? auth.app_roles.kutuphanemiz.classes : [];
+    const classTeacherOf = Array.isArray(auth.class_teacher_of) ? auth.class_teacher_of : [];
+
+    if (ktClasses.includes('ALL') || classTeacherOf.includes('ALL')) return ['ALL'];
+
+    const converted = classTeacherOf.map(classTeacherOfToKtFormat).filter(Boolean);
+    return [...new Set([...ktClasses, ...converted])];
+};
 
 const buildDuplicateStudentError = (student = {}) => {
     const fullName = student.full_name || student.fullName || student.name || 'Bilinmeyen öğrenci';
@@ -213,7 +248,6 @@ exports.login = async (req, res) => {
                 appRoles = appRoles || {};
 
                 const ktRole = appRoles.kutuphanemiz?.role;
-                const ktClasses = appRoles.kutuphanemiz?.classes || [];
 
                 if (user.role === 'admin' || ktRole === 'admin') {
                     return res.json({
@@ -225,13 +259,16 @@ exports.login = async (req, res) => {
                         kt_classes: ['ALL']
                     });
                 } else if (ktRole === 'teacher') {
+                    // YENİ: kt_classes artık etkin kapsamı (kt_classes ∪ class_teacher_of)
+                    // döndürüyor — tek ortak fonksiyon, getSchoolAuth'un kullandığıyla aynı.
+                    const effectiveClasses = exports.computeEffectiveClasses({ role: user.role, app_roles: appRoles, class_teacher_of: user.class_teacher_of });
                     return res.json({
                         status: 'success',
                         schoolName: school.school_name,
                         userName: user.full_name,
                         role: user.role,
                         kt_role: 'teacher',
-                        kt_classes: ktClasses
+                        kt_classes: effectiveClasses
                     });
                 } else {
                     return res.json({ status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' });
@@ -1424,6 +1461,12 @@ exports.getReport = async (req, res) => {
         const trackSince = settings.track_reading_status_since || null;
         const isAdminCaller = exports.isAdmin(auth);
 
+        // YENİ: Öğretmen rolünde istemcinin filterGrade/filterClass'ına GÜVENİLMİYOR; etkin
+        // sınıf kapsamı (auth.ktClasses, getSchoolAuth'ta hesaplanır) sunucuda ayrıca uygulanır.
+        const effectiveClasses = auth.ktClasses || ['ALL'];
+        const scopeIsAll = effectiveClasses.includes('ALL');
+        const allowedScopeKeys = scopeIsAll ? null : new Set(effectiveClasses.map(classScopeKeyFromCombo).filter(Boolean));
+
         // YENİ: Hibrit Yıl Kaynağı — önce req.body'den, yoksa DB'den
         let academicYear = reqYear;
         if (!academicYear) {
@@ -1456,6 +1499,12 @@ exports.getReport = async (req, res) => {
 
         if (transactions && transactions.length > 0) {
             reportData = transactions.reduce((acc, t) => {
+                // YENİ: Etkin sınıf kapsamı dışındaki öğrenciler atlanır (istemci filtresiyle
+                // kesişim olarak çalışır — filterGrade/filterClass zaten DB sorgusunda uygulandı).
+                if (!scopeIsAll && !allowedScopeKeys.has(classScopeKey(t.students.grade, t.students.class_name))) {
+                    return acc;
+                }
+
                 // YENİ: Ay/dönem sınırı da artık return_date'ten, Türkiye gününe göre (istanbulDateStr).
                 const returnDateIst = istanbulDateStr(t.return_date);
                 const monthStr = returnDateIst ? returnDateIst.slice(5, 7) : null;
@@ -1525,6 +1574,12 @@ exports.getBorrowedReport = async (req, res) => {
         const schoolId = auth.id;
         const settings = auth.settings; // dynamic_rules buradan gelir
 
+        // YENİ: Öğretmen rolünde istemcinin filterGrade/filterClass'ına GÜVENİLMİYOR; etkin
+        // sınıf kapsamı (auth.ktClasses, getSchoolAuth'ta hesaplanır) sunucuda ayrıca uygulanır.
+        const effectiveClasses = auth.ktClasses || ['ALL'];
+        const scopeIsAll = effectiveClasses.includes('ALL');
+        const allowedScopeKeys = scopeIsAll ? null : new Set(effectiveClasses.map(classScopeKeyFromCombo).filter(Boolean));
+
         // Emanetteki ('borrowed') kitapları çek
         let query = supabase.from('transactions')
             .select('borrow_date, students!inner(student_no, full_name, class_name, grade), books!inner(barcode, book_name, page_count)')
@@ -1541,6 +1596,12 @@ exports.getBorrowedReport = async (req, res) => {
 
         if (transactions && transactions.length > 0) {
             transactions.forEach(t => {
+                // YENİ: Etkin sınıf kapsamı dışındaki öğrenciler atlanır (istemci filtresiyle
+                // kesişim olarak çalışır — filterGrade/filterClass zaten DB sorgusunda uygulandı).
+                if (!scopeIsAll && !allowedScopeKeys.has(classScopeKey(t.students.grade, t.students.class_name))) {
+                    return;
+                }
+
                 const borrowDate = new Date(t.borrow_date);
                 const diffTime = Math.abs(today - borrowDate);
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
