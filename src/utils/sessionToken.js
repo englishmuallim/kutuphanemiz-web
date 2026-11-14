@@ -160,9 +160,27 @@ function shouldRefresh(payload) {
   return remaining < totalLifetime / 3;
 }
 
+// İstek başlıklarından bileti çıkarır: önce x-kt-token, yoksa Authorization: Bearer <token>.
+// headers anahtarları Express'te küçük harfe normalize edilmiş gelir (örn. req.headers).
+function extractKtToken(headers) {
+  if (!headers || typeof headers !== 'object') return null;
+
+  const direct = headers['x-kt-token'];
+  if (typeof direct === 'string' && direct.trim() !== '') return direct.trim();
+
+  const authHeader = headers['authorization'];
+  if (typeof authHeader === 'string') {
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+    if (match && match[1].trim() !== '') return match[1].trim();
+  }
+
+  return null;
+}
+
 module.exports = {
   isTokenAuthAvailable,
   signToken,
   verifyToken,
   shouldRefresh,
+  extractKtToken,
 };

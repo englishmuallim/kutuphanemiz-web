@@ -3,14 +3,21 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const apiRoutes = require('./routes/index');
+const { ktAuthContextMiddleware } = require('./middleware/ktAuthContext');
 
 const app = express();
 
 // --- MIDDLEWARE ---
 // Statik dosyaların klasörünü src/ dizininden bir üst dizine (kök dizine) ayarladık
 app.use(express.static(path.join(__dirname, '../')));
-app.use(cors());
+// x-kt-token-refresh yanıt başlığı, istemci ileride ayrı bir origin'den servis edilirse
+// tarayıcı JS'inin okuyabilmesi için açıkça ifşa edilir (bugün aynı origin olduğundan
+// zorunlu değil, ileriye dönük önlem).
+app.use(cors({ exposedHeaders: ['x-kt-token-refresh'] }));
 app.use(express.json({ limit: '5mb' }));
+// Bilet doğrulamasını (getSchoolAuth içinde) 53 çağrı noktasının imzasını değiştirmeden
+// yapabilmek için isteğin {req,res} çiftini AsyncLocalStorage ile saklar. Rotalardan ÖNCE.
+app.use(ktAuthContextMiddleware);
 
 // --- ROUTER ENTEGRASYONU ---
 app.use('/api', apiRoutes);

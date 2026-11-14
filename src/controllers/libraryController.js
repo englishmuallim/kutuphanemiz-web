@@ -1,6 +1,99 @@
 const supabase = require('../api/supabase');
 const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo } = require('../utils/studentUtils');
 const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
+const { hashPassword, verifyPassword, isHashed } = require('../utils/passwordHash');
+const { isTokenAuthAvailable, signToken, verifyToken, shouldRefresh, extractKtToken } = require('../utils/sessionToken');
+const { getCurrentRequestContext } = require('../middleware/ktAuthContext');
+
+// =========================================================================
+// 🎫 BİLET YOLU — kullanıcı satırı önbelleği (uid -> {is_active, role, app_roles,
+// class_teacher_of, expiresAt}), en fazla 60 sn bayat. Bilet yolunda role/ktRole/
+// ktClasses BİLETTEN değil, bu taze (<=60sn) satırdan hesaplanır — Deneliz'in
+// rol/sınıf değişiklikleri biletin ömrü boyunca gözden kaçmasın diye.
+// =========================================================================
+const USER_AUTH_CACHE_TTL_MS = 60 * 1000;
+const USER_AUTH_CACHE_SWEEP_THRESHOLD = 5000;
+const _userAuthCache = new Map();
+
+function _sweepExpiredUserAuthCache(now) {
+    for (const [key, entry] of _userAuthCache) {
+        if (entry.expiresAt <= now) _userAuthCache.delete(key);
+    }
+}
+
+async function getCachedUserAuthFields(uid) {
+    const now = Date.now();
+    const cached = _userAuthCache.get(uid);
+    if (cached && cached.expiresAt > now) return cached;
+
+    const { data } = await supabase.from('users')
+        .select('is_active, role, app_roles, class_teacher_of')
+        .eq('id', uid)
+        .maybeSingle();
+
+    if (!data) return null;
+
+    const entry = {
+        is_active: data.is_active,
+        role: data.role,
+        app_roles: data.app_roles,
+        class_teacher_of: data.class_teacher_of,
+        expiresAt: now + USER_AUTH_CACHE_TTL_MS,
+    };
+
+    if (_userAuthCache.size > USER_AUTH_CACHE_SWEEP_THRESHOLD) _sweepExpiredUserAuthCache(now);
+    _userAuthCache.set(uid, entry);
+    return entry;
+}
+
+// Sır (KT_SESSION_SECRET) eksikken her girişte log basmamak için tek seferlik uyarı.
+let _sessionSecretWarningLogged = false;
+function _warnSessionSecretMissingOnce() {
+    if (_sessionSecretWarningLogged) return;
+    _sessionSecretWarningLogged = true;
+    console.warn('KT_SESSION_SECRET tanımlı değil — bilet (ktToken) üretilmiyor, giriş düz metin/hash yoluyla çalışmaya devam ediyor.');
+}
+
+// =========================================================================
+// 🔑 PERSONEL ŞİFRE KURALI (login staff dalı) — password_hash geçiş dönemi
+// Kural: password sütunu DOLUYSA doğruluk kaynağı odur (girilen şifre ona eşit mi).
+// Eşitse: hash yoksa/bayatsa arka planda yeniden üretilip yazılır (password'e dokunulmaz).
+// Hash eşleşse bile password dolu ve girilenden FARKLIYSA reddedilir (bayat hash, eski şifre).
+// password sütunu boş/null ise (düz metin silindikten sonraki durum) yalnızca hash karar verir.
+// =========================================================================
+async function verifyStaffPassword(user, inputPassword) {
+    const hasPlainColumn = user.password !== null && user.password !== undefined && user.password !== '';
+
+    if (hasPlainColumn) {
+        if (user.password !== inputPassword) {
+            return { ok: false };
+        }
+
+        // Şifre doğru — hash eksikse veya bayatsa arka planda senkronize et.
+        let needsRewrite = !isHashed(user.password_hash);
+        if (!needsRewrite) {
+            const hashMatches = await verifyPassword(user.password_hash, inputPassword);
+            if (!hashMatches) needsRewrite = true;
+        }
+        if (needsRewrite) {
+            try {
+                const freshHash = await hashPassword(inputPassword);
+                await supabase.from('users').update({ password_hash: freshHash }).eq('id', user.id);
+            } catch (backfillErr) {
+                console.error(`password_hash backfill hatasi (uid=${user.id}):`, backfillErr.message);
+            }
+        }
+        return { ok: true };
+    }
+
+    // password sütunu boş — yalnızca hash doğruluk kaynağı.
+    if (isHashed(user.password_hash)) {
+        const hashMatches = await verifyPassword(user.password_hash, inputPassword);
+        return { ok: hashMatches };
+    }
+
+    return { ok: false };
+}
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
@@ -27,6 +120,61 @@ async function getSchoolAuth(code, pass) {
     // =========================================================================
 
     const settings = data.kt_settings || {};
+
+    // =========================================================================
+    // 🎫 YENİ: ÇİFT KABUL — bilet yolu denemesi (AsyncLocalStorage üzerinden, imza
+    // DEĞİŞMEDEN). ALS deposu yoksa veya bilet yoksa/geçersizse/sid uyuşmuyorsa
+    // sessizce aşağıdaki legacy (düz metin) yola düşülür.
+    // =========================================================================
+    const reqCtx = getCurrentRequestContext();
+    if (reqCtx && reqCtx.req) {
+        const incomingToken = extractKtToken(reqCtx.req.headers);
+        if (incomingToken) {
+            const verifyResult = verifyToken(incomingToken);
+            if (verifyResult.ok && verifyResult.payload.sid === data.id) {
+                const payload = verifyResult.payload;
+                let role, app_roles, class_teacher_of, ktRole, ktClasses;
+
+                if (payload.uid) {
+                    const fresh = await getCachedUserAuthFields(payload.uid);
+                    if (!fresh || fresh.is_active === false) {
+                        return null; // kullanıcı silinmiş veya pasife alınmış — reddet
+                    }
+                    role = fresh.role;
+                    app_roles = fresh.app_roles;
+                    class_teacher_of = fresh.class_teacher_of;
+
+                    const authForScope = { role, app_roles, class_teacher_of };
+                    ktRole = exports.isAdmin(authForScope) ? 'admin' : (exports.isTeacher(authForScope) ? 'teacher' : role);
+                    ktClasses = exports.computeEffectiveClasses(authForScope);
+                } else {
+                    // Nöbetçi bileti — kullanıcı satırı yok, bilet alanları doğrudan kullanılır.
+                    role = payload.role;
+                    app_roles = null;
+                    class_teacher_of = null;
+                    ktRole = payload.ktRole;
+                    ktClasses = payload.ktClasses;
+                }
+
+                // Süresi yaklaşan bileti sessizce yenile (şifre gerekmez, aiat korunur).
+                if (isTokenAuthAvailable() && shouldRefresh(payload) && reqCtx.res) {
+                    try {
+                        const refreshed = signToken({ sid: data.id, uid: payload.uid, role, ktRole, ktClasses, aiat: payload.aiat });
+                        reqCtx.res.set('x-kt-token-refresh', refreshed);
+                    } catch (refreshErr) {
+                        console.error('Bilet yenilenemedi:', refreshErr.message);
+                    }
+                }
+
+                return { id: data.id, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
+            }
+            // Geçersiz / sid uyuşmuyor → legacy yola düşülür (hata fırlatılmaz).
+        }
+    }
+
+    // =========================================================================
+    // LEGACY YOL — DÜZ METİN (DEĞİŞMEDİ)
+    // =========================================================================
     let role = null;
     let app_roles = null;
     let class_teacher_of = null;
@@ -182,13 +330,26 @@ exports.login = async (req, res) => {
                 return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen tekrar deneyin.' });
             }
 
+            // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
+            let ktToken = null;
+            if (isTokenAuthAvailable()) {
+                try {
+                    ktToken = signToken({ sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'] });
+                } catch (ticketErr) {
+                    console.error('Bilet üretilemedi (duty):', ticketErr.message);
+                }
+            } else {
+                _warnSessionSecretMissingOnce();
+            }
+
             return res.json({
                 status: 'success',
                 schoolName: school.school_name,
                 userName: userName,
                 role: 'duty',
                 kt_role: 'duty',
-                kt_classes: ['ALL']
+                kt_classes: ['ALL'],
+                ktToken
             });
         }
 
@@ -225,21 +386,43 @@ exports.login = async (req, res) => {
             }
             // =========================================================================
 
-            const { data: users, error } = await supabase.from('users')
+            // YENİ: önce KİMLİKLE eşleşen satır(lar)ı bul — şifreye göre DB filtresi YOK artık.
+            // (Eski kod önce .eq('password', schoolPass) ile filtreliyordu; aynı şifreyi
+            // paylaşan iki personel varsa bu, yanlış kimlik/şifre kombinasyonunu kabul
+            // edebiliyordu. Artık her kimlik eşleşmesine KENDİ satırının şifre kuralı uygulanır.)
+            const { data: candidateUsers, error } = await supabase.from('users')
                 .select('*, full_name')
-                .eq('school_id', school.id)
-                .eq('password', schoolPass);
+                .eq('school_id', school.id);
 
             if (error) throw error;
 
-            const user = users?.find(u =>
+            const normalizedPhone = identity.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, '');
+            const matchedUsers = (candidateUsers || []).filter(u =>
                 u.email === identity ||
                 u.username === identity ||
-                (identity.replace(/\D/g, '') && u.phone === identity.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, ''))
+                (normalizedPhone && u.phone === normalizedPhone)
             );
+
+            const passingUsers = [];
+            for (const candidate of matchedUsers) {
+                const result = await verifyStaffPassword(candidate, schoolPass);
+                if (result.ok) passingUsers.push(candidate);
+            }
+
+            if (passingUsers.length > 1) {
+                console.warn(`Giriş belirsizliği: schoolId=${school.id} kimlik ile birden fazla kullanıcı aynı şifreyle eşleşti.`);
+                return res.json({ status: 'error', message: 'Hesap kaydınızda bir tutarsızlık tespit edildi. Lütfen yöneticinizle iletişime geçin.' });
+            }
+
+            const user = passingUsers[0];
 
             if (user) {
                 console.log("✅ KULLANICI BULUNDU:", user.full_name);
+
+                // YENİ: pasife alınmış kullanıcı girişi reddedilir.
+                if (user.is_active === false) {
+                    return res.json({ status: 'error', message: 'Bu kullanıcı hesabı pasif durumda. Lütfen yöneticinizle iletişime geçin.' });
+                }
 
                 let appRoles = user.app_roles;
                 if (typeof appRoles === 'string') {
@@ -249,6 +432,20 @@ exports.login = async (req, res) => {
 
                 const ktRole = appRoles.kutuphanemiz?.role;
 
+                // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
+                const makeTicket = (role, ktRoleForTicket, ktClassesForTicket) => {
+                    if (!isTokenAuthAvailable()) {
+                        _warnSessionSecretMissingOnce();
+                        return null;
+                    }
+                    try {
+                        return signToken({ sid: school.id, uid: user.id, role, ktRole: ktRoleForTicket, ktClasses: ktClassesForTicket });
+                    } catch (ticketErr) {
+                        console.error('Bilet üretilemedi (staff):', ticketErr.message);
+                        return null;
+                    }
+                };
+
                 if (user.role === 'admin' || ktRole === 'admin') {
                     return res.json({
                         status: 'success',
@@ -256,7 +453,8 @@ exports.login = async (req, res) => {
                         userName: user.full_name,
                         role: user.role,
                         kt_role: 'admin',
-                        kt_classes: ['ALL']
+                        kt_classes: ['ALL'],
+                        ktToken: makeTicket(user.role, 'admin', ['ALL'])
                     });
                 } else if (ktRole === 'teacher') {
                     // YENİ: kt_classes artık etkin kapsamı (kt_classes ∪ class_teacher_of)
@@ -268,7 +466,8 @@ exports.login = async (req, res) => {
                         userName: user.full_name,
                         role: user.role,
                         kt_role: 'teacher',
-                        kt_classes: effectiveClasses
+                        kt_classes: effectiveClasses,
+                        ktToken: makeTicket(user.role, 'teacher', effectiveClasses)
                     });
                 } else {
                     return res.json({ status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' });
