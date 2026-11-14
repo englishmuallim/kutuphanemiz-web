@@ -457,8 +457,9 @@ exports.stats = async (req, res) => {
 exports.statDetails = async (req, res) => {
     try {
         const { schoolCode, schoolPass, type } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const schoolId = auth.id;
 
         let allData = [];
         let from = 0;
@@ -1088,8 +1089,12 @@ exports.kitapAl = async (req, res) => {
 exports.addStudent = async (req, res) => {
     try {
         const { schoolCode, schoolPass, no, name, grade, className } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!exports.isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+        const schoolId = auth.id;
 
         const normalizedNo = String(no ?? '').trim();
         const { data: existingStudents, error: lookupError } = await supabase
@@ -1126,6 +1131,9 @@ exports.bulkAddStudents = async (req, res) => {
         const { schoolCode, schoolPass, data, updateExistingClass } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!exports.isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
 
         const rawItems = Array.isArray(data) ? data : [];
         const cleanedItems = rawItems
@@ -1245,8 +1253,12 @@ exports.bulkAddStudents = async (req, res) => {
 exports.updateStudent = async (req, res) => {
     try {
         const { schoolCode, schoolPass, no, newGrade, newClass } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!exports.isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+        const schoolId = auth.id;
 
         const { data, error } = await supabase.from('students').update({ grade: newGrade, class_name: newClass }).eq('school_id', schoolId).eq('student_no', no).select().single();
         if (!data) return res.json({ status: 'error', message: 'Öğrenci bulunamadı!' });
@@ -1258,8 +1270,12 @@ exports.updateStudent = async (req, res) => {
 exports.searchStudentsAdvanced = async (req, res) => {
     try {
         const { schoolCode, schoolPass, query } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!exports.isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+        const schoolId = auth.id;
 
         if (!query || query.trim() === '') {
             return res.json({ status: 'success', data: [] });
@@ -1286,8 +1302,12 @@ exports.searchStudentsAdvanced = async (req, res) => {
 exports.updateStudentDetailed = async (req, res) => {
     try {
         const { schoolCode, schoolPass, oldNo, newNo, newName, newGrade, newClass } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!exports.isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
+        const schoolId = auth.id;
 
         const { data, error } = await supabase.from('students')
             .update({ full_name: newName, student_no: newNo, grade: newGrade, class_name: newClass })

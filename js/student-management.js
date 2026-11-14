@@ -14,6 +14,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         redirectToLogin();
         return;
     }
+
+    // YENİ: Bu sayfa sadece yöneticiye açık. Kozmetik bir kontrol — gerçek sınır sunucuda
+    // (her uç nokta kendi isAdmin kontrolünü yapıyor); burada amaç, yönetici olmayan bir
+    // kullanıcıya anlaşılır bir mesaj gösterip index.html'e yönlendirmek. kt_role eski bir
+    // oturumdan dolayı hiç yoksa da yönetici sayılmaz, aynı şekilde yönlendirilir.
+    const ktRole = localStorage.getItem('kt_role');
+    if (ktRole !== 'admin') {
+        await Swal.fire({
+            icon: 'warning',
+            title: 'Yetkisiz Erişim',
+            text: 'Bu sayfaya yalnızca yöneticiler erişebilir.',
+            allowEnterKey: false,
+            focusConfirm: false,
+            focusCancel: false,
+            allowOutsideClick: false
+        });
+        redirectToLogin();
+        return;
+    }
+
     await Promise.all([loadGradeOptions(), loadClassOptions()]);
     refreshPhotoCounter();
 });

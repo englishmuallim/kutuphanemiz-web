@@ -14,6 +14,9 @@ exports.listStudents = async (req, res) => {
         const { schoolCode, schoolPass, query, grade, className, status, withoutPhoto } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!isAdmin(auth)) {
+            return res.json({ status: 'error', message: 'Bu işlem için yönetici yetkisi gereklidir.' });
+        }
 
         let dbQuery = supabase.from('students')
             .select('id, student_no, full_name, grade, class_name, is_active, photo_path')
