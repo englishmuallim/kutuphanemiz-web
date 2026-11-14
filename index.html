@@ -706,8 +706,33 @@
                 </select>
             </div>
 
+            <!-- YENİ: Sınıf öğretmenliği (Deneliz'in class_teacher_of sütunu) — role/ALL'dan bağımsız, her zaman aktif -->
+            <div id="teacherCtoWrapper"
+                style="padding:15px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; margin-bottom:15px;">
+                <div style="font-weight:bold; margin-bottom:10px; color:#374151;">Sınıf öğretmeni olduğu sınıflar</div>
+
+                <div id="teacherCtoAddArea" style="display:flex; gap:5px; margin-bottom:10px;">
+                    <select id="teacherFormCtoGrade"
+                        style="flex:1; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
+                        <option value="">Kademe</option>
+                    </select>
+                    <select id="teacherFormCtoClass"
+                        style="flex:1; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
+                        <option value="">Şube</option>
+                    </select>
+                    <button type="button" onclick="addClassTeacherOf()"
+                        style="background:#4f46e5; color:#fff; border:none; padding:0 15px; border-radius:6px; cursor:pointer; font-weight:bold;">Ekle</button>
+                </div>
+
+                <!-- Seçili Sınıf Öğretmenliği Container -->
+                <div id="selectedCtoClassesList" style="display:flex; flex-wrap:wrap; gap:8px;">
+                    <!-- Chipler JS ile dolar -->
+                </div>
+            </div>
+
             <div id="teacherClassesWrapper"
                 style="padding:15px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; margin-bottom:15px;">
+                <div style="font-weight:bold; margin-bottom:10px; color:#374151;">Raporlarda görebileceği ek sınıflar</div>
                 <label
                     style="display:flex; align-items:center; gap:8px; margin-bottom:10px; font-weight:bold; cursor:pointer;">
                     <input type="checkbox" id="teacherFormAll" onchange="toggleTeacherRoleSelect()"

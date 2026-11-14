@@ -2088,7 +2088,7 @@ exports.getTeachers = async (req, res) => {
         }
 
         const { data: teachers, error } = await supabase.from('users')
-            .select('id, full_name, username, email, phone, app_roles')
+            .select('id, full_name, username, email, phone, app_roles, class_teacher_of')
             .eq('school_id', auth.id)
             .eq('role', 'teacher');
 
@@ -2100,9 +2100,19 @@ exports.getTeachers = async (req, res) => {
     }
 };
 
+// YENİ: Deneliz'in class_teacher_of sütunu için tek bir girdi doğrular/normalize eder
+// ("8-a" -> "8-A"). Biçime uymayan/boş girdi null döner (sessizce atılır, asla çökmez).
+function normalizeClassTeacherOfEntry(raw) {
+    if (typeof raw !== 'string') return null;
+    const upper = raw.trim().toLocaleUpperCase('tr-TR');
+    if (!upper) return null;
+    if (!/^[0-9A-ZÇĞİÖŞÜ]+-[A-ZÇĞİÖŞÜ]+$/.test(upper)) return null;
+    return upper;
+}
+
 exports.saveTeacher = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, id, fullName, username, email, phone, password, ktRole, ktClasses } = req.body;
+        const { schoolCode, schoolPass, id, fullName, username, email, phone, password, ktRole, ktClasses, classTeacherOf } = req.body;
         const auth = await getSchoolAuth(schoolCode, schoolPass);
 
         if (!auth || auth.role !== 'admin') {
@@ -2115,6 +2125,15 @@ exports.saveTeacher = async (req, res) => {
                 classes: ktClasses || []
             }
         };
+
+        // YENİ: class_teacher_of yalnızca istemci bunu bir DİZİ olarak gönderdiyse (yani
+        // kullanıcı o bölümde bilinçli bir değişiklik yaptıysa) yazılacak alanlara eklenir;
+        // hiç gelmezse (undefined) ne updateData'ya ne insertData'ya eklenir — Deneliz'in
+        // verisi dokunulmadan kalır.
+        let classTeacherOfToWrite;
+        if (Array.isArray(classTeacherOf)) {
+            classTeacherOfToWrite = [...new Set(classTeacherOf.map(normalizeClassTeacherOfEntry).filter(Boolean))];
+        }
 
         if (id) {
             // GÜNCELLEME İŞLEMİ
@@ -2145,6 +2164,10 @@ exports.saveTeacher = async (req, res) => {
                 updateData.password = password;
             }
 
+            if (classTeacherOfToWrite !== undefined) {
+                updateData.class_teacher_of = classTeacherOfToWrite;
+            }
+
             const { error: updateError } = await supabase.from('users')
                 .update(updateData)
                 .eq('id', id);
@@ -2166,6 +2189,10 @@ exports.saveTeacher = async (req, res) => {
                 password: password,
                 app_roles: appRolesPayload
             };
+
+            if (classTeacherOfToWrite !== undefined) {
+                insertData.class_teacher_of = classTeacherOfToWrite;
+            }
 
             const { error: insertError } = await supabase.from('users')
                 .insert([insertData]);

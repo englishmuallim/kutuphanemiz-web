@@ -391,6 +391,11 @@ function stopScanner() {
 // 1. Global Hafıza
 window.currentTeachersList = window.currentTeachersList || [];
 let tempSelectedClasses = [];
+// YENİ: Sınıf öğretmenliği (Deneliz'in class_teacher_of sütunu, "8-A" biçiminde saklanır)
+let tempClassTeacherOf = [];
+// YENİ: Bu bölümde kullanıcı bilinçli bir ekleme/silme yapmadıysa classTeacherOf payload'a
+// HİÇ eklenmez (Deneliz'in verisi üzerine boş dizi yazılmasın diye).
+let classTeacherOfDirty = false;
 
 // 2. Öğretmenleri Getir ve Tabloya Çiz
 async function loadTeachersList() {
@@ -419,6 +424,7 @@ async function loadTeachersList() {
 
             const ktRole = rolesObj.kutuphanemiz?.role || 'teacher';
             const ktClasses = rolesObj.kutuphanemiz?.classes || [];
+            const classTeacherOf = Array.isArray(t.class_teacher_of) ? t.class_teacher_of : [];
 
             let classesText = '';
             if (ktRole === 'admin') {
@@ -427,6 +433,12 @@ async function loadTeachersList() {
                 classesText = '<span style="background:#3b82f6; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.8rem;">Tüm Okul</span>';
             } else {
                 classesText = ktClasses.join(', ');
+            }
+
+            // YENİ: Sınıf öğretmenliği rozeti (varsa), mevcut rozetin yanına eklenir.
+            if (classTeacherOf.length > 0) {
+                const ctoDisplay = classTeacherOf.map(c => c.replace('-', '/')).join(', ');
+                classesText += (classesText ? ' ' : '') + `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:12px; font-size:0.8rem;">Sınıf öğr.: ${ctoDisplay}</span>`;
             }
 
             const tr = document.createElement('tr');
@@ -459,6 +471,14 @@ window.openTeacherFormModal = function (teacherId = null) {
     const delBtn = document.getElementById('teacherFormDeleteBtn');
 
     if (typeof populateGradeAndClassSelects === 'function') populateGradeAndClassSelects();
+
+    // YENİ: Önceki düzenlemeden kalan seçim sızmasın — her açılışta her iki bölümün kademe/şube
+    // seçicileri de varsayılan (boş) değere döner.
+    setVal('teacherFormGrade', ''); setVal('teacherFormClass', '');
+    setVal('teacherFormCtoGrade', ''); setVal('teacherFormCtoClass', '');
+
+    // YENİ: Her modal açılışı yeni bir düzenleme oturumu — "kirli" bayrağı sıfırlanır.
+    classTeacherOfDirty = false;
 
     if (teacherId) {
         // --- DÜZENLEME MODU ---
@@ -496,6 +516,9 @@ window.openTeacherFormModal = function (teacherId = null) {
                 tempSelectedClasses = classes;
             }
         }
+
+        // YENİ: Sınıf öğretmenliği (Deneliz'in class_teacher_of'u) formda gösterilir.
+        tempClassTeacherOf = Array.isArray(t.class_teacher_of) ? t.class_teacher_of.slice() : [];
     } else {
         // --- YENİ EKLEME MODU ---
         const titleEl = document.getElementById('teacherModalTitle');
@@ -512,10 +535,12 @@ window.openTeacherFormModal = function (teacherId = null) {
 
         if (allCheckbox) allCheckbox.checked = false;
         tempSelectedClasses = [];
+        tempClassTeacherOf = [];
     }
 
     if (typeof toggleTeacherRoleSelect === 'function') toggleTeacherRoleSelect();
     if (typeof renderSelectedClasses === 'function') renderSelectedClasses();
+    if (typeof renderClassTeacherOfChips === 'function') renderClassTeacherOfChips();
 };
 
 function closeTeacherFormModal() {
@@ -543,33 +568,128 @@ function toggleTeacherRoleSelect() {
 function populateGradeAndClassSelects() {
     const gradeSelect = document.getElementById('teacherFormGrade');
     const classSelect = document.getElementById('teacherFormClass');
+    // YENİ: Sınıf öğretmenliği bölümünün seçicileri de AYNI sabit listeden doldurulur.
+    const ctoGradeSelect = document.getElementById('teacherFormCtoGrade');
+    const ctoClassSelect = document.getElementById('teacherFormCtoClass');
     const grades = ['5', '6', '7', '8', '9', '10', '11', '12', 'Hazırlık'];
     const subeler = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-    if (gradeSelect) {
-        gradeSelect.innerHTML = '<option value="">Kademe</option>';
-        grades.forEach(g => gradeSelect.innerHTML += `<option value="${g}">${g}. Sınıf</option>`);
-    }
-    if (classSelect) {
-        classSelect.innerHTML = '<option value="">Şube</option>';
-        subeler.forEach(s => classSelect.innerHTML += `<option value="${s}">${s}</option>`);
-    }
+    const fillGrade = (sel) => {
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Kademe</option>';
+        grades.forEach(g => sel.innerHTML += `<option value="${g}">${g}. Sınıf</option>`);
+    };
+    const fillClass = (sel) => {
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Şube</option>';
+        subeler.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+    };
+
+    fillGrade(gradeSelect);
+    fillClass(classSelect);
+    fillGrade(ctoGradeSelect);
+    fillClass(ctoClassSelect);
 }
 
 function addClassToTeacherForm() {
-    const g = document.getElementById('teacherFormGrade').value;
-    const c = document.getElementById('teacherFormClass').value;
+    const gradeEl = document.getElementById('teacherFormGrade');
+    const classEl = document.getElementById('teacherFormClass');
+    const g = gradeEl.value;
+    const c = classEl.value;
     if (!g || !c) return alert("Lütfen Kademe ve Şube seçin!");
     const combo = `${g}/${c}`;
     if (!tempSelectedClasses.includes(combo)) {
         tempSelectedClasses.push(combo);
         renderSelectedClasses();
     }
+    // YENİ: Ekledikten sonra seçiciler varsayılana döner — Kaydet'te "eklenmemiş seçim" diye
+    // tekrar sorulmasın (seçiciler zaten boşsa confirmPendingClassSelection hiç sormuyor).
+    gradeEl.value = '';
+    classEl.value = '';
 }
 
 function removeClassFromTeacherForm(combo) {
     tempSelectedClasses = tempSelectedClasses.filter(c => c !== combo);
     renderSelectedClasses();
+}
+
+// YENİ: Sınıf öğretmenliği (class_teacher_of, Deneliz biçimi "8-A" olarak saklanır,
+// chip'te okunaklı "8/A" gösterilir). Her ekleme/silme "kirli" bayrağını işaretler —
+// bu sayede kullanıcı dokunmadıysa saveTeacherForm bu alanı payload'a hiç koymaz.
+function addClassTeacherOf() {
+    const gradeEl = document.getElementById('teacherFormCtoGrade');
+    const classEl = document.getElementById('teacherFormCtoClass');
+    const g = gradeEl.value;
+    const c = classEl.value;
+    if (!g || !c) return alert("Lütfen Kademe ve Şube seçin!");
+    const combo = `${g}-${c}`;
+    if (!tempClassTeacherOf.includes(combo)) {
+        tempClassTeacherOf.push(combo);
+        classTeacherOfDirty = true;
+        renderClassTeacherOfChips();
+    }
+    // YENİ: Ekledikten sonra seçiciler varsayılana döner (bkz. addClassToTeacherForm).
+    gradeEl.value = '';
+    classEl.value = '';
+}
+
+function removeClassTeacherOf(combo) {
+    tempClassTeacherOf = tempClassTeacherOf.filter(c => c !== combo);
+    classTeacherOfDirty = true;
+    renderClassTeacherOfChips();
+}
+
+function renderClassTeacherOfChips() {
+    const container = document.getElementById('selectedCtoClassesList');
+    if (!container) return;
+    container.innerHTML = '';
+    tempClassTeacherOf.forEach(c => {
+        const display = c.replace('-', '/'); // Depolanan biçim ("8-A") yerine okunaklı gösterim
+        container.innerHTML += `
+            <div style="background:#fef3c7; color:#92400e; padding:5px 10px; border-radius:16px; font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                ${display}
+                <span onclick="removeClassTeacherOf('${c}')" style="cursor:pointer; color:#ef4444; font-size:1.1rem; line-height:1;">&times;</span>
+            </div>
+        `;
+    });
+}
+
+// YENİ: "Ekle"ye basmadan "Kaydet"e basılırsa (kademe VE şube seçili ama eklenmemiş),
+// kaydetmeden önce sorar. addFn başarıyla eklerse ilgili dizi/kirli bayrağı da güncellenir
+// (addClassToTeacherForm / addClassTeacherOf zaten bunu kendi içinde yapıyor).
+// alreadyAddedFn(g, c): seçili kombinasyon ilgili bölümün listesinde ZATEN varsa true döner
+// — bu durumda hiç sorulmaz (addClassToTeacherForm/addClassTeacherOf zaten Ekle'den sonra
+// seçicileri sıfırlıyor, ama kullanıcı aynı kombinasyonu tekrar seçip Ekle'ye basmazsa bu
+// kontrol yine de yanlış uyarıyı önler).
+async function confirmPendingClassSelection(gradeSelectId, classSelectId, addFn, alreadyAddedFn) {
+    const gradeEl = document.getElementById(gradeSelectId);
+    const classEl = document.getElementById(classSelectId);
+    const g = gradeEl ? gradeEl.value : '';
+    const c = classEl ? classEl.value : '';
+    if (!g || !c) return 'none'; // seçili değilse hiç sorma
+    if (alreadyAddedFn && alreadyAddedFn(g, c)) return 'none'; // zaten eklenmiş, sorma
+
+    const combo = `${g}/${c}`;
+    const result = await Swal.fire({
+        title: 'Eklenmemiş Seçim',
+        html: `Seçtiğiniz <b>${combo}</b> sınıfı henüz eklenmedi. Eklensin mi?`,
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Eklenip kaydet',
+        denyButtonText: 'Eklemeden kaydet',
+        cancelButtonText: 'Vazgeç',
+        confirmButtonColor: '#10b981',
+        denyButtonColor: '#6b7280',
+        cancelButtonColor: '#ef4444',
+        allowOutsideClick: false,
+        allowEnterKey: false,
+        focusConfirm: false,
+        focusCancel: false
+    });
+
+    if (result.isConfirmed) { addFn(); return 'added'; }
+    if (result.isDenied) return 'skip';
+    return 'cancel';
 }
 
 function renderSelectedClasses() {
@@ -608,6 +728,15 @@ window.saveTeacherForm = async function () {
     }
     if (!id && !password) return alert("Yeni öğretmen eklerken şifre belirlemek zorunludur.");
 
+    // YENİ: "Ekle"ye basılmadan "Kaydet"e basılırsa, kaydetmeden önce sor (her iki bölüm için).
+    // "Ek sınıflar" bölümü admin/ALL'da zaten pasif olduğundan o durumda sorulmaz.
+    if (!(ktRole === 'admin' || isAll)) {
+        const ekSonuc = await confirmPendingClassSelection('teacherFormGrade', 'teacherFormClass', addClassToTeacherForm, (g, c) => tempSelectedClasses.includes(`${g}/${c}`));
+        if (ekSonuc === 'cancel') return;
+    }
+    const ctoSonuc = await confirmPendingClassSelection('teacherFormCtoGrade', 'teacherFormCtoClass', addClassTeacherOf, (g, c) => tempClassTeacherOf.includes(`${g}-${c}`));
+    if (ctoSonuc === 'cancel') return;
+
     let finalClasses = [];
     if (ktRole === 'admin' || isAll) finalClasses = ['ALL'];
     else finalClasses = tempSelectedClasses;
@@ -625,10 +754,19 @@ window.saveTeacherForm = async function () {
         ktClasses: finalClasses
     };
 
+    // YENİ: classTeacherOf yalnızca kullanıcı bu bölümde bilinçli bir değişiklik yaptıysa
+    // (dirty) payload'a eklenir — dokunmadıysa hiç gönderilmez, Deneliz'in verisi korunur.
+    if (classTeacherOfDirty) {
+        payload.classTeacherOf = tempClassTeacherOf;
+    }
+
     const res = await saveTeacher(payload); // api-client.js'deki fonksiyon
     if (res.status === 'success') {
         alert(res.message || "İşlem başarılı.");
         if (typeof closeTeacherFormModal === 'function') closeTeacherFormModal();
+        tempSelectedClasses = [];
+        tempClassTeacherOf = [];
+        classTeacherOfDirty = false;
         loadTeachersList();
     } else {
         alert("Hata: " + res.message);
