@@ -61,7 +61,7 @@ This Supabase database is shared with a separate project named Deneliz (exam/tes
 
 ### Kütüphanemiz-specific columns
 In `schools`, these columns belong to this project and are relevant to Kütüphanemiz:
-- `kt_pass` — legacy field. It is still read by `getSchoolAuth`'s old ticket-less fallback path (accepted as a valid `schoolPass` for any `/api/*` endpoint) and by `changePassword` (which reads/compares/writes it). Removing this usage is planned; avoid changing it outside of that planned removal unless explicitly required.
+- `kt_pass` — legacy field, no longer referenced anywhere in the code (the old ticket-less admin fallback and `changePassword` that used it were both removed). The column itself still exists in the database with its old values; it is slated for removal but has not been dropped.
 - `kt_status`
 - `kt_settings`
 - `kt_start_date`

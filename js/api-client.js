@@ -1988,60 +1988,6 @@ function filterLogs() {
     renderLogs(filtered);
 }
 
-async function changePassword() {
-    const oldPass = document.getElementById("setting_old_password").value;
-    const newPass = document.getElementById("setting_new_password").value;
-    const confirmPass = document.getElementById("setting_confirm_password").value;
-
-    if (!oldPass || !newPass || !confirmPass) {
-        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Tüm alanları doldurun.' });
-        return;
-    }
-
-    if (newPass !== confirmPass) {
-        Swal.fire({ icon: 'error', title: 'Hata', text: 'Yeni şifreler eşleşmiyor!' });
-        return;
-    }
-
-    if (newPass.length < 4) {
-        Swal.fire({ icon: 'warning', title: 'Hata', text: 'Yeni şifre en az 4 karakter olmalıdır.' });
-        return;
-    }
-
-    Swal.fire({ title: 'Güncelleniyor...', didOpen: () => Swal.showLoading() });
-    try {
-        const res = await fetch('/api/changePassword', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...ktAuthFields(), oldPassword: oldPass, newPassword: newPass })
-        });
-        const result = await res.json();
-
-        if (result.status === 'success') {
-            document.getElementById("setting_old_password").value = '';
-            document.getElementById("setting_new_password").value = '';
-            document.getElementById("setting_confirm_password").value = '';
-
-            await Swal.fire({ icon: 'success', title: 'Başarılı', text: 'Şifreniz başarıyla güncellendi, lütfen yeni şifrenizle giriş yapın.' });
-
-            localStorage.removeItem("kutuphane_code");
-            localStorage.removeItem("kutuphane_pass");
-            localStorage.removeItem("beni_hatirla");
-            localStorage.removeItem("okul_ismi");
-
-            document.getElementById("dashboard").classList.add("hidden");
-            document.getElementById("login-screen").classList.remove("hidden");
-            document.getElementById("schoolCode").value = "";
-            document.getElementById("schoolPass").value = "";
-            document.getElementById("beniHatirla").checked = false;
-        } else {
-            Swal.fire({ icon: 'error', title: 'Hata', text: result.message });
-        }
-    } catch (error) {
-        Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucu hatası' });
-    }
-}
-
 function downloadExcelTemplate(type) {
     let headers = [];
     let filename = "";

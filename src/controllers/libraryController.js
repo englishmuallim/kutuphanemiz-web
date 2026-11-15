@@ -132,7 +132,7 @@ async function getSchoolAuth(code, pass) {
     // YENİ: schools sorgusunda gerçek bir Supabase hatası (ağ/DB) varsa fırlat; yalnızca
     // okul satırı gerçekten bulunamadıysa (error yok, data yok) null dön.
     const { data, error: schoolError } = await supabase.from('schools')
-        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings, school_type')
+        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_settings, school_type')
         .eq('school_code', code)
         .single();
 
@@ -261,11 +261,8 @@ async function getSchoolAuth(code, pass) {
 
     // YENİ: LEGACY YOL KORUMASI — pass gerçek, boş olmayan bir string değilse (undefined,
     // null, '', sayı vb.) şifre-eşleştirme dallarına HİÇ girilmez, doğrudan null (401)
-    // dönülür. Bu, örneğin `kt_pass` sütunu NULL olan bir okulda `data.kt_pass === pass`
-    // karşılaştırmasının `null === undefined` ya da `null === null` gibi bir durumda
-    // yanlışlıkla true olup "admin" girişine izin vermesini kesin olarak engeller
-    // (JS'te `null === undefined` zaten false'tur ama `pass` da `null` gönderilirse
-    // `data.kt_pass === null` TRUE olabilirdi — bu kontrol o riski de kapatır).
+    // dönülür (örn. bir ayar hiç set edilmemişken `undefined === undefined` gibi bir
+    // durumla yanlışlıkla eşleşmeyi engeller).
     if (typeof pass !== 'string' || pass === '') {
         return null;
     }
@@ -277,9 +274,7 @@ async function getSchoolAuth(code, pass) {
     let app_roles = null;
     let class_teacher_of = null;
 
-    if (data.kt_pass === pass) {
-        role = 'admin';
-    } else if (
+    if (
         (data.kt_settings?.fixed_staff_password && data.kt_settings.fixed_staff_password === pass) ||
         (data.kt_settings?.daily_staff_password && data.kt_settings.daily_staff_password === pass) ||
         (data.kt_settings?.staff_password && data.kt_settings.staff_password === pass)
@@ -792,28 +787,6 @@ exports.updatePassword = async (req, res) => {
     } catch (error) {
         return res.json({ status: 'error', message: 'Şifre güncellenirken bir hata oluştu.' });
     }
-};
-
-exports.changePassword = async (req, res) => {
-    try {
-        const { schoolCode, schoolPass, oldPassword, newPassword } = req.body;
-        const auth = await getSchoolAuth(schoolCode, schoolPass);
-        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-
-        if (auth.role !== 'admin') {
-            return res.json({ status: 'error', message: 'Sadece idareciler şifre değiştirebilir.' });
-        }
-
-        const { data: school } = await supabase.from('schools').select('kt_pass').eq('id', auth.id).single();
-        if (!school || school.kt_pass !== oldPassword) {
-            return res.status(400).json({ status: 'error', message: 'Mevcut şifreniz hatalı.' });
-        }
-
-        const { error } = await supabase.from('schools').update({ kt_pass: newPassword }).eq('id', auth.id);
-        if (error) throw error;
-
-        res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi.' });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
 };
 
 exports.stats = async (req, res) => {

@@ -211,9 +211,6 @@
                     <div class="yonetim-card blue" onclick="showYonetimForm('settings_general')">
                         <icon>settings</icon><span>Genel Ayarlar</span>
                     </div>
-                    <div class="yonetim-card red" onclick="showYonetimForm('settings_security')">
-                        <icon>lock_reset</icon><span>Güvenlik Ayarları</span>
-                    </div>
                     <div class="yonetim-card purple" onclick="showYonetimForm('teachers')">
                         <icon>school</icon><span>Öğretmen İşlemleri</span>
                     </div>
@@ -612,35 +609,6 @@
                         Kaydet</button>
                 </div>
 
-                <div id="yonetim-form-settings_security" class="hidden" style="margin-top:10px;">
-                    <div class="form-header"><button class="back-btn" onclick="closeYonetimForm()"><span
-                                class="material-symbols-rounded">arrow_back</span></button>Güvenlik Ayarları</div>
-
-                    <div
-                        style="background:#fff; border-radius:12px; padding:15px; border:1px solid #e5e7eb; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.02);">
-                        <label class="text-sm text-gray-500 mb-1 block"
-                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Mevcut
-                            Şifre</label>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">lock</span><input
-                                type="password" id="setting_old_password" placeholder="Mevcut Şifre"></div>
-
-                        <label class="text-sm text-gray-500 mb-1 block"
-                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block; margin-top:15px;">Yeni
-                            Şifre</label>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">vpn_key</span><input
-                                type="password" id="setting_new_password" placeholder="Yeni Şifre"></div>
-
-                        <label class="text-sm text-gray-500 mb-1 block"
-                            style="font-size:0.85rem; color:#6b7280; font-weight:600; margin-bottom:5px; display:block;">Yeni
-                            Şifre (Tekrar)</label>
-                        <div class="input-group"><span class="material-symbols-rounded input-icon">vpn_key</span><input
-                                type="password" id="setting_confirm_password" placeholder="Yeni Şifre (Tekrar)"></div>
-                    </div>
-
-                    <button class="action-btn" style="background:#ef4444;" onclick="changePassword()">Şifreyi
-                        Güncelle</button>
-                </div>
-
                 <div id="yonetim-form-teachers" class="hidden" style="margin-top:10px;">
                     <div class="form-header">
                         <button class="back-btn" onclick="closeYonetimForm()">
@@ -878,9 +846,9 @@
     </div>
     <audio id="beepSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
-    <script src="js/ktAuth.js?v=20261115d"></script>
-    <script src="js/ui.js?v=20261115d"></script>
-    <script src="js/api-client.js?v=20261115d"></script>
+    <script src="js/ktAuth.js?v=20261115e"></script>
+    <script src="js/ui.js?v=20261115e"></script>
+    <script src="js/api-client.js?v=20261115e"></script>
 </body>
 
 </html>
