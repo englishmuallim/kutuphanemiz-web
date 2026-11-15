@@ -303,12 +303,18 @@ async function getSchoolAuth(code, pass) {
         // YENİ: burada da gerçek bir Supabase hatası "şifre yanlış" (null, 401) ile
         // karıştırılmıyor — tutarlılık için aynı kural (bkz. getCachedUserAuthFields).
         const { data: user, error: userError } = await supabase.from('users')
-            .select('id, role, app_roles, class_teacher_of')
+            .select('id, role, app_roles, class_teacher_of, is_active')
             .eq('school_id', data.id)
             .eq('password', pass)
             .limit(1);
         if (userError) throw userError;
         if (user && user.length > 0) {
+            // YENİ: bilet yolundaki AYNI kural (bkz. getCachedUserAuthFields çağrısı yukarıda) —
+            // pasife alınmış kullanıcı bu eski (biletsiz) yoldan da giriş kazanamaz. NULL/true
+            // davranışı değişmiyor, sadece is_active===false AÇIKÇA reddediliyor.
+            if (user[0].is_active === false) {
+                return null;
+            }
             role = user[0].role; // 'admin' veya 'teacher' vb
             app_roles = user[0].app_roles;
             class_teacher_of = user[0].class_teacher_of; // Deneliz'in sütunu — yalnızca OKUNUR, yazılmaz
@@ -771,9 +777,13 @@ exports.updatePassword = async (req, res) => {
             return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
         }
 
+        // YENİ: password ile BİRLİKTE password_hash de yazılır (hashPassword) — ikisi her zaman
+        // aynı şifreyi yansıtsın, düz metnin ileride silinmesi için zemin hazırlanır.
+        const newPasswordHash = await hashPassword(newPassword);
+
         const { error: updateErr } = await supabase
             .from('users')
-            .update({ password: newPassword, reset_code: null, reset_expires: null })
+            .update({ password: newPassword, password_hash: newPasswordHash, reset_code: null, reset_expires: null })
             .eq('id', user.id);
 
         if (updateErr) throw updateErr;
@@ -2556,8 +2566,13 @@ exports.saveTeacher = async (req, res) => {
                 app_roles: mergedRoles
             };
 
-            if (password && password.trim() !== '') {
+            // YENİ: şifre gönderildiyse password ile BİRLİKTE password_hash de yazılır
+            // (hashPassword) — ikisi her zaman aynı şifreyi yansıtsın. Gönderilmediyse
+            // ikisine de dokunulmaz.
+            const passwordChanged = !!(password && password.trim() !== '');
+            if (passwordChanged) {
                 updateData.password = password;
+                updateData.password_hash = await hashPassword(password);
             }
 
             if (classTeacherOfToWrite !== undefined) {
@@ -2569,7 +2584,7 @@ exports.saveTeacher = async (req, res) => {
                 .eq('id', id);
 
             if (updateError) throw updateError;
-            return res.json({ status: 'success', message: 'Öğretmen başarıyla güncellendi.' });
+            return res.json({ status: 'success', message: 'Öğretmen başarıyla güncellendi.', passwordChanged });
 
         } else {
             // YENİ EKLEME İŞLEMİ
@@ -2583,6 +2598,7 @@ exports.saveTeacher = async (req, res) => {
                 email: email || null,
                 phone: phone || null,
                 password: password,
+                password_hash: await hashPassword(password),
                 app_roles: appRolesPayload
             };
 

@@ -304,7 +304,7 @@ async function runLendingPhotoConfirmation(data) {
         const response = await fetch('/api/kitapVerPreflight', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: data.schoolCode, schoolPass: data.schoolPass, barkod: data.barkod, ogrNo: data.ogrNo })
+            body: JSON.stringify({ schoolCode: data.schoolCode, barkod: data.barkod, ogrNo: data.ogrNo })
         });
         const result = await response.json();
 

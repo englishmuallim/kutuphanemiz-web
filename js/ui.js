@@ -64,7 +64,7 @@ window.onKtSessionExpired = function () {
 
     clearKtSessionStorage();
 
-    Swal.fire({ icon: 'info', title: 'Oturumunuz sona erdi', text: 'Lütfen tekrar giriş yapın.' }).then(() => {
+    Swal.fire({ icon: 'info', title: 'Oturumunuz sona erdi', text: 'Süre dolmuş ya da şifreniz değiştirilmiş olabilir. Lütfen tekrar giriş yapın.' }).then(() => {
         showLoginScreen();
     });
 };
@@ -884,7 +884,13 @@ window.saveTeacherForm = async function () {
 
     const res = await saveTeacher(payload); // api-client.js'deki fonksiyon
     if (res.status === 'success') {
-        alert(res.message || "İşlem başarılı.");
+        // YENİ: şifre de değiştirildiyse (sunucu bunu passwordChanged ile bildirir), admini
+        // bu kullanıcının oturumunun düşeceği konusunda bilgilendir (SweetAlert2, native alert yok).
+        let successText = res.message || "İşlem başarılı.";
+        if (res.passwordChanged) {
+            successText += " Bu kullanıcının açık oturumu bir sonraki istekte sona erecek.";
+        }
+        await Swal.fire({ icon: 'success', title: 'Başarılı', text: successText });
         if (typeof closeTeacherFormModal === 'function') closeTeacherFormModal();
         tempSelectedClasses = [];
         tempClassTeacherOf = [];
