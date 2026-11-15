@@ -71,6 +71,11 @@ async function login() {
         const result = await response.json();
 
         if (result.status === 'success') {
+            // YENİ: bilet (ktToken) varsa sakla; yoksa (sır eksik vb.) mevcut bileti temizle.
+            // Şifre saklama/gönderme davranışı bu adımda AYNEN kalıyor — bu sadece ek bir
+            // saklama, mevcut akışı değiştirmiyor.
+            if (typeof setKtToken === 'function') setKtToken(result.ktToken);
+
             localStorage.setItem("okul_ismi", result.schoolName);
             localStorage.setItem("kutuphane_user", result.userName);
             localStorage.setItem("user_role", result.role);

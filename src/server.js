@@ -8,8 +8,18 @@ const { ktAuthContextMiddleware } = require('./middleware/ktAuthContext');
 const app = express();
 
 // --- MIDDLEWARE ---
-// Statik dosyaların klasörünü src/ dizininden bir üst dizine (kök dizine) ayarladık
-app.use(express.static(path.join(__dirname, '../')));
+// Statik dosyaların klasörünü src/ dizininden bir üst dizine (kök dizine) ayarladık.
+// YENİ: .js ve .html dosyaları için Cache-Control: no-cache — tarayıcı her seferinde
+// sunucuyla doğrulasın (ETag sayesinde içerik değişmediyse yine 304 döner, gereksiz
+// tam indirme olmaz) ki şifre/bilet akışına dokunan script güncellemeleri eski
+// sürümde asılı kalmasın. Diğer statik dosyalar (resimler vb.) etkilenmez.
+app.use(express.static(path.join(__dirname, '../'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js') || filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 // x-kt-token-refresh yanıt başlığı, istemci ileride ayrı bir origin'den servis edilirse
 // tarayıcı JS'inin okuyabilmesi için açıkça ifşa edilir (bugün aynı origin olduğundan
 // zorunlu değil, ileriye dönük önlem).

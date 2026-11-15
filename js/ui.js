@@ -17,6 +17,7 @@ function logout() {
     }).then((res) => {
         if (res.isConfirmed) {
             // 1. LocalStorage temizliği
+            if (typeof clearKtToken === 'function') clearKtToken(); // YENİ: bilet de temizlenir
             localStorage.removeItem("kutuphane_code");
             localStorage.removeItem("kutuphane_pass");
             localStorage.removeItem("beni_hatirla");
