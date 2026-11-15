@@ -2,14 +2,35 @@ const supabase = require('../api/supabase');
 const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo } = require('../utils/studentUtils');
 const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
 const { hashPassword, verifyPassword, isHashed } = require('../utils/passwordHash');
-const { isTokenAuthAvailable, signToken, verifyToken, shouldRefresh, extractKtToken } = require('../utils/sessionToken');
+const {
+    isTokenAuthAvailable, signToken, verifyToken, shouldRefresh, extractKtToken,
+    computeUserPv, computeDutyPv, secondsUntilEndOfIstanbulDay,
+} = require('../utils/sessionToken');
 const { getCurrentRequestContext } = require('../middleware/ktAuthContext');
 
 // =========================================================================
+// 🎫 BİLET ÖMRÜ SABİTLERİ — tek yerde adlandırılmış, ortam değişkeniyle ezilebilir.
+// Render'da (veya başka bir ortamda) bu değişkenleri tanımlamak ZORUNLU değildir —
+// hepsi kodda güvenli bir varsayılana sahiptir.
+// =========================================================================
+function _envSeconds(name, defaultSeconds) {
+    const raw = process.env[name];
+    const parsed = raw !== undefined ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultSeconds;
+}
+const PERSONNEL_SLIDING_TTL_SECONDS = _envSeconds('KT_PERSONNEL_TTL_SECONDS', 30 * 24 * 60 * 60); // 30 gün
+const PERSONNEL_MAX_AGE_SECONDS = _envSeconds('KT_PERSONNEL_MAX_AGE_SECONDS', 180 * 24 * 60 * 60); // 180 gün
+const DUTY_FIXED_SLIDING_TTL_SECONDS = _envSeconds('KT_DUTY_FIXED_TTL_SECONDS', 7 * 24 * 60 * 60); // 7 gün
+const DUTY_FIXED_MAX_AGE_SECONDS = _envSeconds('KT_DUTY_FIXED_MAX_AGE_SECONDS', 30 * 24 * 60 * 60); // 30 gün
+const DUTY_DAILY_INTRADAY_TTL_SECONDS = 12 * 60 * 60; // 12 saat (gün sonu kısası zaten ayrıca uygulanır)
+
+// =========================================================================
 // 🎫 BİLET YOLU — kullanıcı satırı önbelleği (uid -> {is_active, role, app_roles,
-// class_teacher_of, expiresAt}), en fazla 60 sn bayat. Bilet yolunda role/ktRole/
+// class_teacher_of, pv, expiresAt}), en fazla 60 sn bayat. Bilet yolunda role/ktRole/
 // ktClasses BİLETTEN değil, bu taze (<=60sn) satırdan hesaplanır — Deneliz'in
-// rol/sınıf değişiklikleri biletin ömrü boyunca gözden kaçmasın diye.
+// rol/sınıf değişiklikleri biletin ömrü boyunca gözden kaçmasın diye. YENİ: ham
+// password/password_hash DEĞERİ bu önbellekte ASLA tutulmaz — sadece onlardan
+// türetilen, tersine çevrilemez pv (parmak izi) tutulur.
 // =========================================================================
 const USER_AUTH_CACHE_TTL_MS = 60 * 1000;
 const USER_AUTH_CACHE_SWEEP_THRESHOLD = 5000;
@@ -31,18 +52,23 @@ async function getCachedUserAuthFields(uid) {
     // Hatalı/eksik sonuç ASLA önbelleğe yazılmaz. Yalnızca satır gerçekten yoksa (data null,
     // error yok) null dönüp 401'e izin veriyoruz.
     const { data, error } = await supabase.from('users')
-        .select('is_active, role, app_roles, class_teacher_of')
+        .select('is_active, role, app_roles, class_teacher_of, password, password_hash')
         .eq('id', uid)
         .maybeSingle();
 
     if (error) throw error;
     if (!data) return null;
 
+    // YENİ: pv burada, sorgu anında hesaplanır — data.password/data.password_hash
+    // (ham değerler) bu fonksiyonun DIŞINA asla çıkmaz, önbelleğe de yazılmaz.
+    const pv = computeUserPv(data);
+
     const entry = {
         is_active: data.is_active,
         role: data.role,
         app_roles: data.app_roles,
         class_teacher_of: data.class_teacher_of,
+        pv,
         expiresAt: now + USER_AUTH_CACHE_TTL_MS,
     };
 
@@ -144,13 +170,25 @@ async function getSchoolAuth(code, pass) {
             const verifyResult = verifyToken(incomingToken);
             if (verifyResult.ok && verifyResult.payload.sid === data.id) {
                 const payload = verifyResult.payload;
+                const isV2 = payload.v === 2;
                 let role, app_roles, class_teacher_of, ktRole, ktClasses;
+                let currentPv = null; // yenileme için yeniden kullanılır (iki kez hesaplamaya gerek yok
 
                 if (payload.uid) {
                     const fresh = await getCachedUserAuthFields(payload.uid);
                     if (!fresh || fresh.is_active === false) {
                         return null; // kullanıcı silinmiş veya pasife alınmış — reddet
                     }
+
+                    // YENİ: personel pv kontrolü — SADECE v2 biletlerde (v1/eski biletlerde
+                    // bu alan yok, kontrol atlanır — geriye dönük uyumluluk).
+                    if (isV2) {
+                        currentPv = fresh.pv;
+                        if (typeof payload.pv !== 'string' || payload.pv !== currentPv) {
+                            return null; // şifre (plaintext veya hash) değişmiş — bilet geçersiz
+                        }
+                    }
+
                     role = fresh.role;
                     app_roles = fresh.app_roles;
                     class_teacher_of = fresh.class_teacher_of;
@@ -165,12 +203,49 @@ async function getSchoolAuth(code, pass) {
                     class_teacher_of = null;
                     ktRole = payload.ktRole;
                     ktClasses = payload.ktClasses;
+
+                    // YENİ: nöbetçi pv + gün kontrolü — SADECE v2 biletlerde. kt_settings zaten
+                    // bu fonksiyonun başında taze okunmuş (data.kt_settings) — ekstra sorgu yok.
+                    if (isV2) {
+                        currentPv = computeDutyPv(data.kt_settings, payload.dutyVariant);
+                        if (currentPv === null || typeof payload.pv !== 'string' || payload.pv !== currentPv) {
+                            return null; // nöbetçi şifresi değişmiş/tanınmayan varyant — bilet geçersiz
+                        }
+                        if ((payload.dutyVariant === 'daily' || payload.dutyVariant === 'legacy_daily') && payload.d !== todayIstanbul()) {
+                            return null; // günlük bilet başka bir güne ait — kesin reddedilir
+                        }
+                    }
                 }
 
                 // Süresi yaklaşan bileti sessizce yenile (şifre gerekmez, aiat korunur).
+                // YENİ: pv/dutyVariant/d/hardExp/ttl, TAZE veriden (yukarıda zaten hesaplanan
+                // currentPv dahil) yeniden hesaplanıp yenilenen bilete işlenir — v1 (eski)
+                // biletler shouldRefresh() içinde zaten false döner, buraya hiç girmez.
                 if (isTokenAuthAvailable() && shouldRefresh(payload) && reqCtx.res) {
                     try {
-                        const refreshed = signToken({ sid: data.id, uid: payload.uid, role, ktRole, ktClasses, aiat: payload.aiat });
+                        const refreshClaims = { sid: data.id, uid: payload.uid, role, ktRole, ktClasses, aiat: payload.aiat };
+                        let signOptions;
+
+                        if (payload.uid) {
+                            refreshClaims.pv = currentPv;
+                            signOptions = { ttlSeconds: PERSONNEL_SLIDING_TTL_SECONDS, maxAgeSeconds: PERSONNEL_MAX_AGE_SECONDS };
+                        } else if (payload.dutyVariant === 'daily' || payload.dutyVariant === 'legacy_daily') {
+                            refreshClaims.pv = currentPv;
+                            refreshClaims.dutyVariant = payload.dutyVariant;
+                            refreshClaims.d = todayIstanbul();
+                            const endOfDaySeconds = secondsUntilEndOfIstanbulDay();
+                            signOptions = { ttlSeconds: Math.min(DUTY_DAILY_INTRADAY_TTL_SECONDS, endOfDaySeconds), hardExp: Math.floor(Date.now() / 1000) + endOfDaySeconds };
+                        } else if (payload.dutyVariant === 'fixed' || payload.dutyVariant === 'legacy_fixed') {
+                            refreshClaims.pv = currentPv;
+                            refreshClaims.dutyVariant = payload.dutyVariant;
+                            signOptions = { ttlSeconds: DUTY_FIXED_SLIDING_TTL_SECONDS, maxAgeSeconds: DUTY_FIXED_MAX_AGE_SECONDS };
+                        } else {
+                            // isV2 olmayan (v1) bir bilet buraya hiç girmemeli (shouldRefresh false),
+                            // ama savunma amaçlı: pv/hardExp olmadan eski tarz yenile.
+                            signOptions = {};
+                        }
+
+                        const refreshed = signToken(refreshClaims, signOptions);
                         reqCtx.res.set('x-kt-token-refresh', refreshed);
                     } catch (refreshErr) {
                         console.error('Bilet yenilenemedi:', refreshErr.message);
@@ -343,14 +418,21 @@ exports.login = async (req, res) => {
                 .single();
 
             let userName = "";
+            let dutyVariant = null;
             const settings = school.kt_settings || {};
 
+            // YENİ: dutyVariant, hangi kt_settings alanının eşleştiğini kaydeder — bilete
+            // işlenir ki getSchoolAuth her istekte doğru alanı (ve günlükse tarihi) karşı
+            // karşıya koyup pv'yi doğrulayabilsin.
             if (settings.fixed_staff_password && schoolPass === settings.fixed_staff_password) {
                 userName = settings.fixed_staff_name || "Sabit Görevli";
+                dutyVariant = 'fixed';
             } else if (settings.daily_staff_password && schoolPass === settings.daily_staff_password) {
                 userName = settings.daily_staff_names || "Nöbetçi Öğrenci";
+                dutyVariant = 'daily';
             } else if (settings.staff_password && schoolPass === settings.staff_password) {
                 userName = settings.staff_names || "Nöbetçi";
+                dutyVariant = settings.staff_pass_mode === 'daily' ? 'legacy_daily' : 'legacy_fixed';
             } else {
                 return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen tekrar deneyin.' });
             }
@@ -359,7 +441,20 @@ exports.login = async (req, res) => {
             let ktToken = null;
             if (isTokenAuthAvailable()) {
                 try {
-                    ktToken = signToken({ sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'] });
+                    const pv = computeDutyPv(settings, dutyVariant);
+                    if (dutyVariant === 'daily' || dutyVariant === 'legacy_daily') {
+                        const d = todayIstanbul();
+                        const endOfDaySeconds = secondsUntilEndOfIstanbulDay();
+                        ktToken = signToken(
+                            { sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant, d },
+                            { ttlSeconds: Math.min(DUTY_DAILY_INTRADAY_TTL_SECONDS, endOfDaySeconds), hardExp: Math.floor(Date.now() / 1000) + endOfDaySeconds }
+                        );
+                    } else {
+                        ktToken = signToken(
+                            { sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant },
+                            { ttlSeconds: DUTY_FIXED_SLIDING_TTL_SECONDS, maxAgeSeconds: DUTY_FIXED_MAX_AGE_SECONDS }
+                        );
+                    }
                 } catch (ticketErr) {
                     console.error('Bilet üretilemedi (duty):', ticketErr.message);
                 }
@@ -458,13 +553,20 @@ exports.login = async (req, res) => {
                 const ktRole = appRoles.kutuphanemiz?.role;
 
                 // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
+                // YENİ: pv, user'ın password/password_hash'inden türetilir (ham değer bilete
+                // GİRMEZ, sadece HMAC özeti); PERSONNEL_* sabitleriyle imzalanır (sliding 30g,
+                // mutlak 180g).
                 const makeTicket = (role, ktRoleForTicket, ktClassesForTicket) => {
                     if (!isTokenAuthAvailable()) {
                         _warnSessionSecretMissingOnce();
                         return null;
                     }
                     try {
-                        return signToken({ sid: school.id, uid: user.id, role, ktRole: ktRoleForTicket, ktClasses: ktClassesForTicket });
+                        const pv = computeUserPv(user);
+                        return signToken(
+                            { sid: school.id, uid: user.id, role, ktRole: ktRoleForTicket, ktClasses: ktClassesForTicket, pv },
+                            { ttlSeconds: PERSONNEL_SLIDING_TTL_SECONDS, maxAgeSeconds: PERSONNEL_MAX_AGE_SECONDS }
+                        );
                     } catch (ticketErr) {
                         console.error('Bilet üretilemedi (staff):', ticketErr.message);
                         return null;
