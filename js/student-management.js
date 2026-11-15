@@ -1,7 +1,9 @@
 // Öğrenci İşlemleri (Geniş Ekran) sayfası - bağımsız script.
 // index.html'in js/api-client.js ve js/ui.js dosyalarına kasıtlı olarak bağımlı DEĞİL
-// (onlar o sayfaya özel DOM id'lerine sıkı bağlı). Kimlik doğrulama deseni aynı:
-// localStorage.kutuphane_code / kutuphane_pass her istekte body'ye eklenir.
+// (onlar o sayfaya özel DOM id'lerine sıkı bağlı). js/ktAuth.js'e (bağımsız, paylaşılan
+// yardımcı) bağımlı — kimlik doğrulama artık oturum bileti (kutuphane_token) ile
+// yapılıyor; yalnızca magic_legacy modunda (checkMagicToken, kendi adımına kadar
+// bilet üretmiyor) eski şifre tabanlı davranış istisna olarak sürüyor.
 
 let currentStudentsById = new Map();
 let lastSearchParams = null;
@@ -9,8 +11,12 @@ let lastSearchParams = null;
 // --- Başlangıç / Kimlik Doğrulama ---
 document.addEventListener('DOMContentLoaded', async () => {
     const code = localStorage.getItem('kutuphane_code');
-    const pass = localStorage.getItem('kutuphane_pass');
-    if (!code || !pass) {
+    const hasToken = typeof getKtToken === 'function' && !!getKtToken();
+    const isMagicLegacy = typeof isMagicLegacyMode === 'function' && isMagicLegacyMode();
+    const hasLegacyPass = !!localStorage.getItem('kutuphane_pass');
+
+    // Normal oturumda bilet yeterli; magic_legacy modunda (bilet yok) eski şifre kabul edilir.
+    if (!code || !(hasToken || (isMagicLegacy && hasLegacyPass))) {
         redirectToLogin();
         return;
     }
@@ -54,10 +60,10 @@ function closePage() {
 }
 
 function getAuthPayload() {
-    return {
-        schoolCode: localStorage.getItem('kutuphane_code'),
-        schoolPass: localStorage.getItem('kutuphane_pass')
-    };
+    // Merkezi yardımcı js/ktAuth.js'te — normal oturumda sadece schoolCode döner
+    // (bilet zaten fetch sarmalayıcısı tarafından x-kt-token başlığına ekleniyor);
+    // yalnızca magic_legacy modunda (bilet yok) eski schoolPass istisnası eklenir.
+    return (typeof ktAuthFields === 'function') ? ktAuthFields() : { schoolCode: localStorage.getItem('kutuphane_code') };
 }
 
 function escapeHtmlText(value) {
@@ -1026,13 +1032,11 @@ async function saveStudentPhoto() {
 
     Swal.fire({ title: 'Kaydediliyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
     try {
-        const auth = getAuthPayload();
         const res = await fetch('/api/uploadStudentPhoto', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/octet-stream',
-                'x-school-code': auth.schoolCode,
-                'x-school-pass': auth.schoolPass,
+                ...(typeof ktAuthHeaderFields === 'function' ? ktAuthHeaderFields() : { 'x-school-code': localStorage.getItem('kutuphane_code') }),
                 'x-student-id': photoModalStudentId
             },
             body: pendingPhotoBlob
@@ -1296,7 +1300,7 @@ async function confirmAndRunBulkPhotoUpload(summary) {
 }
 
 // Tek bir dosyayı yükler; 429/5xx/ağ hatasında kısa bir bekleme sonrası 1 kez yeniden dener.
-async function uploadStudentPhotoWithRetry(auth, studentId, blob) {
+async function uploadStudentPhotoWithRetry(studentId, blob) {
     const attempt = async () => {
         let res;
         try {
@@ -1304,8 +1308,7 @@ async function uploadStudentPhotoWithRetry(auth, studentId, blob) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/octet-stream',
-                    'x-school-code': auth.schoolCode,
-                    'x-school-pass': auth.schoolPass,
+                    ...(typeof ktAuthHeaderFields === 'function' ? ktAuthHeaderFields() : { 'x-school-code': localStorage.getItem('kutuphane_code') }),
                     'x-student-id': studentId
                 },
                 body: blob
@@ -1361,7 +1364,6 @@ async function runBulkPhotoUpload(summary) {
     };
     updateProgress();
 
-    const auth = getAuthPayload();
     let nextIndex = 0;
 
     async function worker() {
@@ -1375,7 +1377,7 @@ async function runBulkPhotoUpload(summary) {
             try {
                 const rawBlob = await item.entry.async('blob');
                 const resizedBlob = await resizeImageToJpegBlob(rawBlob, 300, 400, 0.85);
-                await uploadStudentPhotoWithRetry(auth, item.studentId, resizedBlob);
+                await uploadStudentPhotoWithRetry(item.studentId, resizedBlob);
                 uploadedCount++;
                 if (item.hadPhoto) overwrittenCount++;
             } catch (err) {

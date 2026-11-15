@@ -7,6 +7,37 @@ window.addEventListener('load', () => {
     }, 2800);
 });
 
+// --- YENİ: oturum temizliği/ekran sıfırlama, birden fazla akış (logout, sessiz
+// yükseltme başarısızlığı, /api/session 401'i, onKtSessionExpired) tarafından
+// paylaşılıyor ki tek bir yerde tutarlı kalsın. ---
+function clearKtSessionStorage() {
+    if (typeof clearKtToken === 'function') clearKtToken(); // bilet
+    localStorage.removeItem("kutuphane_code");
+    localStorage.removeItem("kutuphane_pass");
+    localStorage.removeItem("beni_hatirla");
+    localStorage.removeItem("okul_ismi");
+    localStorage.removeItem("kutuphane_identity");
+    localStorage.removeItem("kutuphane_user");
+    localStorage.removeItem("kutuphane_login_type");
+    localStorage.removeItem("kutuphane_auth_mode"); // YENİ: magic_legacy bayrağı
+}
+
+function showLoginScreen() {
+    document.getElementById("dashboard").classList.add("hidden");
+    document.getElementById("login-screen").classList.remove("hidden");
+    document.getElementById("schoolCode").value = "";
+    document.getElementById("schoolPass").value = "";
+    document.getElementById("teacherIdentity").value = "";
+    document.getElementById("beniHatirla").checked = false;
+}
+
+// Onay DIYALOĞU OLMADAN temiz çıkış — sessiz yükseltme başarısız olduğunda veya
+// açılıştaki /api/session 401 döndüğünde kullanılır (hiçbir toast göstermez).
+function performCleanLogout() {
+    clearKtSessionStorage();
+    showLoginScreen();
+}
+
 function logout() {
     Swal.fire({
         title: 'Çıkış?',
@@ -16,51 +47,176 @@ function logout() {
         cancelButtonText: 'Hayır'
     }).then((res) => {
         if (res.isConfirmed) {
-            // 1. LocalStorage temizliği
-            if (typeof clearKtToken === 'function') clearKtToken(); // YENİ: bilet de temizlenir
-            localStorage.removeItem("kutuphane_code");
-            localStorage.removeItem("kutuphane_pass");
-            localStorage.removeItem("beni_hatirla");
-            localStorage.removeItem("okul_ismi");
-            localStorage.removeItem("kutuphane_identity");
-            localStorage.removeItem("kutuphane_user");
-            localStorage.removeItem("kutuphane_login_type");
-
-            // 2. SPA Mimarisi: Sayfayı yenilemek yerine sadece UI'ı değiştiriyoruz
-            document.getElementById("dashboard").classList.add("hidden");
-            document.getElementById("login-screen").classList.remove("hidden");
-
-            // 3. Giriş formunu sıfırlama
-            document.getElementById("schoolCode").value = "";
-            document.getElementById("schoolPass").value = "";
-            document.getElementById("teacherIdentity").value = "";
-            document.getElementById("beniHatirla").checked = false;
+            performCleanLogout();
         }
     });
 }
 
-window.onload = function () {
+// YENİ: ktAuth.js, bilet EKLENMİŞ bir istek 401 dönerse (login/magic-login zaten
+// muaf) bu kancayı çağırır — açılıştaki /api/session kontrolü bu kancayı kendi
+// isteğinde bilerek bastırır (__ktSuppressSessionExpired), çünkü kendi 401 yönetimini
+// (sessiz, toast'suz) zaten kendisi yapar. Tek seferlik: aynı sayfa yüklemesinde
+// tekrar tekrar gösterilmez. ÖNCE bilet/eski anahtarlar silinir (uyarı açıkken yeni
+// istekler eski bileti tekrar göndermesin), SONRA bildirim gösterilir.
+window.onKtSessionExpired = function () {
+    if (window.__ktSessionExpiredShown) return;
+    window.__ktSessionExpiredShown = true;
+
+    clearKtSessionStorage();
+
+    Swal.fire({ icon: 'info', title: 'Oturumunuz sona erdi', text: 'Lütfen tekrar giriş yapın.' }).then(() => {
+        showLoginScreen();
+    });
+};
+
+// YENİ: eski oturumdan kalma şifre (kutuphane_pass) var ama bilet yoksa, saklı
+// kimlik/giriş türüyle login()'i SESSİZCE bir kez çağırıp bilet almayı dener.
+// Başarılıysa login() zaten kutuphane_pass'ı silmiştir (burada tekrar silinir,
+// savunma amaçlı); başarısızsa (ör. şifre artık geçersiz, kullanıcı pasif) hiçbir
+// toast göstermeden temiz çıkış yapılır.
+async function silentUpgrade() {
+    const loginType = localStorage.getItem("kutuphane_login_type") || 'duty';
+    const identity = localStorage.getItem("kutuphane_identity");
+
+    if (loginType === 'staff' && !identity) {
+        performCleanLogout();
+        return;
+    }
+
     const savedCode = localStorage.getItem("kutuphane_code");
     const savedPass = localStorage.getItem("kutuphane_pass");
-    const savedIdentity = localStorage.getItem("kutuphane_identity");
-    const savedLoginType = localStorage.getItem("kutuphane_login_type");
 
-    if (savedCode && savedPass) {
-        document.getElementById("schoolCode").value = savedCode;
-        document.getElementById("schoolPass").value = savedPass;
-        document.getElementById("beniHatirla").checked = (localStorage.getItem("beni_hatirla") === "true");
-
-        if (savedLoginType === 'staff') {
-            if (typeof switchLoginTab === 'function') switchLoginTab('staff');
-            if (savedIdentity) document.getElementById("teacherIdentity").value = savedIdentity;
-        }
-
-        if (localStorage.getItem("okul_ismi")) {
-            document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
-        }
-
-        login();
+    document.getElementById("schoolCode").value = savedCode || "";
+    document.getElementById("schoolPass").value = savedPass || "";
+    document.getElementById("beniHatirla").checked = (localStorage.getItem("beni_hatirla") === "true");
+    window.currentLoginType = loginType;
+    if (loginType === 'staff') {
+        if (typeof switchLoginTab === 'function') switchLoginTab('staff');
+        document.getElementById("teacherIdentity").value = identity;
     }
+
+    const ok = await login({ silent: true });
+    if (ok) {
+        localStorage.removeItem("kutuphane_pass");
+    } else {
+        performCleanLogout();
+    }
+}
+
+window.onload = async function () {
+    // 1. ?bilet= varsa (sihirli giriş) hiçbir şey yapma — checkMagicToken kendi akışını yürütür.
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('bilet')) {
+        return;
+    }
+
+    // 2. magic_legacy bayrağı varsa: ESKİ davranış aynen sürer (şifre tabanlı, bu
+    // adımda DEĞİŞMEYEN akış) — /api/session hiç denenmez.
+    if (typeof isMagicLegacyMode === 'function' && isMagicLegacyMode()) {
+        const savedCode = localStorage.getItem("kutuphane_code");
+        const savedPass = localStorage.getItem("kutuphane_pass");
+        const savedIdentity = localStorage.getItem("kutuphane_identity");
+        const savedLoginType = localStorage.getItem("kutuphane_login_type");
+
+        if (savedCode && savedPass) {
+            document.getElementById("schoolCode").value = savedCode;
+            document.getElementById("schoolPass").value = savedPass;
+            document.getElementById("beniHatirla").checked = (localStorage.getItem("beni_hatirla") === "true");
+
+            if (savedLoginType === 'staff') {
+                if (typeof switchLoginTab === 'function') switchLoginTab('staff');
+                if (savedIdentity) document.getElementById("teacherIdentity").value = savedIdentity;
+            }
+
+            if (localStorage.getItem("okul_ismi")) {
+                document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
+            }
+
+            await login();
+        }
+        return;
+    }
+
+    const token = (typeof getKtToken === 'function') ? getKtToken() : null;
+    const savedCode = localStorage.getItem("kutuphane_code");
+
+    // 3. Bilet + okul kodu varsa -> /api/session ile doğrula, arayüzü oradan kur.
+    if (token && savedCode) {
+        document.getElementById("schoolCode").value = savedCode;
+
+        try {
+            const res = await fetch('/api/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolCode: savedCode }),
+                __ktSuppressSessionExpired: true // bu istek kendi 401 yönetimini kendisi yapar
+            });
+
+            if (res.status === 401) {
+                // YENİ: Bilet geçersiz/süresi dolmuş. magic_legacy DEĞİLSE ve eski
+                // şifre hâlâ saklıysa, önce bozuk bileti sil ve sessiz yükseltmeyi
+                // dene (silentUpgrade kendi içinde başarısızlıkta zaten temiz çıkış
+                // yapar, tekrar denemez). Aksi halde eski davranış: sessiz temiz
+                // çıkış, toast YOK (bu "ilk yükleme" senaryosu).
+                const legacyPassForRetry = localStorage.getItem("kutuphane_pass");
+                const isMagicLegacy = (typeof isMagicLegacyMode === 'function') && isMagicLegacyMode();
+                if (!isMagicLegacy && legacyPassForRetry) {
+                    if (typeof clearKtToken === 'function') clearKtToken();
+                    await silentUpgrade();
+                } else {
+                    performCleanLogout();
+                }
+                return;
+            }
+
+            const result = await res.json();
+
+            if (result.status === 'success') {
+                // YENİ: Bilet geçerliliğini doğruladı — magic_legacy DEĞİLSE artık
+                // gereksiz hale gelen eski şifreyi sakladığımız anahtarı sil
+                // (magic_legacy akışı hâlâ şifre tabanlı, kendi adımı var).
+                if (!((typeof isMagicLegacyMode === 'function') && isMagicLegacyMode())) {
+                    localStorage.removeItem("kutuphane_pass");
+                }
+                if (localStorage.getItem("okul_ismi")) {
+                    document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
+                }
+                if (typeof setupDashboardUI === 'function') setupDashboardUI(result);
+            } else {
+                // 500 vb. (lisans iptali, DB hatası) -> bilet SİLİNMEZ, giriş ekranında kal.
+                if (result.isLicenseError) {
+                    Swal.fire({
+                        title: 'Lisans Süresi Doldu',
+                        html: result.message,
+                        icon: 'warning',
+                        confirmButtonText: 'Tamam',
+                        confirmButtonColor: '#ea580c',
+                        background: '#1e293b',
+                        color: '#f8fafc',
+                        iconColor: '#f59e0b'
+                    });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Hata', text: result.message || 'Oturum doğrulanamadı.' });
+                }
+            }
+        } catch (networkErr) {
+            // Ağ hatası -> bileti SİLME, giriş ekranında kal, tek seferlik toast.
+            if (!window.__ktNetworkErrorShown) {
+                window.__ktNetworkErrorShown = true;
+                Swal.fire({ icon: 'warning', title: 'Sunucuya ulaşılamadı', text: 'Sayfayı yenileyin.' });
+            }
+        }
+        return;
+    }
+
+    // 4. Bilet yok ama eski oturumdan kalma şifre varsa -> sessiz yükseltme.
+    const savedPass = localStorage.getItem("kutuphane_pass");
+    if (!token && savedCode && savedPass) {
+        await silentUpgrade();
+        return;
+    }
+
+    // 5. Hiçbiri yok -> giriş ekranında bekle (değişiklik yok).
 };
 
 window.currentLoginType = 'duty';
@@ -400,15 +556,13 @@ let classTeacherOfDirty = false;
 
 // 2. Öğretmenleri Getir ve Tabloya Çiz
 async function loadTeachersList() {
-    const codeEl = document.getElementById('schoolCode');
-    const passEl = document.getElementById('schoolPass');
+    // YENİ: şifre artık ne #schoolPass alanında ne localStorage'da duruyor — oturum
+    // bileti x-kt-token başlığıyla (ktAuth.js sarmalayıcısı) zaten taşınıyor. Tek
+    // gereken, okul kodunun (kimlik bilgisi değil) mevcut olması.
+    const codeValue = localStorage.getItem('kutuphane_code');
+    if (!codeValue) return;
 
-    const codeValue = codeEl ? codeEl.value : "";
-    const passValue = passEl ? passEl.value : "";
-
-    if (!codeValue || !passValue) return;
-
-    const res = await fetchTeachers(codeValue, passValue);
+    const res = await fetchTeachers();
     if (res.status === 'success') {
         window.currentTeachersList = res.data;
 
@@ -743,8 +897,7 @@ window.saveTeacherForm = async function () {
     else finalClasses = tempSelectedClasses;
 
     const payload = {
-        schoolCode: getVal('schoolCode'),
-        schoolPass: getVal('schoolPass'),
+        ...ktAuthFields(),
         id: id || null,
         fullName,
         username, // Payload'a eklendi
@@ -786,8 +939,7 @@ window.deleteTeacherForm = async function () {
     }
 
     const payload = {
-        schoolCode: document.getElementById('schoolCode').value,
-        schoolPass: document.getElementById('schoolPass').value,
+        ...ktAuthFields(),
         id: id
     };
 
@@ -825,14 +977,11 @@ window.searchBookForEdit = async function () {
     const query = document.getElementById('bookSearchInput').value.trim();
     if (query.length < 2) return alert("Aramak için en az 2 karakter girmelisiniz.");
 
-    const code = document.getElementById('schoolCode').value;
-    const pass = document.getElementById('schoolPass').value;
-
     const resultsArea = document.getElementById('bookSearchResults');
     resultsArea.innerHTML = '<div style="padding:10px; color:#6b7280; text-align:center;">Arama yapılıyor...</div>';
 
     // Bu fonksiyonu Agent api-client.js içine yazacak
-    const res = await searchBooksAPI({ schoolCode: code, schoolPass: pass, query: query });
+    const res = await searchBooksAPI({ ...ktAuthFields(), query: query });
 
     if (res.status === 'success') {
         window.foundBooksList = res.data;
@@ -882,8 +1031,7 @@ window.selectBookForEdit = function (id) {
 // 3. Değişiklikleri Kaydet
 window.saveBookEdit = async function () {
     const payload = {
-        schoolCode: document.getElementById('schoolCode').value,
-        schoolPass: document.getElementById('schoolPass').value,
+        ...ktAuthFields(),
         id: document.getElementById('editB_id').value,
         barcode: document.getElementById('editB_barcode').value.trim(),
         book_name: document.getElementById('editB_name').value.trim(),
@@ -920,8 +1068,7 @@ window.deleteBookEdit = async function () {
     if (!confirm(`⚠️ "${name}" isimli kitabı kütüphaneden TAMAMEN silmek istediğinize emin misiniz?`)) return;
 
     const payload = {
-        schoolCode: document.getElementById('schoolCode').value,
-        schoolPass: document.getElementById('schoolPass').value,
+        ...ktAuthFields(),
         id: document.getElementById('editB_id').value
     };
 

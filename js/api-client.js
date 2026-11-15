@@ -7,10 +7,8 @@
 let requirePhotoConfirmEnabled = true;
 
 async function loadClasses() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     try {
-        const res = await fetch('/api/getClasses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const res = await fetch('/api/getClasses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ktAuthFields() }) });
         const r = await res.json();
         if (r.status === 'success' && r.data) {
             const setDatalistOptions = (selector, values) => {
@@ -43,7 +41,30 @@ async function loadClasses() {
     } catch (error) { console.error("Sınıflar yüklenirken hata oluştu:", error); }
 }
 
-async function login() {
+// setupDashboardUI: başarılı girişten (login() veya açılıştaki /api/session doğrulamasından)
+// sonra ortak arayüz kurulumu. result: { schoolName, role, kt_role, kt_classes }.
+function setupDashboardUI(result) {
+    localStorage.setItem("okul_ismi", result.schoolName);
+    if (result.userName !== undefined) localStorage.setItem("kutuphane_user", result.userName);
+    localStorage.setItem("user_role", result.role);
+    localStorage.setItem("kt_role", result.kt_role || result.role);
+    localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
+    document.getElementById("headerTitle").innerText = result.schoolName;
+
+    if (typeof applyPermissions === 'function') applyPermissions();
+
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("dashboard").classList.remove("hidden");
+    getStats(); getOverdueBooks(); loadClasses(); getLeaderboard();
+    loadBookSuggestions();
+    if (typeof loadSettings === 'function') loadSettings(); // Header'daki okul logosunu erkenden yükle
+}
+
+// login(options): options.silent true ise (sessiz yükseltme, bkz. js/ui.js) hiçbir
+// SweetAlert2 bildirimi göstermez (başarı toastu da, hata toastu da). Geriye başarı
+// durumunda true, başarısızlıkta false döner — çağıran taraf buna göre karar verir.
+async function login(options) {
+    const silent = !!(options && options.silent);
     const code = document.getElementById("schoolCode").value;
     const pass = document.getElementById("schoolPass").value;
     const identity = document.getElementById("teacherIdentity").value;
@@ -53,12 +74,15 @@ async function login() {
     const loginType = window.currentLoginType || 'duty';
 
     if (!code || !pass || (loginType === 'staff' && !identity)) {
-        Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen tüm giriş bilgilerini doldurun' });
-        return;
+        if (!silent) Swal.fire({ icon: 'warning', title: 'Eksik', text: 'Lütfen tüm giriş bilgilerini doldurun' });
+        return false;
     }
-    btn.innerText = "Giriş yapılıyor.."; btn.disabled = true;
+    if (btn) { btn.innerText = "Giriş yapılıyor.."; btn.disabled = true; }
 
     try {
+        // ÖNEMLİ: login() KENDİSİ giriş anında girilen gerçek şifreyi (form alanından)
+        // sunucuya göndermek ZORUNDADIR — bilet almanın tek yolu bu. ktAuthFields()
+        // burada KULLANILMAZ (o, oturum KURULDUKTAN SONRAKİ istekler içindir).
         const payload = { schoolCode: code, schoolPass: pass, loginType: loginType };
         if (loginType === 'staff') {
             const identityInput = document.getElementById('teacherIdentity');
@@ -72,64 +96,62 @@ async function login() {
 
         if (result.status === 'success') {
             // YENİ: bilet (ktToken) varsa sakla; yoksa (sır eksik vb.) mevcut bileti temizle.
-            // Şifre saklama/gönderme davranışı bu adımda AYNEN kalıyor — bu sadece ek bir
-            // saklama, mevcut akışı değiştirmiyor.
             if (typeof setKtToken === 'function') setKtToken(result.ktToken);
 
-            localStorage.setItem("okul_ismi", result.schoolName);
-            localStorage.setItem("kutuphane_user", result.userName);
-            localStorage.setItem("user_role", result.role);
-            localStorage.setItem("kt_role", result.kt_role || result.role);
-            localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
-            document.getElementById("headerTitle").innerText = result.schoolName;
-
+            // YENİ: şifre ARTIK localStorage'a yazılmıyor (ne remember'lı ne de normal
+            // dalda) — yalnızca schoolCode ve "beni hatırla" ile ilgili anahtarlar yazılır.
+            localStorage.setItem("kutuphane_code", code);
             if (remember) {
-                localStorage.setItem("kutuphane_code", code);
-                localStorage.setItem("kutuphane_pass", pass);
                 localStorage.setItem("beni_hatirla", "true");
-
                 if (loginType === 'staff') localStorage.setItem("kutuphane_identity", identity.trim());
                 localStorage.setItem("kutuphane_login_type", loginType);
             } else {
-                localStorage.setItem("kutuphane_code", code);
-                localStorage.setItem("kutuphane_pass", pass);
                 localStorage.removeItem("beni_hatirla");
                 localStorage.removeItem("kutuphane_identity");
                 localStorage.removeItem("kutuphane_login_type");
             }
 
-            // Gerekli yetkilendirmeleri yap:
-            if (typeof applyPermissions === 'function') applyPermissions();
+            // YENİ: başarılı (gerçek) girişte magic_legacy bayrağı ve varsa eski şifre
+            // kalıntısı temizlenir; tek-seferlik "oturum sona erdi" bayrağı sıfırlanır ki
+            // bu YENİ oturumda bir 401 geldiğinde toast tekrar gösterilebilsin.
+            localStorage.removeItem("kutuphane_auth_mode");
+            localStorage.removeItem("kutuphane_pass");
+            window.__ktSessionExpiredShown = false;
+            document.getElementById("schoolPass").value = "";
 
-            Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
-            document.getElementById("login-screen").classList.add("hidden");
-            document.getElementById("dashboard").classList.remove("hidden");
-            getStats(); getOverdueBooks(); loadClasses(); getLeaderboard();
-            loadBookSuggestions();
-            if (typeof loadSettings === 'function') loadSettings(); // Header'daki okul logosunu erkenden yükle
+            setupDashboardUI(result);
+
+            if (!silent) {
+                Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
+            }
+            return true;
 
         } else {
-            // 🛑 İŞTE BÜYÜNÜN GERÇEKLEŞTİĞİ YER: LİSANS HATASI KONTROLÜ
-            if (result.isLicenseError) {
-                Swal.fire({
-                    title: 'Lisans Süresi Doldu',
-                    html: result.message, // 'text' yerine 'html' kullanıyoruz ki etiketler çalışsın
-                    icon: 'warning',
-                    confirmButtonText: 'Tamam',
-                    confirmButtonColor: '#ea580c',
-                    background: '#1e293b',
-                    color: '#f8fafc',
-                    iconColor: '#f59e0b'
-                });
-            } else {
-                // Normal şifre/kullanıcı hataları için
-                Swal.fire({ icon: 'error', title: 'Giriş Başarısız', text: result.message });
+            if (!silent) {
+                // 🛑 İŞTE BÜYÜNÜN GERÇEKLEŞTİĞİ YER: LİSANS HATASI KONTROLÜ
+                if (result.isLicenseError) {
+                    Swal.fire({
+                        title: 'Lisans Süresi Doldu',
+                        html: result.message, // 'text' yerine 'html' kullanıyoruz ki etiketler çalışsın
+                        icon: 'warning',
+                        confirmButtonText: 'Tamam',
+                        confirmButtonColor: '#ea580c',
+                        background: '#1e293b',
+                        color: '#f8fafc',
+                        iconColor: '#f59e0b'
+                    });
+                } else {
+                    // Normal şifre/kullanıcı hataları için
+                    Swal.fire({ icon: 'error', title: 'Giriş Başarısız', text: result.message });
+                }
             }
+            return false;
         }
     } catch (error) {
-        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuyla iletişim kurulamadı. Lütfen internet bağlantınızı kontrol edin.' });
+        if (!silent) Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuyla iletişim kurulamadı. Lütfen internet bağlantınızı kontrol edin.' });
+        return false;
     } finally {
-        btn.innerText = "Giriş Yap"; btn.disabled = false;
+        if (btn) { btn.innerText = "Giriş Yap"; btn.disabled = false; }
     }
 }
 
@@ -431,15 +453,13 @@ async function showPagesReadInput(bookName, maxPages) {
 // kimse takılı kalmasın; iş kuralı reddinde (örn. "zaten belirlenmiş") sadece bilgilendirip
 // kapatır — tekrar denemek aynı reddi vereceği için anlamsız.
 async function submitReadingStatus(transactionId, readingStatus, pagesRead) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     const handlerName = localStorage.getItem("kutuphane_user") || "Bilinmeyen Görevli";
 
     while (true) {
         try {
             const res = await fetch('/api/setReadingStatus', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schoolCode: code, schoolPass: pass, handlerName, transactionId, readingStatus, pagesRead })
+                body: JSON.stringify({ ...ktAuthFields(), handlerName, transactionId, readingStatus, pagesRead })
             });
             const result = await res.json();
             if (result.status !== 'success') {
@@ -528,9 +548,7 @@ async function promptReadingStatus(transactionId, bookName, bookPageCount) {
 }
 
 async function islemYap(actionType) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-    let data = { schoolCode: code, schoolPass: pass };
+    let data = { ...ktAuthFields() };
     // YENİ EKLENEN: İşlemi yapan kişinin ismini de backend'e gönder
     data.handlerName = localStorage.getItem("kutuphane_user") || "Bilinmeyen Görevli";
     let endpoint = actionType === 'kitapVer' ? "/api/kitapVer" : "/api/kitapAl";
@@ -577,8 +595,7 @@ async function islemYap(actionType) {
                 try {
                     // YENİ EKLENEN: Geri alma isteği (Agent'ın sildiği fetch kısmı)
                     const undoPayload = {
-                        schoolCode: code,
-                        schoolPass: pass,
+                        ...ktAuthFields(),
                         type: actionType === 'kitapVer' ? 'ver' : 'al',
                         bookCode: islemBarkod,
                         studentNo: islemOgrNo
@@ -629,11 +646,9 @@ async function sorgula(incomingType) {
     }
 
     resultArea.innerHTML = '<div style="text-align:center; padding:10px;">Aranıyor...</div>';
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
 
     try {
-        const response = await fetch('/api/sorgula', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass, query: query, type: searchType }) });
+        const response = await fetch('/api/sorgula', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ktAuthFields(), query: query, type: searchType }) });
         const res = await response.json();
         if (res.status === 'success') {
             let html = '';
@@ -728,9 +743,7 @@ async function sorgula(incomingType) {
 }
 
 async function kaydet(type) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-    let data = { schoolCode: code, schoolPass: pass };
+    let data = { ...ktAuthFields() };
     let endpoint = "";
 
     if (type === 'student') {
@@ -794,15 +807,13 @@ async function searchStudentForEdit() {
     const query = document.getElementById("studentSearchInput").value.trim();
     if (!query) return;
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     const resultsArea = document.getElementById("studentSearchResults");
     resultsArea.innerHTML = '<div style="text-align:center; padding:10px;">Aranıyor...</div>';
 
     try {
         const res = await fetch('/api/searchStudentsAdvanced', { // Backend'e yeni bir endpoint yazdıracağız
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, query: query })
+            body: JSON.stringify({ ...ktAuthFields(), query: query })
         });
         const r = await res.json();
 
@@ -831,11 +842,8 @@ function fillStudentEditForm(std) {
 
 // Bilgileri Kaydetme
 async function saveStudentEdit() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     const payload = {
-        schoolCode: code, schoolPass: pass,
+        ...ktAuthFields(),
         oldNo: document.getElementById("editS_oldNo").value,
         newNo: document.getElementById("editS_no").value,
         newName: document.getElementById("editS_name").value,
@@ -869,14 +877,11 @@ async function deleteStudentEdit() {
 
     if (!confirmed.isConfirmed) return;
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     Swal.fire({ title: 'Siliniyor...', didOpen: () => Swal.showLoading() });
     try {
         const res = await fetch('/api/archive', { // Mevcut arşivleme servisimizi kullanıyoruz
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, code: studentNo, type: 'student' })
+            body: JSON.stringify({ ...ktAuthFields(), code: studentNo, type: 'student' })
         });
         const r = await res.json();
         if (r.status === 'success') {
@@ -904,9 +909,6 @@ function closeStudentEditModal() {
 }
 
 async function getReport() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     const grdSelect = document.getElementById("reportGrade");
     const clsSelect = document.getElementById("reportClass");
     const monSelect = document.getElementById("reportMonth");
@@ -936,7 +938,7 @@ async function getReport() {
     try {
         const res = await fetch('/api/getReport', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: grd, filterClass: cls, filterMonth: mon })
+            body: JSON.stringify({ ...ktAuthFields(), filterGrade: grd, filterClass: cls, filterMonth: mon })
         });
         const r = await res.json();
         if (r.status === 'success') {
@@ -1104,9 +1106,6 @@ function printReadingReport() {
 
 // --- YENİ EKLENEN: Emanet Raporunu Çeken Fonksiyon ---
 async function getBorrowedReport() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     const grdSelect = document.getElementById("borrowedReportGrade");
     const clsSelect = document.getElementById("borrowedReportClass");
     const statSelect = document.getElementById("borrowedReportStatus");
@@ -1132,7 +1131,7 @@ async function getBorrowedReport() {
         const res = await fetch('/api/getBorrowedReport', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: grd, filterClass: cls, filterStatus: stat })
+            body: JSON.stringify({ ...ktAuthFields(), filterGrade: grd, filterClass: cls, filterStatus: stat })
         });
         const r = await res.json();
 
@@ -1234,18 +1233,14 @@ function printBorrowedReport() {
 }
 
 async function getStats() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     try {
-        const response = await fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const response = await fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ktAuthFields() }) });
         const res = await response.json();
         if (res.status === 'success') { document.getElementById("stat-kitap").innerText = res.data.kitap; document.getElementById("stat-ogrenci").innerText = res.data.ogrenci; document.getElementById("stat-emanet").innerText = res.data.emanet; }
     } catch (error) { }
 }
 
 async function showStatDetails(type) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     let title = type === 'emanet' ? 'Emanetteki Kitaplar' : (type === 'kitap' ? 'Tüm Kitaplar' : 'Kayıtlı Öğrenciler');
 
     Swal.fire({ title: 'Yükleniyor...', didOpen: () => Swal.showLoading() });
@@ -1254,7 +1249,7 @@ async function showStatDetails(type) {
         const response = await fetch('/api/statDetails', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, type: type })
+            body: JSON.stringify({ ...ktAuthFields(), type: type })
         });
         const res = await response.json();
 
@@ -1330,12 +1325,10 @@ async function getLeaderboard() {
         return;
     }
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     try {
         const response = await fetch('/api/getReport', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterGrade: 'ALL', filterClass: 'ALL', filterMonth: 'ALL' })
+            body: JSON.stringify({ ...ktAuthFields(), filterGrade: 'ALL', filterClass: 'ALL', filterMonth: 'ALL' })
         });
         const result = await response.json();
         if (result.status === 'success') {
@@ -1390,10 +1383,8 @@ async function getLeaderboard() {
 
 async function getOverdueBooks() {
     const listArea = document.getElementById("overdue-list");
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     try {
-        const response = await fetch('/api/overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const response = await fetch('/api/overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ktAuthFields() }) });
         const res = await response.json();
         if (res.status === 'success' && res.data.length > 0) {
 
@@ -1448,10 +1439,8 @@ async function loadBookSuggestions(query) {
 
 
 async function loadSettings() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     try {
-        const response = await fetch('/api/getSettings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schoolCode: code, schoolPass: pass }) });
+        const response = await fetch('/api/getSettings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ktAuthFields() }) });
         const res = await response.json();
         if (res.status === 'success') {
             const s = res.data || {};
@@ -1550,8 +1539,6 @@ function handleLogoFileSelect(event) {
 async function uploadPendingLogo() {
     if (!pendingLogoFile) return true; // Yüklenecek bir şey yoksa "başarılı" say
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     const file = pendingLogoFile;
     const ext = (file.name.split('.').pop() || 'png').toLowerCase();
 
@@ -1560,8 +1547,7 @@ async function uploadPendingLogo() {
             method: 'POST',
             headers: {
                 'Content-Type': file.type || 'application/octet-stream',
-                'X-School-Code': code,
-                'X-School-Pass': pass,
+                ...ktAuthHeaderFields(),
                 'X-File-Ext': ext
             },
             body: file
@@ -1585,8 +1571,6 @@ async function uploadPendingLogo() {
 
 // YENİ: Eğitim-Öğretim Yılı Kaydetme
 async function saveAcademicYear() {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     const yearSelect = document.getElementById("setting_academic_year");
     const academicYear = yearSelect ? yearSelect.value : "";
 
@@ -1600,7 +1584,7 @@ async function saveAcademicYear() {
         const res = await fetch('/api/updateAcademicYear', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, academicYear })
+            body: JSON.stringify({ ...ktAuthFields(), academicYear })
         });
         const result = await res.json();
 
@@ -1648,16 +1632,13 @@ async function startClassPromotion() {
 }
 
 async function requestClassPromotion(force) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     Swal.fire({ title: 'İşleniyor...', html: 'Öğrenciler güncelleniyor, lütfen bekleyin...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
     try {
         const res = await fetch('/api/promoteAllStudents', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, force: !!force })
+            body: JSON.stringify({ ...ktAuthFields(), force: !!force })
         });
         const result = await res.json();
 
@@ -1714,9 +1695,6 @@ if (typeof window !== 'undefined') {
 }
 
 async function saveSettings(type) {
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     let settingsPayload = {};
     if (type === 'general') {
         // YENİ: Ekrandaki Kural Satırlarını JSON Dizisine Çevirme Mantığı
@@ -1781,7 +1759,7 @@ async function saveSettings(type) {
         const res = await fetch('/api/updateSettings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, settings: settingsPayload })
+            body: JSON.stringify({ ...ktAuthFields(), settings: settingsPayload })
         });
         const result = await res.json();
 
@@ -1829,16 +1807,13 @@ async function addStaffStudent() {
     const no = document.getElementById("setting_staff_add_no").value.trim();
     if (!no) return;
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
-
     Swal.fire({ title: 'Aranıyor...', didOpen: () => Swal.showLoading() });
 
     try {
         const response = await fetch('/api/getStudentByNo', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, studentNo: no })
+            body: JSON.stringify({ ...ktAuthFields(), studentNo: no })
         });
         const res = await response.json();
 
@@ -1907,15 +1882,13 @@ async function loadLogs() {
     const listArea = document.getElementById("logs-list");
     listArea.innerHTML = '<div style="text-align:center;">Yükleniyor...</div>';
 
-    const code = localStorage.getItem("kutuphane_code");
-    const pass = localStorage.getItem("kutuphane_pass");
     const filterDate = document.getElementById("logDateFilter")?.value || null;
 
     try {
         const response = await fetch('/api/getLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, filterDate: filterDate })
+            body: JSON.stringify({ ...ktAuthFields(), filterDate: filterDate })
         });
         const res = await response.json();
 
@@ -2035,15 +2008,12 @@ async function changePassword() {
         return;
     }
 
-    const code = localStorage.getItem("kutuphane_code");
-    const sessionPass = localStorage.getItem("kutuphane_pass");
-
     Swal.fire({ title: 'Güncelleniyor...', didOpen: () => Swal.showLoading() });
     try {
         const res = await fetch('/api/changePassword', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: sessionPass, oldPassword: oldPass, newPassword: newPass })
+            body: JSON.stringify({ ...ktAuthFields(), oldPassword: oldPass, newPassword: newPass })
         });
         const result = await res.json();
 
@@ -2174,11 +2144,8 @@ function handleExcelUpload(event, type) {
                 return;
             }
 
-            const code = localStorage.getItem("kutuphane_code");
-            const pass = localStorage.getItem("kutuphane_pass");
             const payload = {
-                schoolCode: code,
-                schoolPass: pass,
+                ...ktAuthFields(),
                 data: mappedData,
                 updateExistingClass: !!document.getElementById('bulkImportUpdateClass')?.checked
             };
@@ -2343,9 +2310,6 @@ function handleBookExcelUpload(file, event) {
                 return;
             }
 
-            const code = localStorage.getItem("kutuphane_code");
-            const pass = localStorage.getItem("kutuphane_pass");
-
             // 2) Bu okulda (school_id) veritabanında zaten kayıtlı barkod var mı?
             Swal.fire({ title: 'Kontrol ediliyor...', html: 'Barkodlar kontrol ediliyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, allowEscapeKey: false });
 
@@ -2355,7 +2319,7 @@ function handleBookExcelUpload(file, event) {
                 checkRes = await fetch('/api/books/check-barcodes', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ schoolCode: code, schoolPass: pass, barcodes: allBarcodes })
+                    body: JSON.stringify({ ...ktAuthFields(), barcodes: allBarcodes })
                 });
             } catch (networkError) {
                 Swal.fire({ icon: 'error', title: 'Hata', text: 'Sunucuya bağlanırken bir hata oluştu. Hiçbir kitap eklenmedi.' });
@@ -2383,7 +2347,7 @@ function handleBookExcelUpload(file, event) {
             }
 
             // 3) Kontroller temiz: 500'lük parçalar halinde yükle.
-            await uploadBooksInChunks(items, code, pass);
+            await uploadBooksInChunks(items);
         } catch (error) {
             Swal.fire({ icon: 'error', title: 'Hata', text: 'Excel dosyası okunurken bir hata oluştu.' });
         } finally {
@@ -2393,7 +2357,7 @@ function handleBookExcelUpload(file, event) {
     reader.readAsArrayBuffer(file);
 }
 
-async function uploadBooksInChunks(items, code, pass) {
+async function uploadBooksInChunks(items) {
     const CHUNK_SIZE = 500;
     const totalCount = items.length;
     const insertedIds = [];
@@ -2417,17 +2381,17 @@ async function uploadBooksInChunks(items, code, pass) {
             res = await fetch('/api/books/bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: payloadItems })
+                body: JSON.stringify({ ...ktAuthFields(), data: payloadItems })
             });
         } catch (networkError) {
-            await finishFailedBookUpload(insertedIds, code, pass, 'Sunucuya bağlanırken bir hata oluştu.');
+            await finishFailedBookUpload(insertedIds, 'Sunucuya bağlanırken bir hata oluştu.');
             return;
         }
 
         const result = await safeParseJsonResponse(res);
         if (!result || result.status !== 'success') {
             const failureMessage = (result && result.message) || 'Kitap yüklenirken bir hata oluştu.';
-            await finishFailedBookUpload(insertedIds, code, pass, failureMessage);
+            await finishFailedBookUpload(insertedIds, failureMessage);
             return;
         }
 
@@ -2442,13 +2406,13 @@ async function uploadBooksInChunks(items, code, pass) {
 
 // Bir chunk başarısız olduğunda, bu yükleme sırasında önceden eklenmiş kitapları geri alır
 // ve kullanıcıya SweetAlert2 ile sonucu bildirir.
-async function finishFailedBookUpload(insertedIds, code, pass, failureMessage) {
+async function finishFailedBookUpload(insertedIds, failureMessage) {
     if (insertedIds.length === 0) {
         Swal.fire({ icon: 'error', title: 'Yükleme Başarısız', html: `${failureMessage}<br><br>Hiçbir kitap eklenmedi.` });
         return;
     }
 
-    const rollbackOk = await rollbackInsertedBooks(insertedIds, code, pass);
+    const rollbackOk = await rollbackInsertedBooks(insertedIds);
     if (rollbackOk) {
         Swal.fire({ icon: 'error', title: 'Yükleme Başarısız', html: `${failureMessage}<br><br>Yükleme tamamlanamadı, hiçbir kitap eklenmedi.` });
     } else {
@@ -2460,13 +2424,13 @@ async function finishFailedBookUpload(insertedIds, code, pass, failureMessage) {
     }
 }
 
-async function rollbackInsertedBooks(ids, code, pass) {
+async function rollbackInsertedBooks(ids) {
     if (!ids || ids.length === 0) return true;
     try {
         const res = await fetch('/api/books/bulk-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode: code, schoolPass: pass, ids })
+            body: JSON.stringify({ ...ktAuthFields(), ids })
         });
         const result = await safeParseJsonResponse(res);
         return !!(result && result.status === 'success');
@@ -2568,8 +2532,6 @@ async function handleEOkulStudentUpload(event) {
                 return;
             }
 
-            const code = localStorage.getItem('kutuphane_code');
-            const pass = localStorage.getItem('kutuphane_pass');
             const updateExistingClass = !!document.getElementById('bulkImportUpdateClass')?.checked;
 
             Swal.fire({ title: 'Yükleniyor...', html: '<b>' + mappedData.length + '</b> öğrenci işleniyor...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
@@ -2577,7 +2539,7 @@ async function handleEOkulStudentUpload(event) {
             const response = await fetch('/api/students/bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schoolCode: code, schoolPass: pass, data: mappedData, updateExistingClass })
+                body: JSON.stringify({ ...ktAuthFields(), data: mappedData, updateExistingClass })
             });
             const result = await response.json();
 
@@ -2597,12 +2559,12 @@ async function handleEOkulStudentUpload(event) {
 }
 
 // --- ÖĞRETMEN YETKİ İŞLEMLERİ ---
-async function fetchTeachers(schoolCode, schoolPass) {
+async function fetchTeachers() {
     try {
         const res = await fetch('/api/getTeachers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schoolCode, schoolPass })
+            body: JSON.stringify({ ...ktAuthFields() })
         });
         return await res.json();
     } catch (e) {
@@ -2721,6 +2683,11 @@ async function checkMagicToken() {
                 localStorage.setItem("kt_role", result.kt_role || result.role);
                 localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
                 localStorage.setItem("kutuphane_login_type", "staff");
+                // YENİ: magic_legacy bayrağı — ktAuthFields()/ktAuthHeaderFields() ve sayfa
+                // kapı kontrolleri (ör. ogrenci-islemleri.html), bilet üretmeyen bu oturumda
+                // eski şifre tabanlı davranışın istisna olarak sürmesi gerektiğini bu
+                // bayraktan anlar. checkMagicToken'ın BAŞKA hiçbir davranışı değişmedi.
+                localStorage.setItem("kutuphane_auth_mode", "magic_legacy");
 
                 document.getElementById("headerTitle").innerText = result.schoolName;
 
