@@ -50,6 +50,13 @@ npm run dev
 - Keep secrets in `.env`; do not hardcode credentials or tokens in source files
 - Prefer updating existing patterns and naming conventions already used in the controller file over introducing a new style
 
+## Gizli bilgi kuralı
+- `.env` dosyasının içeriğini hiçbir komutla çıktıya yazdırma: `cat`, `grep`, `sed`, `head`, `tail`, `echo`, dotenv çıktısı, `console.log` ile `process.env` yazdırma dahil. Env değişkenlerini kontrol etmen gerekirse sadece "tanımlı mı" ve "uzunluk" bilgisini göster (örn. `SESSION_SECRET`: tanımlı, uzunluk 64).
+- `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `KT_SESSION_SECRET`, `SUPER_ADMIN_PASS`, API anahtarları (BREVO, OPENROUTER, GEMINI vb.) ve benzeri tüm gizli değerler raporda, test çıktısında, hata mesajında veya log'da ASLA görünmemeli. Bir değer yanlışlıkla çıktıya düşerse bunu hemen kullanıcıya bildir.
+- Kullanıcı şifreleri, hash'ler, oturum bilgileri (`connect.sid` cookie değerleri dahil), magic token'lar ve biletler de raporlara yazılmamalı. Gerekiyorsa sadece "var/yok", uzunluk veya ilk birkaç karakter gibi maskelenmiş bilgi ver.
+- Test betiklerinde gizli değerleri sadece `process.env` üzerinden oku, hiçbir dosyaya, çıktıya veya rapora kopyalama.
+- Genel olarak komut çıktısı raporlanırken içinde yukarıdakilerden biri varsa o satırı maskeleyerek raporla.
+
 ## Database (Supabase) - Shared with Deneliz
 This Supabase database is shared with a separate project named Deneliz (exam/test analysis app). Shared tables must be treated as cross-project data and edited carefully.
 
