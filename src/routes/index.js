@@ -7,6 +7,7 @@ const studentPhotoController = require('../controllers/studentPhotoController');
 // Kullanıcı & Oturum İşlemleri
 router.post('/login', libraryController.login);
 router.post('/magic-login', libraryController.magicLogin); // YENİ: Bilet kapısı
+router.post('/session', libraryController.session); // YENİ: Sadece bilet ile oturum doğrulama
 
 // Şifre Sıfırlama İşlemleri
 router.post('/forgotPassword', libraryController.forgotPassword);

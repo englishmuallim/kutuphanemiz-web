@@ -26,11 +26,16 @@ async function getCachedUserAuthFields(uid) {
     const cached = _userAuthCache.get(uid);
     if (cached && cached.expiresAt > now) return cached;
 
-    const { data } = await supabase.from('users')
+    // YENİ: Supabase'den gerçek bir hata (ağ/DB) dönerse bunu "kullanıcı yok/pasif" (null,
+    // 401) ile KARIŞTIRMIYORUZ — hatayı fırlatıp çağıranın catch'ine (500) bırakıyoruz.
+    // Hatalı/eksik sonuç ASLA önbelleğe yazılmaz. Yalnızca satır gerçekten yoksa (data null,
+    // error yok) null dönüp 401'e izin veriyoruz.
+    const { data, error } = await supabase.from('users')
         .select('is_active, role, app_roles, class_teacher_of')
         .eq('id', uid)
         .maybeSingle();
 
+    if (error) throw error;
     if (!data) return null;
 
     const entry = {
@@ -97,11 +102,17 @@ async function verifyStaffPassword(user, inputPassword) {
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
-    const { data } = await supabase.from('schools')
+    // YENİ: schools sorgusunda gerçek bir Supabase hatası (ağ/DB) varsa fırlat; yalnızca
+    // okul satırı gerçekten bulunamadıysa (error yok, data yok) null dön.
+    const { data, error: schoolError } = await supabase.from('schools')
         .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_pass, kt_settings, school_type')
         .eq('school_code', code)
         .single();
 
+    // .single() okul bulunamadığında da PGRST116 hatası döner (0 satır) — bunu gerçek bir
+    // DB/ağ hatasından ayırmak için, satır yokluğuna özgü bu kodu "bulunamadı" (null) say,
+    // başka her hatayı fırlat.
+    if (schoolError && schoolError.code !== 'PGRST116') throw schoolError;
     if (!data) return null;
 
     // =========================================================================
@@ -166,10 +177,21 @@ async function getSchoolAuth(code, pass) {
                     }
                 }
 
-                return { id: data.id, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
+                return { id: data.id, school_name: data.school_name, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
             }
             // Geçersiz / sid uyuşmuyor → legacy yola düşülür (hata fırlatılmaz).
         }
+    }
+
+    // YENİ: LEGACY YOL KORUMASI — pass gerçek, boş olmayan bir string değilse (undefined,
+    // null, '', sayı vb.) şifre-eşleştirme dallarına HİÇ girilmez, doğrudan null (401)
+    // dönülür. Bu, örneğin `kt_pass` sütunu NULL olan bir okulda `data.kt_pass === pass`
+    // karşılaştırmasının `null === undefined` ya da `null === null` gibi bir durumda
+    // yanlışlıkla true olup "admin" girişine izin vermesini kesin olarak engeller
+    // (JS'te `null === undefined` zaten false'tur ama `pass` da `null` gönderilirse
+    // `data.kt_pass === null` TRUE olabilirdi — bu kontrol o riski de kapatır).
+    if (typeof pass !== 'string' || pass === '') {
+        return null;
     }
 
     // =========================================================================
@@ -201,12 +223,15 @@ async function getSchoolAuth(code, pass) {
             }
         }
     } else {
-        // Personel/Yönetici users tablosundan kontrol
-        const { data: user } = await supabase.from('users')
+        // Personel/Yönetici users tablosundan kontrol.
+        // YENİ: burada da gerçek bir Supabase hatası "şifre yanlış" (null, 401) ile
+        // karıştırılmıyor — tutarlılık için aynı kural (bkz. getCachedUserAuthFields).
+        const { data: user, error: userError } = await supabase.from('users')
             .select('id, role, app_roles, class_teacher_of')
             .eq('school_id', data.id)
             .eq('password', pass)
             .limit(1);
+        if (userError) throw userError;
         if (user && user.length > 0) {
             role = user[0].role; // 'admin' veya 'teacher' vb
             app_roles = user[0].app_roles;
@@ -221,7 +246,7 @@ async function getSchoolAuth(code, pass) {
     const ktRole = exports.isAdmin(authForScope) ? 'admin' : (exports.isTeacher(authForScope) ? 'teacher' : role);
     const ktClasses = exports.computeEffectiveClasses(authForScope);
 
-    return { id: data.id, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
+    return { id: data.id, school_name: data.school_name, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
 }
 
 async function getSchoolId(code, pass) {
@@ -484,6 +509,55 @@ exports.login = async (req, res) => {
             return res.json({ status: 'error', isLicenseError: true, message: error.message.split('|')[1] });
         }
         return res.status(401).json({ status: 'error', message: error.message });
+    }
+};
+
+// =========================================================================
+// 🎫 YENİ: POST /api/session — SADECE bilet ile oturum doğrulama (otomatik giriş /
+// sessiz yükseltme için). Eski schoolCode+schoolPass yolu bu endpoint'te KABUL
+// EDİLMEZ: bilet yoksa hemen 401, getSchoolAuth'a hiç gidilmez (legacy'ye düşme
+// ihtimali bile denenmez). Bilet varsa getSchoolAuth'un bilet dalı normal şekilde
+// çalışır (lisans + is_active + 60sn önbellek + sessiz yenileme AYNEN uygulanır);
+// biletin kendisi geçersiz/süresi dolmuşsa getSchoolAuth legacy'ye düşer ama
+// schoolPass hiç gönderilmediğinden (pass=undefined) legacy de eşleşmez → null → 401.
+// =========================================================================
+exports.session = async (req, res) => {
+    try {
+        const { schoolCode } = req.body;
+        const incomingToken = extractKtToken(req.headers);
+
+        if (!incomingToken) {
+            return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        }
+
+        const auth = await getSchoolAuth(schoolCode, undefined);
+        if (!auth) {
+            return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        }
+
+        // YENİ: EK SAĞLAMLAŞTIRMA — getSchoolAuth'un bilet dalından mı geçtiğini burada
+        // AÇIKÇA yeniden doğruluyoruz. getSchoolAuth genel amaçlı bir fonksiyon olduğu için
+        // (legacy yola da düşebilir), /api/session'ın "SADECE bilet, eski şifre yolu asla
+        // kabul edilmez" garantisini getSchoolAuth'un iç mantığına güvenmek yerine burada
+        // ikinci bir bağımsız kontrolle sağlıyoruz: aynı bileti tekrar doğrula, sid okulla
+        // eşleşmiyorsa reddet.
+        const verifyResult = verifyToken(incomingToken);
+        if (!verifyResult.ok || verifyResult.payload.sid !== auth.id) {
+            return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        }
+
+        return res.json({
+            status: 'success',
+            schoolName: auth.school_name,
+            role: auth.role,
+            kt_role: auth.ktRole,
+            kt_classes: auth.ktClasses
+        });
+    } catch (error) {
+        // YENİ: diğer getSchoolAuth-tabanlı endpoint'lerin (addBook, stats, getSettings vb.)
+        // genel deseniyle AYNI — login()'in özel isLicenseError dallanması burada YOK,
+        // çünkü görev talimatı "diğer endpoint'lerin catch'i ne dönüyorsa onu" istiyor.
+        return res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
