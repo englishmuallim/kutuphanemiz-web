@@ -2,17 +2,15 @@
 // Bağımsız, başka hiçbir dosyaya bağımlı değil. index.html ve ogrenci-islemleri.html'de
 // diğer scriptlerden ÖNCE yüklenir ki window.fetch, sarmalanmış haliyle onlara ulaşsın.
 //
-// Amaç: şifreyi (schoolPass) tarayıcıda saklamayı/göndermeyi bu adımda DEĞİŞTİRMEDEN,
-// her /api isteğine (login ve magic-login hariç) sessizce bir x-kt-token başlığı eklemek
-// ve sunucudan gelen x-kt-token-refresh başlığıyla saklanan bileti güncellemek.
+// Amaç: her /api isteğine (login ve magic-login hariç) sessizce bir x-kt-token başlığı
+// eklemek ve sunucudan gelen x-kt-token-refresh başlığıyla saklanan bileti güncellemek.
+// Şifre (schoolPass) hiçbir istekte ASLA gönderilmez — ne normal girişten sonra ne de
+// magic login'den sonra (ikisi de artık bilet üretiyor).
 (function () {
     'use strict';
 
     var KT_TOKEN_KEY = 'kutuphane_token';
     var KT_CODE_KEY = 'kutuphane_code';
-    var KT_PASS_KEY = 'kutuphane_pass';
-    var KT_AUTH_MODE_KEY = 'kutuphane_auth_mode';
-    var MAGIC_LEGACY_MODE = 'magic_legacy';
 
     function safeGet(key) {
         try { return localStorage.getItem(key); } catch (e) { return null; }
@@ -40,31 +38,17 @@
         safeRemove(KT_TOKEN_KEY);
     }
 
-    function isMagicLegacyMode() {
-        return safeGet(KT_AUTH_MODE_KEY) === MAGIC_LEGACY_MODE;
-    }
-
-    // Merkezi yardımcı: TÜM istek gövdelerinin kimlik kısmı buradan gelir. Normal
-    // (bilet tabanlı) oturumda yalnızca schoolCode döner — şifre asla eklenmez, çünkü
-    // ticket zaten fetch sarmalayıcısı tarafından x-kt-token başlığına ekleniyor.
-    // YALNIZCA magic_legacy modunda (checkMagicToken akışı, kendi adımına kadar bilet
-    // üretmiyor) VE elimizde bilet yoksa, eski davranışın aynen sürmesi için schoolPass
-    // da eklenir — bu, magic login oturumunun bu adımda bozulmamasını sağlayan tek istisna.
+    // Merkezi yardımcı: TÜM istek gövdelerinin kimlik kısmı buradan gelir. Şifre ASLA
+    // eklenmez — oturum bileti zaten fetch sarmalayıcısı tarafından x-kt-token başlığına
+    // ekleniyor (magic login de dahil, artık bilet üretiyor — eski magic_legacy şifre
+    // istisnası kalktı).
     function ktAuthFields() {
-        var fields = { schoolCode: safeGet(KT_CODE_KEY) };
-        if (isMagicLegacyMode() && !getKtToken()) {
-            fields.schoolPass = safeGet(KT_PASS_KEY);
-        }
-        return fields;
+        return { schoolCode: safeGet(KT_CODE_KEY) };
     }
 
     // Header-tabanlı (ham ikili yükleme) istekler için aynı kural, başlık adlarıyla.
     function ktAuthHeaderFields() {
-        var headers = { 'x-school-code': safeGet(KT_CODE_KEY) };
-        if (isMagicLegacyMode() && !getKtToken()) {
-            headers['x-school-pass'] = safeGet(KT_PASS_KEY);
-        }
-        return headers;
+        return { 'x-school-code': safeGet(KT_CODE_KEY) };
     }
 
     window.getKtToken = getKtToken;
@@ -72,7 +56,6 @@
     window.clearKtToken = clearKtToken;
     window.ktAuthFields = ktAuthFields;
     window.ktAuthHeaderFields = ktAuthHeaderFields;
-    window.isMagicLegacyMode = isMagicLegacyMode;
 
     // --- GLOBAL FETCH SARMALAYICI ---
     // Çift yüklemeye karşı: zaten kurulmuşsa tekrar sarmalamaz (fonksiyonlar yine de

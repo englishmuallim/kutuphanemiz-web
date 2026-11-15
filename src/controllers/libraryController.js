@@ -23,6 +23,7 @@ const PERSONNEL_MAX_AGE_SECONDS = _envSeconds('KT_PERSONNEL_MAX_AGE_SECONDS', 18
 const DUTY_FIXED_SLIDING_TTL_SECONDS = _envSeconds('KT_DUTY_FIXED_TTL_SECONDS', 7 * 24 * 60 * 60); // 7 gün
 const DUTY_FIXED_MAX_AGE_SECONDS = _envSeconds('KT_DUTY_FIXED_MAX_AGE_SECONDS', 30 * 24 * 60 * 60); // 30 gün
 const DUTY_DAILY_INTRADAY_TTL_SECONDS = 12 * 60 * 60; // 12 saat (gün sonu kısası zaten ayrıca uygulanır)
+const MAGIC_TTL_SECONDS = _envSeconds('KT_MAGIC_TTL_SECONDS', 4 * 60 * 60); // 4 saat — magic bileti YENİLENMEZ (bkz. shouldRefresh)
 
 // =========================================================================
 // 🎫 BİLET YOLU — kullanıcı satırı önbelleği (uid -> {is_active, role, app_roles,
@@ -207,7 +208,7 @@ async function getSchoolAuth(code, pass) {
                     // YENİ: nöbetçi pv + gün kontrolü — SADECE v2 biletlerde. kt_settings zaten
                     // bu fonksiyonun başında taze okunmuş (data.kt_settings) — ekstra sorgu yok.
                     if (isV2) {
-                        currentPv = computeDutyPv(data.kt_settings, payload.dutyVariant);
+                        currentPv = computeDutyPv(data.kt_settings, payload.dutyVariant, data.id);
                         if (currentPv === null || typeof payload.pv !== 'string' || payload.pv !== currentPv) {
                             return null; // nöbetçi şifresi değişmiş/tanınmayan varyant — bilet geçersiz
                         }
@@ -2770,7 +2771,7 @@ exports.magicLogin = async (req, res) => {
 
         const { data: schools, error } = await supabase
             .from('schools')
-            .select('id, school_code, school_name, kt_pass, kt_settings')
+            .select('id, school_code, school_name, kt_settings')
             .contains('kt_settings', { magic_token: bilet });
 
         if (error || !schools || schools.length === 0) {
@@ -2788,31 +2789,35 @@ exports.magicLogin = async (req, res) => {
         delete settings.magic_token_expires;
         await supabase.from('schools').update({ kt_settings: settings }).eq('id', school.id);
 
-        // 🚀 ZIRHLI ŞİFRE BULUCU (Eğer kt_pass yoksa ilk adminin şifresini al)
-        let validPass = school.kt_pass;
-        if (!validPass) {
-            const { data: firstAdmin } = await supabase
-                .from('users')
-                .select('password')
-                .eq('school_id', school.id)
-                .eq('role', 'admin')
-                .limit(1)
-                .single();
-
-            if (firstAdmin) {
-                validPass = firstAdmin.password;
+        // 🎫 YENİ: Artık hiçbir şifreye (kt_pass / ilk adminin düz metin şifresi) bakılmıyor
+        // ve hiçbiri döndürülmüyor — uid'siz, okul-düzeyi sabit bir "magic_school" bileti
+        // veriliyor. pv doğrudan okul id'sine bağlı (computeDutyPv), YENİLENMEZ (shouldRefresh),
+        // ömrü sabit MAGIC_TTL_SECONDS (varsayılan 4 saat, hardExp=exp).
+        let ktToken = null;
+        if (isTokenAuthAvailable()) {
+            try {
+                const pv = computeDutyPv(settings, 'magic_school', school.id);
+                const nowSec = Math.floor(Date.now() / 1000);
+                ktToken = signToken(
+                    { sid: school.id, uid: null, role: 'admin', ktRole: 'admin', ktClasses: ['ALL'], pv, dutyVariant: 'magic_school' },
+                    { ttlSeconds: MAGIC_TTL_SECONDS, hardExp: nowSec + MAGIC_TTL_SECONDS }
+                );
+            } catch (ticketErr) {
+                console.error('Bilet üretilemedi (magic):', ticketErr.message);
             }
+        } else {
+            _warnSessionSecretMissingOnce();
         }
 
         return res.json({
             status: 'success',
             schoolCode: school.school_code,
-            schoolPass: validPass, // 🚀 Artık null gitme ihtimali yok!
             schoolName: school.school_name,
             userName: 'Süper Admin',
             role: 'admin',
             kt_role: 'admin',
-            kt_classes: ['ALL']
+            kt_classes: ['ALL'],
+            ktToken
         });
 
     } catch (error) {

@@ -2674,39 +2674,23 @@ async function checkMagicToken() {
             const result = await response.json();
 
             if (result.status === 'success') {
-                // 3. SENİN SİSTEMİNİN BİREBİR AYNI HAFIZA KAYITLARI
+                // YENİ: artık şifre dönmüyor — bilet (ktToken) saklanır, kutuphane_pass/
+                // kutuphane_auth_mode HİÇ yazılmaz (magic_legacy köprüsü kalktı).
+                if (typeof setKtToken === 'function') setKtToken(result.ktToken);
+
                 localStorage.setItem("kutuphane_code", result.schoolCode);
-                localStorage.setItem("kutuphane_pass", result.schoolPass);
                 localStorage.setItem("okul_ismi", result.schoolName);
                 localStorage.setItem("kutuphane_user", result.userName);
                 localStorage.setItem("user_role", result.role);
                 localStorage.setItem("kt_role", result.kt_role || result.role);
                 localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
                 localStorage.setItem("kutuphane_login_type", "staff");
-                // YENİ: magic_legacy bayrağı — ktAuthFields()/ktAuthHeaderFields() ve sayfa
-                // kapı kontrolleri (ör. ogrenci-islemleri.html), bilet üretmeyen bu oturumda
-                // eski şifre tabanlı davranışın istisna olarak sürmesi gerektiğini bu
-                // bayraktan anlar. checkMagicToken'ın BAŞKA hiçbir davranışı değişmedi.
-                localStorage.setItem("kutuphane_auth_mode", "magic_legacy");
 
-                document.getElementById("headerTitle").innerText = result.schoolName;
-
-                // 4. İzinleri ayarla (Sistemindeki mevcut fonksiyon)
-                if (typeof applyPermissions === 'function') applyPermissions();
-
-                // 5. URL'deki bileti sil (Kullanıcı sayfayı yenilerse hata almasın)
+                // URL'deki bileti sil (Kullanıcı sayfayı yenilerse hata almasın)
                 window.history.replaceState({}, document.title, window.location.pathname);
 
-                // 6. EKRAN GEÇİŞİ (Senin sisteminin birebir aynısı)
-                document.getElementById("login-screen").classList.add("hidden");
-                document.getElementById("dashboard").classList.remove("hidden");
-
-                // Dashboard verilerini çek (Senin fonksiyonların)
-                getStats();
-                getOverdueBooks();
-                loadClasses();
-                getLeaderboard();
-                loadBookSuggestions();
+                // Ekran geçişi + dashboard kurulumu: normal login()'le aynı ortak yardımcı.
+                if (typeof setupDashboardUI === 'function') setupDashboardUI(result);
 
                 Swal.fire({ icon: 'success', title: 'Sızma Başarılı!', text: 'Süper Admin olarak giriş yapıldı.', timer: 2000, showConfirmButton: false });
             } else {

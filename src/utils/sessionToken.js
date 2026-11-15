@@ -196,6 +196,10 @@ function shouldRefresh(payload) {
   // bilet alır. Toplu çıkış yok, ama eski biletler yeni uzun ömürden faydalanmaz.
   if (payload.v !== TOKEN_VERSION) return false;
 
+  // YENİ: magic_school biletleri hiç yenilenmez — kısa (varsayılan 4 saatlik),
+  // tek-seferlik VIP erişim; süresi dolunca yeni bir magic link istenir.
+  if (payload.dutyVariant === 'magic_school') return false;
+
   const totalLifetime = payload.exp - payload.iat;
   if (totalLifetime <= 0) return true;
 
@@ -230,8 +234,11 @@ function computeUserPv(userRow) {
 
 // Nöbetçi biletleri için: variant'a göre kt_settings'teki ilgili şifre (+ günlükse
 // tarih) kaynak alınır. 'legacy_fixed'/'legacy_daily', eski staff_password/
-// staff_pass_mode alanını (staff_pass_mode moduna göre) kapsar.
-function computeDutyPv(ktSettings, variant) {
+// staff_pass_mode alanını (staff_pass_mode moduna göre) kapsar. 'magic_school'
+// (uid'siz, okul-düzeyi VIP giriş) kt_settings'teki hiçbir şifreye değil, doğrudan
+// okul id'sine bağlıdır (schoolId parametresi) — bu sayede gerçek bir şifre/hash
+// hiç devreye girmeden sabit, okula özel bir pv üretilir.
+function computeDutyPv(ktSettings, variant, schoolId) {
   const secret = getCurrentSecret();
   if (!secret) return null;
   const settings = ktSettings || {};
@@ -244,6 +251,8 @@ function computeDutyPv(ktSettings, variant) {
     source = `${settings.daily_staff_password || ''}|${settings.daily_pass_date || ''}`;
   } else if (variant === 'legacy_daily') {
     source = `${settings.staff_password || ''}|${settings.staff_pass_date || ''}`;
+  } else if (variant === 'magic_school') {
+    source = `magic_school|${schoolId || ''}`;
   } else {
     return null;
   }

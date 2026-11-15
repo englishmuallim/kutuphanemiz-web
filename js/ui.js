@@ -110,37 +110,10 @@ window.onload = async function () {
         return;
     }
 
-    // 2. magic_legacy bayrağı varsa: ESKİ davranış aynen sürer (şifre tabanlı, bu
-    // adımda DEĞİŞMEYEN akış) — /api/session hiç denenmez.
-    if (typeof isMagicLegacyMode === 'function' && isMagicLegacyMode()) {
-        const savedCode = localStorage.getItem("kutuphane_code");
-        const savedPass = localStorage.getItem("kutuphane_pass");
-        const savedIdentity = localStorage.getItem("kutuphane_identity");
-        const savedLoginType = localStorage.getItem("kutuphane_login_type");
-
-        if (savedCode && savedPass) {
-            document.getElementById("schoolCode").value = savedCode;
-            document.getElementById("schoolPass").value = savedPass;
-            document.getElementById("beniHatirla").checked = (localStorage.getItem("beni_hatirla") === "true");
-
-            if (savedLoginType === 'staff') {
-                if (typeof switchLoginTab === 'function') switchLoginTab('staff');
-                if (savedIdentity) document.getElementById("teacherIdentity").value = savedIdentity;
-            }
-
-            if (localStorage.getItem("okul_ismi")) {
-                document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
-            }
-
-            await login();
-        }
-        return;
-    }
-
     const token = (typeof getKtToken === 'function') ? getKtToken() : null;
     const savedCode = localStorage.getItem("kutuphane_code");
 
-    // 3. Bilet + okul kodu varsa -> /api/session ile doğrula, arayüzü oradan kur.
+    // 2. Bilet + okul kodu varsa -> /api/session ile doğrula, arayüzü oradan kur.
     if (token && savedCode) {
         document.getElementById("schoolCode").value = savedCode;
 
@@ -153,14 +126,12 @@ window.onload = async function () {
             });
 
             if (res.status === 401) {
-                // YENİ: Bilet geçersiz/süresi dolmuş. magic_legacy DEĞİLSE ve eski
-                // şifre hâlâ saklıysa, önce bozuk bileti sil ve sessiz yükseltmeyi
-                // dene (silentUpgrade kendi içinde başarısızlıkta zaten temiz çıkış
-                // yapar, tekrar denemez). Aksi halde eski davranış: sessiz temiz
-                // çıkış, toast YOK (bu "ilk yükleme" senaryosu).
+                // Bilet geçersiz/süresi dolmuş. Eski şifre hâlâ saklıysa, önce bozuk
+                // bileti sil ve sessiz yükseltmeyi dene (silentUpgrade kendi içinde
+                // başarısızlıkta zaten temiz çıkış yapar, tekrar denemez). Aksi halde
+                // sessiz temiz çıkış, toast YOK (bu "ilk yükleme" senaryosu).
                 const legacyPassForRetry = localStorage.getItem("kutuphane_pass");
-                const isMagicLegacy = (typeof isMagicLegacyMode === 'function') && isMagicLegacyMode();
-                if (!isMagicLegacy && legacyPassForRetry) {
+                if (legacyPassForRetry) {
                     if (typeof clearKtToken === 'function') clearKtToken();
                     await silentUpgrade();
                 } else {
@@ -172,12 +143,9 @@ window.onload = async function () {
             const result = await res.json();
 
             if (result.status === 'success') {
-                // YENİ: Bilet geçerliliğini doğruladı — magic_legacy DEĞİLSE artık
-                // gereksiz hale gelen eski şifreyi sakladığımız anahtarı sil
-                // (magic_legacy akışı hâlâ şifre tabanlı, kendi adımı var).
-                if (!((typeof isMagicLegacyMode === 'function') && isMagicLegacyMode())) {
-                    localStorage.removeItem("kutuphane_pass");
-                }
+                // Bilet geçerliliğini doğruladı — artık gereksiz hale gelen eski
+                // şifre kalıntısını sil.
+                localStorage.removeItem("kutuphane_pass");
                 if (localStorage.getItem("okul_ismi")) {
                     document.getElementById("headerTitle").innerText = localStorage.getItem("okul_ismi");
                 }
@@ -209,14 +177,14 @@ window.onload = async function () {
         return;
     }
 
-    // 4. Bilet yok ama eski oturumdan kalma şifre varsa -> sessiz yükseltme.
+    // 3. Bilet yok ama eski oturumdan kalma şifre varsa -> sessiz yükseltme.
     const savedPass = localStorage.getItem("kutuphane_pass");
     if (!token && savedCode && savedPass) {
         await silentUpgrade();
         return;
     }
 
-    // 5. Hiçbiri yok -> giriş ekranında bekle (değişiklik yok).
+    // 4. Hiçbiri yok -> giriş ekranında bekle (değişiklik yok).
 };
 
 window.currentLoginType = 'duty';

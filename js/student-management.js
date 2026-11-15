@@ -1,9 +1,7 @@
 // Öğrenci İşlemleri (Geniş Ekran) sayfası - bağımsız script.
 // index.html'in js/api-client.js ve js/ui.js dosyalarına kasıtlı olarak bağımlı DEĞİL
 // (onlar o sayfaya özel DOM id'lerine sıkı bağlı). js/ktAuth.js'e (bağımsız, paylaşılan
-// yardımcı) bağımlı — kimlik doğrulama artık oturum bileti (kutuphane_token) ile
-// yapılıyor; yalnızca magic_legacy modunda (checkMagicToken, kendi adımına kadar
-// bilet üretmiyor) eski şifre tabanlı davranış istisna olarak sürüyor.
+// yardımcı) bağımlı — kimlik doğrulama oturum bileti (kutuphane_token) ile yapılıyor.
 
 let currentStudentsById = new Map();
 let lastSearchParams = null;
@@ -12,11 +10,8 @@ let lastSearchParams = null;
 document.addEventListener('DOMContentLoaded', async () => {
     const code = localStorage.getItem('kutuphane_code');
     const hasToken = typeof getKtToken === 'function' && !!getKtToken();
-    const isMagicLegacy = typeof isMagicLegacyMode === 'function' && isMagicLegacyMode();
-    const hasLegacyPass = !!localStorage.getItem('kutuphane_pass');
 
-    // Normal oturumda bilet yeterli; magic_legacy modunda (bilet yok) eski şifre kabul edilir.
-    if (!code || !(hasToken || (isMagicLegacy && hasLegacyPass))) {
+    if (!code || !hasToken) {
         redirectToLogin();
         return;
     }
@@ -60,9 +55,8 @@ function closePage() {
 }
 
 function getAuthPayload() {
-    // Merkezi yardımcı js/ktAuth.js'te — normal oturumda sadece schoolCode döner
-    // (bilet zaten fetch sarmalayıcısı tarafından x-kt-token başlığına ekleniyor);
-    // yalnızca magic_legacy modunda (bilet yok) eski schoolPass istisnası eklenir.
+    // Merkezi yardımcı js/ktAuth.js'te — sadece schoolCode döner; bilet zaten fetch
+    // sarmalayıcısı tarafından x-kt-token başlığına ekleniyor.
     return (typeof ktAuthFields === 'function') ? ktAuthFields() : { schoolCode: localStorage.getItem('kutuphane_code') };
 }
 
