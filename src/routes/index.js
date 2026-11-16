@@ -15,6 +15,10 @@ router.post('/verifyResetCode', libraryController.verifyResetCode);
 router.put('/updatePassword', libraryController.updatePassword);
 router.post('/changeStaffPassword', libraryController.changeStaffPassword); // YENİ: zorunlu şifre değişimi (pwchange bileti)
 
+// Hesabım (kendi profil/şifre güncelleme) — YENİ
+router.post('/getMyAccount', libraryController.getMyAccount);
+router.post('/updateMyAccount', libraryController.updateMyAccount);
+
 
 // İstatistik & Gösterge Paneli
 router.post('/stats', libraryController.stats);

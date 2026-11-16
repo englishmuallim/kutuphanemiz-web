@@ -65,6 +65,16 @@ const PWCHANGE_RL = {
     ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 10, lockoutMs: 15 * 60 * 1000 },
 };
 
+// updateMyAccount ("Hesabım"): yalnızca YANLIŞ currentPassword denemeleri sayılır (profil-
+// only değişiklikler — sadece ad/telefon — currentPassword istemediği için bu sayaca hiç
+// girmez). Hesap (uid) zaten doğrulanmış bir ktToken'dan geldiği için LOGIN_RL'deki
+// "hesap+IP" katmanına gerek yok — doğrudan hesap-geneli (daha sıkı) ve IP-geneli (daha
+// gevşek) iki katman, LOGIN_RL'nin acctWideStaff/ipWide ile aynı mantık.
+const MY_ACCOUNT_RL = {
+    acctWide: { windowMs: 15 * 60 * 1000, maxAttempts: 5, lockoutMs: 15 * 60 * 1000 },
+    ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 20, lockoutMs: 15 * 60 * 1000 },
+};
+
 // =========================================================================
 // 🔑 YENİ: PERSONEL ŞİFRE KURALI ZORUNLU DEĞİŞİM — STAFF_PASSWORD_POLICY_ENFORCE_FROM
 // (YYYY-MM-DD, Europe/Istanbul günü). Tanımsız/boş/geçersizse zorlama KAPALI — bu
@@ -381,7 +391,11 @@ async function getSchoolAuth(code, pass) {
                     }
                 }
 
-                return { id: data.id, school_name: data.school_name, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
+                // YENİ: uid SADECE doğrulanmış bilet payload'ından gelir (nöbetçi/magic_school
+                // biletlerinde payload.uid zaten null'dur) — hiçbir çağıran bunu istek
+                // gövdesinden ALAMAZ, bu alan sahteciliğe açık değildir. "Hesabım" (getMyAccount/
+                // updateMyAccount) kişisel kaydı bulmak için BUNU kullanır, id (okul id'si) değil.
+                return { id: data.id, school_name: data.school_name, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses, uid: payload.uid || null };
             }
             // Geçersiz / sid uyuşmuyor → legacy yola düşülür (hata fırlatılmaz).
         }
@@ -1228,6 +1242,212 @@ exports.changeStaffPassword = async (req, res) => {
         return res.json(buildStaffLoginSuccess(freshUser, school));
     } catch (error) {
         return res.status(500).json({ status: 'error', message: 'Şifre değiştirilirken bir hata oluştu.' });
+    }
+};
+
+// =========================================================================
+// 🙋 YENİ: "HESABIM" — admin/öğretmen kendi profilini (ad soyad, e-posta, telefon) ve
+// şifresini değiştirir. Kimlik SADECE getSchoolAuth'un döndürdüğü auth.uid'den (yani
+// doğrulanmış ktToken'dan) gelir — istek gövdesinde id/uid YOKTUR, olsa da okunmaz.
+// Nöbetçi ve uid'siz (magic_school dahil) biletler auth.uid olmadığı için reddedilir.
+// =========================================================================
+const MY_ACCOUNT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MY_ACCOUNT_PHONE_RE = /^[0-9+\-() ]{7,20}$/;
+const MY_ACCOUNT_ALLOWED_FIELDS = new Set(['schoolCode', 'schoolPass', 'fullName', 'email', 'phone', 'currentPassword', 'newPassword']);
+
+// undefined/null/boş -> null; aksi halde trim edilmiş metin.
+function _normalizeMyAccountText(raw) {
+    if (raw === undefined || raw === null) return null;
+    const trimmed = String(raw).trim();
+    return trimmed === '' ? null : trimmed;
+}
+
+exports.getMyAccount = async (req, res) => {
+    try {
+        const { schoolCode, schoolPass } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!auth.uid) {
+            return res.status(403).json({ status: 'error', message: 'Bu oturum kişisel bir hesaba bağlı değil, Hesabım kullanılamaz.' });
+        }
+
+        const { data: user, error } = await supabase.from('users')
+            .select('username, full_name, email, phone')
+            .eq('id', auth.uid)
+            .maybeSingle();
+        if (error) throw error;
+        if (!user) return res.status(404).json({ status: 'error', message: 'Kullanıcı bulunamadı.' });
+
+        return res.json({
+            status: 'success',
+            username: user.username,
+            fullName: user.full_name,
+            email: user.email,
+            phone: user.phone
+        });
+    } catch (error) {
+        return res.status(500).json({ status: 'error', message: 'Hesap bilgileri alınırken bir hata oluştu.' });
+    }
+};
+
+exports.updateMyAccount = async (req, res) => {
+    try {
+        // YENİ: izin verilmeyen HERHANGİ bir alan (role, kt_role, ktRole, ktClasses,
+        // classTeacherOf, username, id, app_roles, school_id, password_hash, is_active, ...)
+        // gövdede gelirse AÇIKÇA reddedilir — sessizce yok sayılmaz, deneme görünür olur.
+        const unknownFields = Object.keys(req.body).filter(k => !MY_ACCOUNT_ALLOWED_FIELDS.has(k));
+        if (unknownFields.length > 0) {
+            return res.status(400).json({ status: 'error', message: `Bu alanlar bu uçtan değiştirilemez: ${unknownFields.join(', ')}` });
+        }
+
+        const { schoolCode, schoolPass, fullName, email, phone, currentPassword, newPassword } = req.body;
+        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
+        if (!auth.uid) {
+            return res.status(403).json({ status: 'error', message: 'Bu oturum kişisel bir hesaba bağlı değil, Hesabım kullanılamaz.' });
+        }
+
+        const normalizedFullName = _normalizeMyAccountText(fullName);
+        if (!normalizedFullName) {
+            return res.json({ status: 'error', message: 'Ad soyad boş olamaz.' });
+        }
+
+        const normalizedEmail = _normalizeMyAccountText(email);
+        if (normalizedEmail && (normalizedEmail.length > 254 || !MY_ACCOUNT_EMAIL_RE.test(normalizedEmail))) {
+            return res.json({ status: 'error', message: 'Geçerli bir e-posta adresi girin.' });
+        }
+
+        const normalizedPhone = _normalizeMyAccountText(phone);
+        if (normalizedPhone && !MY_ACCOUNT_PHONE_RE.test(normalizedPhone)) {
+            return res.json({ status: 'error', message: 'Telefon yalnızca rakam, boşluk ve + - ( ) karakterlerini içerebilir (7-20 karakter).' });
+        }
+
+        const { data: user, error: fetchErr } = await supabase.from('users')
+            .select('id, username, full_name, email, phone, role, app_roles, class_teacher_of, password_hash, is_active, school_id')
+            .eq('id', auth.uid)
+            .eq('school_id', auth.id)
+            .maybeSingle();
+        if (fetchErr) throw fetchErr;
+        if (!user || user.is_active === false) {
+            return res.status(404).json({ status: 'error', message: 'Kullanıcı bulunamadı.' });
+        }
+
+        const emailChanging = normalizedEmail !== (user.email || null);
+        const newPasswordTrimmed = typeof newPassword === 'string' ? newPassword : '';
+        const passwordChanging = newPasswordTrimmed !== '';
+
+        // E-posta değişimi VEYA şifre değişimi mevcut şifreyi ister; yalnızca ad/telefon
+        // değişiyorsa mevcut şifre gerekmez.
+        if (emailChanging || passwordChanging) {
+            if (!currentPassword) {
+                return res.json({ status: 'error', message: 'E-posta veya şifre değiştirmek için mevcut şifrenizi girmelisiniz.' });
+            }
+
+            const acctKey = `myaccount:acct:${auth.uid}`;
+            const ip = getTrustedClientIp(req);
+            const ipKey = ip ? `myaccount:ip:${ip}` : null;
+
+            try {
+                const lockCheck = rateLimiter.checkAnyLocked([acctKey, ipKey]);
+                if (lockCheck.locked) return res.json(_rateLimitedResponse(lockCheck.retryAfterSeconds));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (myaccount kontrol):', rlErr.message);
+            }
+
+            const verifyResult = await verifyStaffPassword(user, currentPassword);
+            if (!verifyResult.ok) {
+                try {
+                    rateLimiter.recordFailures([
+                        { key: acctKey, ...MY_ACCOUNT_RL.acctWide },
+                        ipKey && { key: ipKey, ...MY_ACCOUNT_RL.ipWide },
+                    ].filter(Boolean));
+                } catch (rlErr) {
+                    console.error('Hız sınırlayıcı hatası (myaccount kayıt):', rlErr.message);
+                }
+                return res.json({ status: 'error', message: 'Mevcut şifre hatalı.' });
+            }
+
+            try {
+                rateLimiter.reset(acctKey);
+                if (ipKey) rateLimiter.reset(ipKey);
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (myaccount sıfırlama):', rlErr.message);
+            }
+        }
+
+        if (passwordChanging) {
+            const policyCheck = validateStaffPassword(newPasswordTrimmed, { username: user.username });
+            if (!policyCheck.ok) {
+                return res.json({ status: 'error', message: policyCheck.message });
+            }
+            const sameAsCurrent = await verifyStaffPassword(user, newPasswordTrimmed);
+            if (sameAsCurrent.ok) {
+                return res.json({ status: 'error', message: 'Yeni şifre mevcut şifrenizle aynı olamaz.' });
+            }
+        }
+
+        if (emailChanging && normalizedEmail) {
+            // YENİ: benzersizlik kapsamı OKUL-İÇİ ve büyük/küçük harf duyarsız — login() ve
+            // findLibraryUserForReset'in kimlik eşleştirmesiyle AYNI kapsam (school_id bazlı,
+            // global değil). Kendi kaydı hariç tutulur.
+            const { data: schoolUsers, error: emailCheckErr } = await supabase.from('users')
+                .select('id, email')
+                .eq('school_id', auth.id)
+                .not('email', 'is', null);
+            if (emailCheckErr) throw emailCheckErr;
+
+            const normalizedEmailLower = normalizedEmail.toLowerCase();
+            const conflict = (schoolUsers || []).some(u => u.id !== auth.uid && String(u.email).trim().toLowerCase() === normalizedEmailLower);
+            if (conflict) {
+                return res.json({ status: 'error', message: 'Bu e-posta adresi okulunuzda başka bir kullanıcı tarafından kullanılıyor.' });
+            }
+        }
+
+        const updateData = {
+            full_name: normalizedFullName,
+            email: normalizedEmail,
+            phone: normalizedPhone,
+        };
+        if (passwordChanging) {
+            updateData.password = null;
+            updateData.password_hash = await hashPassword(newPasswordTrimmed);
+        }
+
+        const { error: updateErr } = await supabase.from('users')
+            .update(updateData)
+            .eq('id', auth.uid)
+            .eq('school_id', auth.id);
+        if (updateErr) {
+            if (updateErr.code === '23505') {
+                return res.json({ status: 'error', message: 'Bu bilgi sistemde zaten kayıtlı.' });
+            }
+            throw updateErr;
+        }
+
+        const responsePayload = {
+            status: 'success',
+            userName: normalizedFullName,
+            fullName: normalizedFullName,
+            email: normalizedEmail,
+            phone: normalizedPhone,
+        };
+
+        if (passwordChanging) {
+            // YENİ: changeStaffPassword'daki AYNI desen — 60sn'lik kullanıcı-satırı önbelleği
+            // hemen silinir (aksi halde az sonra üretilecek YENİ ktToken bile "pv uyuşmuyor"
+            // diye anında reddedilir), freshUser'da password ALANI YOK, yalnızca password_hash
+            // güncellenir ki computeUserPv DB'deki kalıcı durumla AYNI pv'yi üretsin.
+            _userAuthCache.delete(auth.uid);
+            const freshUser = { ...user, password_hash: updateData.password_hash };
+            const loginSuccess = buildStaffLoginSuccess(freshUser, { id: auth.id, school_name: auth.school_name });
+            if (loginSuccess.status === 'success') {
+                responsePayload.ktToken = loginSuccess.ktToken;
+            }
+        }
+
+        return res.json(responsePayload);
+    } catch (error) {
+        return res.status(500).json({ status: 'error', message: 'Hesap güncellenirken bir hata oluştu.' });
     }
 };
 

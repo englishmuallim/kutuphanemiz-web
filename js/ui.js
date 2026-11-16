@@ -254,10 +254,12 @@ window.applyPermissions = function () {
                 yonetimTab.innerHTML = '<span class="material-symbols-rounded">bar_chart</span> Raporlar';
             }
 
-            // Rapor ve Emanet Raporu dışındaki tüm yönetim menülerini gizle
+            // Rapor, Emanet Raporu ve Hesabım dışındaki tüm yönetim menülerini gizle
             document.querySelectorAll('.yonetim-card').forEach(card => {
-                const isReport = card.getAttribute('onclick') === "showYonetimForm('report')" || card.getAttribute('onclick') === "showYonetimForm('borrowed-report')";
-                if (!isReport) {
+                const isAlwaysVisibleForTeacher = card.getAttribute('onclick') === "showYonetimForm('report')" ||
+                    card.getAttribute('onclick') === "showYonetimForm('borrowed-report')" ||
+                    card.getAttribute('onclick') === "openMyAccountModal()";
+                if (!isAlwaysVisibleForTeacher) {
                     card.style.display = 'none';
                 }
             });

@@ -198,6 +198,177 @@ async function promptForcedPasswordChange(passwordChangeToken, initialMessage) {
     }
 }
 
+// =========================================================================
+// 🙋 YENİ: "HESABIM" — admin/öğretmen kendi ad soyad/e-posta/telefon/şifresini düzenler.
+// Kimlik sunucuda SADECE ktToken'dan çözülür (bkz. updateMyAccount) — burada hiçbir id
+// gönderilmez, role/kt_role gibi yetki alanları bu formda hiç YOK. Sunucu isteği BİLEREK
+// preConfirm İÇİNDE yapılır (showLoaderOnConfirm:true) — SweetAlert2'nin "AJAX doğrulama"
+// deseni: sunucu hata döndürürse Swal.showValidationMessage ile AYNI pencere açık kalır,
+// girilen değerler kaybolmaz (başka bir Swal.fire ile üzerine yazılmaz). Şifre değişirse
+// sunucu yeni bir ktToken döner (setKtToken ile değiştirilir, oturum açık kalır); sadece
+// ad/e-posta/telefon değişirse ktToken'a dokunulmaz, sadece localStorage.kutuphane_user
+// tazelenir.
+// =========================================================================
+
+// YENİ: Swal'ın varsayılan .swal2-input/etiket davranışına güvenmiyoruz (etiket+alan yan
+// yana kayabiliyor, alan genişlikleri tutarsız oluyor) — bu modale ÖZEL, kendi kapsamlı
+// sınıflarımızla tek sütun/tam genişlik bir düzen kuruyoruz. <style> bu modalin html'i
+// içinde taşındığı için Swal popup'ı kapanınca DOM'dan kalkar, başka hiçbir pencereyi
+// etkilemez.
+const HESABIM_FORM_STYLE = `
+    <style>
+        .hesabim-form { display: flex; flex-direction: column; width: 100%; box-sizing: border-box; text-align: left; font-size: 0.85rem; color: #374151; }
+        .hesabim-field { display: flex; flex-direction: column; align-items: stretch; width: 100%; margin: 0 0 12px 0; }
+        .hesabim-field label.hesabim-label { display: block; font-weight: bold; margin: 0 0 4px 0; }
+        .hesabim-field label.hesabim-label small { font-weight: normal; color: #9ca3af; }
+        .hesabim-form input.hesabim-input { display: block; width: 100%; max-width: 100%; box-sizing: border-box; margin: 0; }
+        .hesabim-form input.hesabim-input:disabled { background: #f3f4f6; }
+        .hesabim-divider { width: 100%; border: 0; border-top: 1px solid #e5e7eb; margin: 6px 0 14px 0; }
+        .hesabim-section-title { font-weight: bold; margin: 0 0 10px 0; }
+        .hesabim-section-title small { font-weight: normal; color: #9ca3af; }
+        .hesabim-note { font-size: 0.75rem; color: #9ca3af; margin: 10px 0 0 0; }
+    </style>
+`;
+
+async function openMyAccountModal() {
+    let current;
+    try {
+        const res = await fetch('/api/getMyAccount', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...ktAuthFields() })
+        });
+        current = await res.json();
+    } catch (e) {
+        return Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Hesap bilgileri alınamadı.' });
+    }
+    if (current.status !== 'success') {
+        return showApiErrorAlert(current, 'Hesap Bilgileri Alınamadı');
+    }
+
+    const { value: result, isConfirmed } = await Swal.fire({
+        title: 'Hesabım',
+        html: `
+            ${HESABIM_FORM_STYLE}
+            <div class="hesabim-form">
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-username">Kullanıcı Adı</label>
+                    <input type="text" id="swal-acct-username" class="swal2-input hesabim-input" disabled>
+                </div>
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-fullname">Ad Soyad</label>
+                    <input type="text" id="swal-acct-fullname" class="swal2-input hesabim-input">
+                </div>
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-email">E-posta</label>
+                    <input type="email" id="swal-acct-email" class="swal2-input hesabim-input">
+                </div>
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-phone">Telefon</label>
+                    <input type="text" id="swal-acct-phone" class="swal2-input hesabim-input">
+                </div>
+
+                <hr class="hesabim-divider">
+                <div class="hesabim-section-title">Şifre Değiştir <small>(boş bırakılırsa şifre değişmez)</small></div>
+
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-newpass1">Yeni Şifre</label>
+                    <input type="password" id="swal-acct-newpass1" class="swal2-input hesabim-input">
+                </div>
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-newpass2">Yeni Şifre (Tekrar)</label>
+                    <input type="password" id="swal-acct-newpass2" class="swal2-input hesabim-input">
+                </div>
+                <div class="hesabim-field">
+                    <label class="hesabim-label" for="swal-acct-curpass">Mevcut Şifre <small>(e-posta veya şifre değiştirirken gerekir)</small></label>
+                    <input type="password" id="swal-acct-curpass" class="swal2-input hesabim-input">
+                </div>
+
+                <p class="hesabim-note">Bu bilgiler Deneliz ile ortaktır.</p>
+            </div>
+        `,
+        didOpen: () => {
+            document.getElementById('swal-acct-username').value = current.username || '';
+            document.getElementById('swal-acct-fullname').value = current.fullName || '';
+            document.getElementById('swal-acct-email').value = current.email || '';
+            document.getElementById('swal-acct-phone').value = current.phone || '';
+        },
+        showCancelButton: true,
+        confirmButtonText: 'Kaydet',
+        cancelButtonText: 'Kapat',
+        confirmButtonColor: '#4CAF50',
+        focusConfirm: false,
+        allowOutsideClick: false,
+        showLoaderOnConfirm: true,
+        preConfirm: async () => {
+            const fullName = document.getElementById('swal-acct-fullname').value.trim();
+            const email = document.getElementById('swal-acct-email').value.trim();
+            const phone = document.getElementById('swal-acct-phone').value.trim();
+            const newPass1 = document.getElementById('swal-acct-newpass1').value;
+            const newPass2 = document.getElementById('swal-acct-newpass2').value;
+            const curPass = document.getElementById('swal-acct-curpass').value;
+
+            if (!fullName) {
+                Swal.showValidationMessage('Ad soyad boş olamaz.');
+                return false;
+            }
+            if (newPass1 || newPass2) {
+                if (newPass1 !== newPass2) {
+                    Swal.showValidationMessage('Yeni şifreler birbiriyle uyuşmuyor!');
+                    return false;
+                }
+                const policyCheck = validateStaffPasswordClient(newPass1, { username: current.username });
+                if (!policyCheck.ok) {
+                    Swal.showValidationMessage(policyCheck.message);
+                    return false;
+                }
+            }
+            const emailChanged = email !== (current.email || '');
+            if ((emailChanged || newPass1) && !curPass) {
+                Swal.showValidationMessage('E-posta veya şifre değiştirmek için mevcut şifrenizi girmelisiniz.');
+                return false;
+            }
+
+            // YENİ: sunucu isteği BİLEREK burada (preConfirm içinde) — hata durumunda
+            // Swal.showValidationMessage AYNI pencereyi açık tutar, girilenler kaybolmaz.
+            // Ayrı bir "Kaydediliyor..." Swal.fire'a GEREK YOK: showLoaderOnConfirm:true
+            // zaten Kaydet düğmesinde yükleniyor animasyonu gösterir.
+            let data;
+            try {
+                const res = await fetch('/api/updateMyAccount', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...ktAuthFields(), fullName, email, phone, currentPassword: curPass, newPassword: newPass1 })
+                });
+                data = await res.json();
+            } catch (e) {
+                Swal.showValidationMessage('Sunucuyla iletişim kurulamadı. Lütfen tekrar deneyin.');
+                return false;
+            }
+
+            if (!data || data.status !== 'success') {
+                Swal.showValidationMessage((data && data.message) || 'Hesap güncellenemedi.');
+                // YENİ: hata sonrası yalnızca Mevcut Şifre alanı temizlenir/odaklanır —
+                // diğer alanlar (ad/e-posta/telefon/yeni şifre) kullanıcı tekrar yazmak
+                // zorunda kalmasın diye AYNEN kalır.
+                const curPassInput = document.getElementById('swal-acct-curpass');
+                if (curPassInput) { curPassInput.value = ''; curPassInput.focus(); }
+                return false;
+            }
+
+            return data;
+        }
+    });
+
+    if (!isConfirmed || !result) return;
+
+    if (result.userName !== undefined) localStorage.setItem("kutuphane_user", result.userName);
+    if (result.ktToken && typeof setKtToken === 'function') setKtToken(result.ktToken);
+
+    Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 2500, timerProgressBar: true }).fire({ icon: 'success', title: 'Hesabınız güncellendi' });
+}
+window.openMyAccountModal = openMyAccountModal;
+
 // login(options): options.silent true ise (sessiz yükseltme, bkz. js/ui.js) hiçbir
 // SweetAlert2 bildirimi göstermez (başarı toastu da, hata toastu da). Geriye başarı
 // durumunda true, başarısızlıkta false döner — çağıran taraf buna göre karar verir.

@@ -48,6 +48,12 @@ npm run dev
 - `STAFF_PASSWORD_POLICY_ENFORCE_FROM` (env var, `YYYY-MM-DD`, Europe/Istanbul day) turns on *forced* password-change-at-login for staff whose current password doesn't meet the rule. Undefined/empty/invalid = enforcement is fully off and behavior is unchanged. When set and reached, `/api/login` (staff branch) returns `status: 'password_change_required'` with a short-lived, single-purpose `passwordChangeToken` instead of a normal session ticket; `POST /api/changeStaffPassword` consumes that token to set a compliant password and issue a real session ticket. Duty (nöbetçi) logins and magic-login are never subject to this (no personal password involved).
 - The plaintext `users.password` column migration is complete: this project's code no longer reads or writes it anywhere — every write (`saveTeacher`, `updatePassword`, `changeStaffPassword`) explicitly sets `password: null`, and every read path (`verifyStaffPassword`, login's candidate query, `computeUserPv` in `src/utils/sessionToken.js`) uses `password_hash` only. The pv (ticket fingerprint) source is `password_hash` exclusively.
 
+## Hesabım (self-service account) uçları
+- `POST /api/getMyAccount` and `POST /api/updateMyAccount` (`libraryController.js`) let a logged-in admin/teacher view and edit **only their own** `full_name`/`email`/`phone`/password — never another user's row.
+- The acting user's row is identified **only** via `getSchoolAuth`'s `auth.uid`, which itself comes only from the verified ktToken payload (`payload.uid`), never from the request body. Duty/magic tickets have no `uid` and are rejected by these two endpoints.
+- `updateMyAccount` uses an explicit allowlist of body fields; any other field (`role`, `kt_role`, `ktRole`, `ktClasses`, `classTeacherOf`, `username`, `id`, `app_roles`, `school_id`, ...) in the request body is rejected with 400, never silently dropped.
+- Changing email or password requires `currentPassword` (checked via `verifyStaffPassword`); changing only name/phone does not. Email uniqueness is checked school-scoped (same `school_id`), case-insensitive — consistent with how `login`/`findLibraryUserForReset` already resolve identity per-school rather than globally.
+
 ## Workflow conventions
 - Prefer small, targeted edits close to the relevant feature area rather than broad refactors
 - When changing backend behavior, look at the matching route in `src/routes/index.js` and the controller method in `src/controllers/libraryController.js`
