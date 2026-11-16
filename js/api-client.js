@@ -1,3 +1,41 @@
+// ==========================================
+// 🎫 SİHİRLİ BİLET ERKEN YAKALAMA — bu script DEĞERLENDİRİLİR değerlendirilmez (henüz
+// DOMContentLoaded beklemeden) hem #bilet= (fragment, sunucuya/loglara/Referer'a HİÇ
+// gitmez) hem de ?bilet= (eski biçim, geçiş dönemi için) okunur ve AĞ İSTEĞİ ATILMADAN
+// ÖNCE history.replaceState ile adres çubuğundan silinir. Diğer hash/query parametreleri
+// korunur. window.__ktMagicPending, ui.js'in window.onload'ının (bu dosyadan SONRA
+// çalışır, çünkü script sırayla senkron değerlendirilir ve onload en son tetiklenir)
+// normal oturum akışıyla yarışmasını önler — URL artık bilet içermediği için ui.js
+// doğrudan URL'ye bakamaz, bu bayrağa bakar.
+// ==========================================
+var __ktMagicTicket = (function () {
+    try {
+        var hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        var searchParams = new URLSearchParams(window.location.search);
+        var fromHash = hashParams.get('bilet');
+        var fromSearch = searchParams.get('bilet');
+        var ticket = fromHash || fromSearch;
+
+        if (ticket) {
+            if (fromHash) hashParams.delete('bilet');
+            if (fromSearch) searchParams.delete('bilet');
+
+            var newSearch = searchParams.toString();
+            var newHash = hashParams.toString();
+            var newUrl = window.location.pathname +
+                (newSearch ? '?' + newSearch : '') +
+                (newHash ? '#' + newHash : '');
+
+            window.history.replaceState({}, document.title, newUrl);
+        }
+
+        return ticket;
+    } catch (e) {
+        return null;
+    }
+})();
+window.__ktMagicPending = !!__ktMagicTicket;
+
 // --- VERİ ÇEKME & İŞLEMLER ---
 
 // YENİ: kt_settings.require_photo_confirm önbelleği. Bilerek SADECE bu tek boole değeri
@@ -2595,9 +2633,9 @@ async function deleteBookAPI(payload) {
 // 🎫 SİHİRLİ BİLET (MAGIC TOKEN) YAKALAYICI
 // ==========================================
 async function checkMagicToken() {
-    // 1. URL'de bilet var mı diye bak
-    const urlParams = new URLSearchParams(window.location.search);
-    const bilet = urlParams.get('bilet');
+    // Bilet artık bu dosyanın en üstünde (script değerlendirilir değerlendirilmez, ağ
+    // isteğinden önce) okunup URL'den silindi — burada tekrar URL'ye bakılmaz.
+    const bilet = __ktMagicTicket;
 
     if (bilet) {
         console.log("🎫 Bilet tespit edildi, kapılar Süper Admin için zorlanıyor...");
@@ -2631,9 +2669,6 @@ async function checkMagicToken() {
                 localStorage.setItem("kt_role", result.kt_role || result.role);
                 localStorage.setItem("kutuphane_classes", JSON.stringify(result.kt_classes || ['ALL']));
                 localStorage.setItem("kutuphane_login_type", "staff");
-
-                // URL'deki bileti sil (Kullanıcı sayfayı yenilerse hata almasın)
-                window.history.replaceState({}, document.title, window.location.pathname);
 
                 // Ekran geçişi + dashboard kurulumu: normal login()'le aynı ortak yardımcı.
                 if (typeof setupDashboardUI === 'function') setupDashboardUI(result);

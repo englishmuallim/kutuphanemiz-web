@@ -104,9 +104,11 @@ async function silentUpgrade() {
 }
 
 window.onload = async function () {
-    // 1. ?bilet= varsa (sihirli giriş) hiçbir şey yapma — checkMagicToken kendi akışını yürütür.
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('bilet')) {
+    // 1. Sihirli bilet (#bilet= veya ?bilet=) bekleniyorsa hiçbir şey yapma — checkMagicToken
+    // kendi akışını yürütür. Bilet artık api-client.js tarafından bu script çalışmadan ÖNCE
+    // URL'den okunup silindiği için burada URL'ye değil, o dosyanın erken set ettiği
+    // window.__ktMagicPending bayrağına bakılır.
+    if (window.__ktMagicPending) {
         return;
     }
 
