@@ -40,11 +40,10 @@ exports.removePhotoFile = async (photoPath) => {
 exports.uploadStudentPhoto = async (req, res) => {
     try {
         const schoolCode = req.headers['x-school-code'];
-        const schoolPass = req.headers['x-school-pass'];
         const studentId = req.headers['x-student-id'];
         const studentNo = req.headers['x-student-no'];
 
-        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        const auth = await getSchoolAuth(schoolCode);
         if (!auth || !isAdmin(auth)) {
             return res.json({ success: false, message: 'Yetkisiz işlem.' });
         }

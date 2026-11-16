@@ -259,76 +259,78 @@ async function getSchoolAuth(code, pass) {
         }
     }
 
-    // YENİ: LEGACY YOL KORUMASI — pass gerçek, boş olmayan bir string değilse (undefined,
-    // null, '', sayı vb.) şifre-eşleştirme dallarına HİÇ girilmez, doğrudan null (401)
-    // dönülür (örn. bir ayar hiç set edilmemişken `undefined === undefined` gibi bir
-    // durumla yanlışlıkla eşleşmeyi engeller).
-    if (typeof pass !== 'string' || pass === '') {
-        return null;
-    }
-
-    // =========================================================================
-    // LEGACY YOL — DÜZ METİN (DEĞİŞMEDİ)
-    // =========================================================================
-    let role = null;
-    let app_roles = null;
-    let class_teacher_of = null;
-
-    if (
-        (data.kt_settings?.fixed_staff_password && data.kt_settings.fixed_staff_password === pass) ||
-        (data.kt_settings?.daily_staff_password && data.kt_settings.daily_staff_password === pass) ||
-        (data.kt_settings?.staff_password && data.kt_settings.staff_password === pass)
-    ) {
-        role = 'duty';
-
-        // 🚀 MİMARIN ZAMAN DÜZELTMESİ: Sunucu nerede olursa olsun İstanbul saatine bak!
-        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
-
-        if (pass === data.kt_settings?.daily_staff_password) {
-            if (data.kt_settings?.daily_pass_date !== todayStr) {
-                throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
-            }
-        } else if (pass === data.kt_settings?.staff_password && data.kt_settings?.staff_pass_mode === 'daily') {
-            if (data.kt_settings?.staff_pass_date !== todayStr) {
-                throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
-            }
-        }
-    } else {
-        // Personel/Yönetici users tablosundan kontrol.
-        // YENİ: burada da gerçek bir Supabase hatası "şifre yanlış" (null, 401) ile
-        // karıştırılmıyor — tutarlılık için aynı kural (bkz. getCachedUserAuthFields).
-        const { data: user, error: userError } = await supabase.from('users')
-            .select('id, role, app_roles, class_teacher_of, is_active')
-            .eq('school_id', data.id)
-            .eq('password', pass)
-            .limit(1);
-        if (userError) throw userError;
-        if (user && user.length > 0) {
-            // YENİ: bilet yolundaki AYNI kural (bkz. getCachedUserAuthFields çağrısı yukarıda) —
-            // pasife alınmış kullanıcı bu eski (biletsiz) yoldan da giriş kazanamaz. NULL/true
-            // davranışı değişmiyor, sadece is_active===false AÇIKÇA reddediliyor.
-            if (user[0].is_active === false) {
-                return null;
-            }
-            role = user[0].role; // 'admin' veya 'teacher' vb
-            app_roles = user[0].app_roles;
-            class_teacher_of = user[0].class_teacher_of; // Deneliz'in sütunu — yalnızca OKUNUR, yazılmaz
-        } else {
-            return null;
-        }
-    }
-
-    // YENİ: Rapor sınıf kapsamı artık sunucuda, tek bir ortak fonksiyonla hesaplanıyor.
-    const authForScope = { role, app_roles, class_teacher_of };
-    const ktRole = exports.isAdmin(authForScope) ? 'admin' : (exports.isTeacher(authForScope) ? 'teacher' : role);
-    const ktClasses = exports.computeEffectiveClasses(authForScope);
-
-    return { id: data.id, school_name: data.school_name, role, app_roles, settings, schoolType: data.school_type, ktRole, ktClasses };
+    // YENİ: LEGACY YOL KALDIRILDI — bilet (ktToken) dalı yukarıda zaten denendi ve
+    // eşleşmediyse (yok/geçersiz/sid uyuşmuyor), artık schoolCode+schoolPass düz metin
+    // karşılaştırmasına HİÇ düşülmez; doğrudan "yetkisiz" (null) dönülür. `pass` parametresi
+    // bu fonksiyonda artık kullanılmıyor (çağıranların imzası değişmedi, değer sessizce
+    // yok sayılıyor) — nöbetçi girişinin (/api/login, loginType==='duty') KENDİ şifre
+    // doğrulaması artık burada değil, ayrı bir yardımcıda (bkz. verifyDutyLogin).
+    return null;
 }
 
 async function getSchoolId(code, pass) {
     const auth = await getSchoolAuth(code, pass);
     return auth ? auth.id : null;
+}
+
+// =========================================================================
+// 🕴️ NÖBETÇİ GİRİŞİ DOĞRULAMASI — SADECE /api/login (loginType==='duty') kullanır.
+// YENİ: getSchoolAuth'un eski (artık kaldırılmış) düz metin dalıyla AYNI mantık —
+// lisans duvarı, sabit/günlük/eski nöbetçi şifre eşleştirmesi, günlük şifrelerde tarih
+// kontrolü — birebir buraya taşındı. Davranış DEĞİŞMEDİ, sadece biletsiz veri uç
+// noktalarından (getSchoolAuth) ayrıştırıldı.
+// =========================================================================
+async function verifyDutyLogin(code, pass) {
+    const { data, error: schoolError } = await supabase.from('schools')
+        .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_settings')
+        .eq('school_code', code)
+        .single();
+
+    if (schoolError && schoolError.code !== 'PGRST116') throw schoolError;
+    if (!data) return null;
+
+    // 🛑 KÜTÜPHANEMİZ PREMIUM LİSANS DUVARI (getSchoolAuth'taki ile birebir aynı)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDate = new Date(data.kt_end_date);
+    endDate.setHours(0, 0, 0, 0);
+    const isExpired = endDate < today;
+
+    if (data.kt_status !== 'active' || isExpired) {
+        throw new Error(`LİSANS_İPTAL|Sayın <strong>${data.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
+    }
+
+    if (typeof pass !== 'string' || pass === '') {
+        return null;
+    }
+
+    const settings = data.kt_settings || {};
+    // 🚀 MİMARIN ZAMAN DÜZELTMESİ: Sunucu nerede olursa olsun İstanbul saatine bak!
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+
+    let userName = '';
+    let dutyVariant = null;
+
+    if (settings.fixed_staff_password && pass === settings.fixed_staff_password) {
+        userName = settings.fixed_staff_name || 'Sabit Görevli';
+        dutyVariant = 'fixed';
+    } else if (settings.daily_staff_password && pass === settings.daily_staff_password) {
+        if (settings.daily_pass_date !== todayStr) {
+            throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
+        }
+        userName = settings.daily_staff_names || 'Nöbetçi Öğrenci';
+        dutyVariant = 'daily';
+    } else if (settings.staff_password && pass === settings.staff_password) {
+        if (settings.staff_pass_mode === 'daily' && settings.staff_pass_date !== todayStr) {
+            throw new Error('Personel şifresinin süresi dolmuş. Lütfen güncel şifreyi öğrenin.');
+        }
+        userName = settings.staff_names || 'Nöbetçi';
+        dutyVariant = settings.staff_pass_mode === 'daily' ? 'legacy_daily' : 'legacy_fixed';
+    } else {
+        return null;
+    }
+
+    return { id: data.id, school_name: data.school_name, settings, userName, dutyVariant };
 }
 
 // studentManagementController.js gibi diğer controller'ların aynı yetkilendirme/lisans
@@ -411,33 +413,12 @@ exports.login = async (req, res) => {
         // 1. NÖBETÇİ GİRİŞİ (DUTY)
         // -------------------------
         if (loginType === 'duty') {
-            const auth = await getSchoolAuth(schoolCode, schoolPass);
-            if (!auth || auth.role !== 'duty') return res.json({ status: 'error', message: 'Hatalı kurum kodu veya nöbetçi şifresi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.' });
+            // YENİ: nöbetçi şifre doğrulaması artık getSchoolAuth'tan (biletsiz veri uç
+            // noktalarından) tamamen ayrı, SADECE bu endpoint'in kullandığı verifyDutyLogin'de.
+            const dutyAuth = await verifyDutyLogin(schoolCode, schoolPass);
+            if (!dutyAuth) return res.json({ status: 'error', message: 'Hatalı kurum kodu veya nöbetçi şifresi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.' });
 
-            const { data: school } = await supabase.from('schools')
-                .select('school_name, kt_settings')
-                .eq('id', auth.id)
-                .single();
-
-            let userName = "";
-            let dutyVariant = null;
-            const settings = school.kt_settings || {};
-
-            // YENİ: dutyVariant, hangi kt_settings alanının eşleştiğini kaydeder — bilete
-            // işlenir ki getSchoolAuth her istekte doğru alanı (ve günlükse tarihi) karşı
-            // karşıya koyup pv'yi doğrulayabilsin.
-            if (settings.fixed_staff_password && schoolPass === settings.fixed_staff_password) {
-                userName = settings.fixed_staff_name || "Sabit Görevli";
-                dutyVariant = 'fixed';
-            } else if (settings.daily_staff_password && schoolPass === settings.daily_staff_password) {
-                userName = settings.daily_staff_names || "Nöbetçi Öğrenci";
-                dutyVariant = 'daily';
-            } else if (settings.staff_password && schoolPass === settings.staff_password) {
-                userName = settings.staff_names || "Nöbetçi";
-                dutyVariant = settings.staff_pass_mode === 'daily' ? 'legacy_daily' : 'legacy_fixed';
-            } else {
-                return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen tekrar deneyin.' });
-            }
+            const { id: schoolId, school_name, settings, userName, dutyVariant } = dutyAuth;
 
             // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
             let ktToken = null;
@@ -448,12 +429,12 @@ exports.login = async (req, res) => {
                         const d = todayIstanbul();
                         const endOfDaySeconds = secondsUntilEndOfIstanbulDay();
                         ktToken = signToken(
-                            { sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant, d },
+                            { sid: schoolId, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant, d },
                             { ttlSeconds: Math.min(DUTY_DAILY_INTRADAY_TTL_SECONDS, endOfDaySeconds), hardExp: Math.floor(Date.now() / 1000) + endOfDaySeconds }
                         );
                     } else {
                         ktToken = signToken(
-                            { sid: auth.id, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant },
+                            { sid: schoolId, uid: null, role: 'duty', ktRole: 'duty', ktClasses: ['ALL'], pv, dutyVariant },
                             { ttlSeconds: DUTY_FIXED_SLIDING_TTL_SECONDS, maxAgeSeconds: DUTY_FIXED_MAX_AGE_SECONDS }
                         );
                     }
@@ -466,7 +447,7 @@ exports.login = async (req, res) => {
 
             return res.json({
                 status: 'success',
-                schoolName: school.school_name,
+                schoolName: school_name,
                 userName: userName,
                 role: 'duty',
                 kt_role: 'duty',
@@ -2321,10 +2302,9 @@ exports.getSettings = async (req, res) => {
 exports.uploadSchoolLogo = async (req, res) => {
     try {
         const schoolCode = req.headers['x-school-code'];
-        const schoolPass = req.headers['x-school-pass'];
         const fileExt = String(req.headers['x-file-ext'] || 'png').toLowerCase();
 
-        const auth = await getSchoolAuth(schoolCode, schoolPass);
+        const auth = await getSchoolAuth(schoolCode);
         if (!auth || !exports.isAdmin(auth)) {
             return res.json({ success: false, message: 'Yetkisiz işlem.' });
         }
