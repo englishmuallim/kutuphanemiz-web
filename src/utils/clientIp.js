@@ -1,41 +1,35 @@
 'use strict';
 
-const crypto = require('crypto');
 const net = require('net');
 
 // =========================================================================
-// 🌐 GÜVENİLİR İSTEMCİ IP'Sİ — Cloudflare → Render → uygulama zinciri.
-// app.set('trust proxy') AYARINA, req.ip'ye veya x-forwarded-for'a HİÇ GÜVENİLMEZ —
-// bunların hepsi, Render'a *.onrender.com üzerinden doğrudan bağlanan biri tarafından
-// sahte üretilebilir. Tek güvenilir kaynak: Cloudflare'in edge'de bir Transform Rule
-// ile eklediği paylaşılan-sır başlığı (x-kt-edge-secret). Bu başlık doğru değerle
-// gelmiyorsa cf-connecting-ip'ye HİÇ bakılmaz.
+// 🌐 GÜVENİLİR İSTEMCİ IP'Sİ — Render → uygulama.
+// Render, servisin önünde KENDİ Cloudflare'ini kullanıyor; gerçek istemci IP'si
+// Cloudflare'in eklediği `cf-connecting-ip` başlığında gelir ve Cloudflare, istemcinin
+// göndermiş olabileceği aynı adlı başlığın ÜZERİNE YAZAR (yani bu başlık uygulamaya
+// ulaştığında her zaman Cloudflare'in kendi belirlediği değeri taşır).
 //
-// CF_EDGE_SECRET ortam değişkeni tanımsızsa fonksiyon HER ZAMAN null döner — yani bu
-// kod, Cloudflare tarafı henüz kurulmamışken de güvenle yayına çıkabilir (sadece IP
-// bazlı katmanlar o ana kadar devre dışı kalır, bkz. çağıran taraftaki "IP null ise
-// (a)/(b) atlanır" kuralı).
+// `x-forwarded-for` kullanılmaz: bu başlık sadece SONUNA ekleme yapılır, önceki
+// girdiler silinmez/üzerine yazılmaz — bu yüzden taklit edilebilir, güvenilmez.
+// `app.set('trust proxy')` de kasıtlı olarak ayarlanmıyor (server.js'te yok).
+//
+// Cloudflare hesabı bize ait değil — bu projede Cloudflare tarafında özel bir kural
+// (Transform Rule, paylaşılan sır vb.) EKLEYEMİYORUZ. Bu yüzden `cf-ray` başlığının
+// varlığı yalnızca basit bir "bu istek muhtemelen Cloudflare'den geçti" sağlık sinyali
+// olarak kullanılır — KRİPTOGRAFİK bir güvenlik sınırı DEĞİLDİR, sahte üretilebilir.
+// Asıl güvenlik, Render'ın kendi Cloudflare'inin HER isteği (hangi hostname'den gelirse
+// gelsin) yakalayıp cf-connecting-ip'yi kendisi yazdığı varsayımına dayanır.
+//
+// process.env.TRUST_CF_CONNECTING_IP tam olarak (küçük harfle) 'true' değilse fonksiyon
+// HER ZAMAN null döner — yani bu kod, bu ortam değişkeni Render'da hiç tanımlanmamışken
+// de güvenle yayına çıkabilir (sadece IP bazlı katmanlar o ana kadar devre dışı kalır,
+// hesap-geneli sayaç çağıran tarafta — bkz. libraryController.js — çalışmaya devam eder).
+// Render panelinde bu değişken tanımlanırken değeri TAM OLARAK küçük harfli `true`
+// olmalıdır ('True', 'TRUE', '1' gibi değerler flag'i SESSİZCE kapalı bırakır).
 // =========================================================================
 function getTrustedClientIp(req) {
-    const secret = process.env.CF_EDGE_SECRET;
-    if (!secret) return null;
-
-    const provided = req.headers['x-kt-edge-secret'];
-    if (typeof provided !== 'string' || provided === '') return null;
-
-    // Sabit zamanlı karşılaştırma: timingSafeEqual farklı uzunluktaki buffer'larda
-    // hata fırlatır, bu yüzden ikisini de önce SABİT uzunluklu bir sha256 özetine
-    // çeviriyoruz (uzunluk sızıntısı da böylece ortadan kalkar).
-    const expectedHash = crypto.createHash('sha256').update(secret).digest();
-    const providedHash = crypto.createHash('sha256').update(provided).digest();
-
-    let matches = false;
-    try {
-        matches = crypto.timingSafeEqual(expectedHash, providedHash);
-    } catch (e) {
-        return null;
-    }
-    if (!matches) return null;
+    if (process.env.TRUST_CF_CONNECTING_IP !== 'true') return null;
+    if (!req.headers['cf-ray']) return null;
 
     const candidate = req.headers['cf-connecting-ip'];
     if (typeof candidate !== 'string' || candidate === '') return null;
