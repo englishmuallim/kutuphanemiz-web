@@ -98,6 +98,106 @@ function setupDashboardUI(result) {
     if (typeof loadSettings === 'function') loadSettings(); // Header'daki okul logosunu erkenden yükle
 }
 
+// YENİ: login()'in BAŞARI yanıtını (hem normal girişten hem de zorunlu şifre
+// değişiminin ardından gelen "ikinci" başarıdan) uygulayan tek ortak nokta — ikisi
+// birbirinden sapmasın diye login()'den çıkarıldı.
+function _applyLoginSuccess(result, ctx) {
+    if (typeof setKtToken === 'function') setKtToken(result.ktToken);
+
+    localStorage.setItem("kutuphane_code", ctx.code);
+    if (ctx.remember) {
+        localStorage.setItem("beni_hatirla", "true");
+        if (ctx.loginType === 'staff') localStorage.setItem("kutuphane_identity", ctx.identity.trim());
+        localStorage.setItem("kutuphane_login_type", ctx.loginType);
+    } else {
+        localStorage.removeItem("beni_hatirla");
+        localStorage.removeItem("kutuphane_identity");
+        localStorage.removeItem("kutuphane_login_type");
+    }
+
+    localStorage.removeItem("kutuphane_auth_mode");
+    localStorage.removeItem("kutuphane_pass");
+    window.__ktSessionExpiredShown = false;
+    document.getElementById("schoolPass").value = "";
+
+    setupDashboardUI(result);
+
+    if (!ctx.silent) {
+        Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
+    }
+}
+
+// =========================================================================
+// 🔑 YENİ: ZORUNLU ŞİFRE DEĞİŞİMİ (STAFF_PASSWORD_POLICY_ENFORCE_FROM) — login()'in
+// password_change_required yanıtından sonra çağrılır. passwordChangeToken SADECE bu
+// fonksiyonun closure'ında (bellekte) tutulur, localStorage'a HİÇ yazılmaz — sayfa
+// yenilenirse kullanıcı normal giriş ekranına döner (bilerek). Modal KAPATILAMAZ
+// (allowOutsideClick/Escape kapalı); "Vazgeç" girişe geri döner. Döndürdüğü değer:
+// başarıda /api/changeStaffPassword'un tam başarı yanıtı (login başarı yanıtıyla AYNI
+// biçim), vazgeçildiyse/başarısızsa null.
+// =========================================================================
+async function promptForcedPasswordChange(passwordChangeToken, initialMessage) {
+    for (;;) {
+        const { value: pass1, isDismissed } = await Swal.fire({
+            title: 'Şifre Değişimi Gerekli',
+            html: `
+                <p style="font-size:0.9rem; color:#666; margin-bottom:10px;">${initialMessage || 'Güvenlik kuralları gereği şifrenizi güncellemeniz gerekiyor.'}</p>
+                <p style="font-size:0.85rem; color:#999; margin-bottom:15px;">En az 8 karakter, en az bir harf ve bir rakam; kullanıcı adınızla aynı olamaz.</p>
+                <input type="password" id="swal-pwchange-pass1" class="swal2-input" placeholder="Yeni Şifre" style="margin-bottom: 10px;">
+                <input type="password" id="swal-pwchange-pass2" class="swal2-input" placeholder="Yeni Şifre (Tekrar)">
+            `,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showCancelButton: true,
+            confirmButtonText: 'Şifreyi Güncelle',
+            cancelButtonText: 'Vazgeç',
+            confirmButtonColor: '#4CAF50',
+            focusConfirm: false,
+            preConfirm: () => {
+                const p1 = document.getElementById('swal-pwchange-pass1').value;
+                const p2 = document.getElementById('swal-pwchange-pass2').value;
+                const policyCheck = validateStaffPasswordClient(p1);
+                if (!policyCheck.ok) {
+                    Swal.showValidationMessage(policyCheck.message);
+                    return false;
+                }
+                if (p1 !== p2) {
+                    Swal.showValidationMessage('Şifreler birbiriyle uyuşmuyor! Lütfen kontrol edin.');
+                    return false;
+                }
+                return p1;
+            }
+        });
+
+        if (isDismissed) return null; // "Vazgeç" -> giriş ekranına dön
+
+        Swal.fire({ title: 'Şifreniz Güncelleniyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        let data;
+        try {
+            const res = await fetch('/api/changeStaffPassword', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passwordChangeToken, newPassword: pass1 })
+            });
+            data = await res.json();
+        } catch (e) {
+            await Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Sunucuyla iletişim kurulamadı. Lütfen tekrar deneyin.' });
+            continue; // yeni şifreyi tekrar sor
+        }
+
+        if (data.status === 'success') return data;
+
+        // YENİ: isRateLimited dahil, diğer uçlarla (login/forgotPassword) AYNI
+        // showApiErrorAlert gösterimi.
+        await showApiErrorAlert(data, 'Şifre Güncellenemedi');
+        if (data.isRateLimited) return null; // kilitliyken tekrar denemenin anlamı yok
+
+        // Kural ihlali veya geçersiz/süresi dolmuş bilet gibi diğer hatalarda kullanıcı
+        // modalı tekrar görür (bilet süresi dolmuşsa "Vazgeç" ile girişe dönmesi gerekir).
+    }
+}
+
 // login(options): options.silent true ise (sessiz yükseltme, bkz. js/ui.js) hiçbir
 // SweetAlert2 bildirimi göstermez (başarı toastu da, hata toastu da). Geriye başarı
 // durumunda true, başarısızlıkta false döner — çağıran taraf buna göre karar verir.
@@ -133,36 +233,23 @@ async function login(options) {
         const result = await response.json();
 
         if (result.status === 'success') {
-            // YENİ: bilet (ktToken) varsa sakla; yoksa (sır eksik vb.) mevcut bileti temizle.
-            if (typeof setKtToken === 'function') setKtToken(result.ktToken);
-
-            // YENİ: şifre ARTIK localStorage'a yazılmıyor (ne remember'lı ne de normal
-            // dalda) — yalnızca schoolCode ve "beni hatırla" ile ilgili anahtarlar yazılır.
-            localStorage.setItem("kutuphane_code", code);
-            if (remember) {
-                localStorage.setItem("beni_hatirla", "true");
-                if (loginType === 'staff') localStorage.setItem("kutuphane_identity", identity.trim());
-                localStorage.setItem("kutuphane_login_type", loginType);
-            } else {
-                localStorage.removeItem("beni_hatirla");
-                localStorage.removeItem("kutuphane_identity");
-                localStorage.removeItem("kutuphane_login_type");
-            }
-
-            // YENİ: başarılı (gerçek) girişte magic_legacy bayrağı ve varsa eski şifre
-            // kalıntısı temizlenir; tek-seferlik "oturum sona erdi" bayrağı sıfırlanır ki
-            // bu YENİ oturumda bir 401 geldiğinde toast tekrar gösterilebilsin.
-            localStorage.removeItem("kutuphane_auth_mode");
-            localStorage.removeItem("kutuphane_pass");
-            window.__ktSessionExpiredShown = false;
-            document.getElementById("schoolPass").value = "";
-
-            setupDashboardUI(result);
-
-            if (!silent) {
-                Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true }).fire({ icon: 'success', title: 'Giriş Başarılı' });
-            }
+            _applyLoginSuccess(result, { code, identity, remember, loginType, silent });
             return true;
+
+        } else if (result.status === 'password_change_required') {
+            // YENİ: STAFF_PASSWORD_POLICY_ENFORCE_FROM açık ve doğrulanmış şifre kurala
+            // uymuyor — normal bilet verilmedi. Sessiz yükseltmede (options.silent) bu dal
+            // hiç tetiklenmemeli (sessiz çağrılar schoolPass göndermez, backend'de
+            // verifyStaffPassword şifre yanlışsa ok döndürmez) ama savunma amaçlı: sessizse
+            // modal açmadan başarısız dön, kullanıcı normal giriş ekranında kalsın.
+            if (silent) return false;
+
+            const changeResult = await promptForcedPasswordChange(result.passwordChangeToken, result.message);
+            if (changeResult && changeResult.status === 'success') {
+                _applyLoginSuccess(changeResult, { code, identity, remember, loginType, silent });
+                return true;
+            }
+            return false;
 
         } else {
             if (!silent) {
@@ -196,6 +283,29 @@ async function login(options) {
         if (btn) { btn.innerText = "Giriş Yap"; btn.disabled = false; }
     }
 }
+
+// =========================================================================
+// 🔑 YENİ: PERSONEL ŞİFRE KURALI — TARAYICI TARAFI KOPYASI. Sunucudaki
+// src/utils/staffPasswordPolicy.js ile davranış/mesaj BİREBİR aynı olmalı (saf JS
+// modülü olmadığından burada ayrı bir fonksiyon olarak tutuluyor — biri değişirse
+// diğeri de güncellenmeli). js/ui.js (öğretmen formu) ve bu dosyadaki "şifremi
+// unuttum" akışı tarafından paylaşılır.
+// =========================================================================
+function validateStaffPasswordClient(newPassword, options) {
+    var username = options && options.username;
+
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
+        return { ok: false, message: 'Şifre en az 8 karakter olmalı ve en az bir harf, bir rakam içermelidir.' };
+    }
+    if (!/[a-zA-ZçÇğĞıİöÖşŞüÜ]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return { ok: false, message: 'Şifre en az 8 karakter olmalı ve en az bir harf, bir rakam içermelidir.' };
+    }
+    if (username && newPassword.trim().toLowerCase() === String(username).trim().toLowerCase()) {
+        return { ok: false, message: 'Şifreniz kullanıcı adınızla aynı olamaz.' };
+    }
+    return { ok: true };
+}
+window.validateStaffPasswordClient = validateStaffPasswordClient;
 
 // =========================================================================
 // 🔐 KÜTÜPHANEMİZ - BİREYSEL ŞİFRE SIFIRLAMA ZİNCİRİ
@@ -303,7 +413,7 @@ async function forgotPassword() {
         const { value: newPassword } = await Swal.fire({
             title: 'Yeni Şifre',
             html: `
-                <p style="font-size:0.9rem; color:#666; margin-bottom:15px;">Lütfen yeni şifrenizi belirleyin.</p>
+                <p style="font-size:0.9rem; color:#666; margin-bottom:15px;">Lütfen yeni şifrenizi belirleyin.<br><small style="color:#999;">En az 8 karakter, en az bir harf ve bir rakam; kullanıcı adınızla aynı olamaz.</small></p>
                 <input type="password" id="swal-pass1" class="swal2-input" placeholder="Yeni Şifre" style="margin-bottom: 10px;">
                 <input type="password" id="swal-pass2" class="swal2-input" placeholder="Yeni Şifre (Tekrar)">
             `,
@@ -315,8 +425,13 @@ async function forgotPassword() {
             preConfirm: () => {
                 const pass1 = document.getElementById('swal-pass1').value;
                 const pass2 = document.getElementById('swal-pass2').value;
-                if (!pass1 || pass1.length < 4) {
-                    Swal.showValidationMessage('Güvenliğiniz için şifre en az 4 karakter olmalıdır!');
+                // YENİ: kullanıcı adı bu akışta kesin bilinmiyor (identity e-posta/telefon da
+                // olabilir) — client-side kontrol yalnızca uzunluk/karakter kuralını uygular,
+                // "kullanıcı adıyla aynı olamaz" kontrolü sunucuda (updatePassword, user.username
+                // ile) yapılır.
+                const policyCheck = validateStaffPasswordClient(pass1);
+                if (!policyCheck.ok) {
+                    Swal.showValidationMessage(policyCheck.message);
                     return false;
                 }
                 if (pass1 !== pass2) {

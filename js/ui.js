@@ -847,11 +847,27 @@ window.saveTeacherForm = async function () {
     const isAll = allCb ? allCb.checked : false;
 
     // 🚀 AKILLI DOĞRULAMA (Senin İstediğin Mantık)
-    if (!fullName) return alert("Ad Soyad alanı zorunludur.");
-    if (!username && !email && !phone) {
-        return alert("İletişim için 'Kullanıcı Adı', 'E-Posta' veya 'Telefon' bilgilerinden en az BİRİNİ doldurmalısınız.");
+    if (!fullName) {
+        await Swal.fire({ icon: 'warning', title: 'Eksik Bilgi', text: 'Ad Soyad alanı zorunludur.' });
+        return;
     }
-    if (!id && !password) return alert("Yeni öğretmen eklerken şifre belirlemek zorunludur.");
+    if (!username && !email && !phone) {
+        await Swal.fire({ icon: 'warning', title: 'Eksik Bilgi', text: "İletişim için 'Kullanıcı Adı', 'E-Posta' veya 'Telefon' bilgilerinden en az BİRİNİ doldurmalısınız." });
+        return;
+    }
+    if (!id && !password) {
+        await Swal.fire({ icon: 'warning', title: 'Eksik Bilgi', text: 'Yeni öğretmen eklerken şifre belirlemek zorunludur.' });
+        return;
+    }
+    // YENİ: şifre alanı doluysa (yeni ekleme her zaman, düzenlemede yalnız değiştirildiyse)
+    // aynı kural sunucuyla AYNI — kullanıcı adı olarak kaydedilecek değer verilir.
+    if (password) {
+        const policyCheck = validateStaffPasswordClient(password, { username });
+        if (!policyCheck.ok) {
+            await Swal.fire({ icon: 'warning', title: 'Geçersiz Şifre', text: policyCheck.message });
+            return;
+        }
+    }
 
     // YENİ: "Ekle"ye basılmadan "Kaydet"e basılırsa, kaydetmeden önce sor (her iki bölüm için).
     // "Ek sınıflar" bölümü admin/ALL'da zaten pasif olduğundan o durumda sorulmaz.
@@ -899,7 +915,7 @@ window.saveTeacherForm = async function () {
         classTeacherOfDirty = false;
         loadTeachersList();
     } else {
-        alert("Hata: " + res.message);
+        await Swal.fire({ icon: 'error', title: 'Hata', text: res.message });
     }
 };
 

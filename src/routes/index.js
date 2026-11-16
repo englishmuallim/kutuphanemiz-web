@@ -13,6 +13,7 @@ router.post('/session', libraryController.session); // YENİ: Sadece bilet ile o
 router.post('/forgotPassword', libraryController.forgotPassword);
 router.post('/verifyResetCode', libraryController.verifyResetCode);
 router.put('/updatePassword', libraryController.updatePassword);
+router.post('/changeStaffPassword', libraryController.changeStaffPassword); // YENİ: zorunlu şifre değişimi (pwchange bileti)
 
 
 // İstatistik & Gösterge Paneli

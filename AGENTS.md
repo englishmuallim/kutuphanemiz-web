@@ -43,6 +43,10 @@ npm run dev
 - Environment variables are expected from the repo-root `.env` file, and `src/api/supabase.js` loads them with `dotenv`
 - Many controller methods interact directly with Supabase tables (`schools`, `users`, `books`, `students`, `transactions`, etc.)
 
+## Staff password policy
+- `src/utils/staffPasswordPolicy.js` defines `validateStaffPassword(newPassword, { username })` — the min-length/letter/digit rule (and "not same as username" check) applied whenever a personal staff/teacher/admin password is set or changed (`saveTeacher`, `updatePassword`, `changeStaffPassword` in `libraryController.js`). It must stay behaviorally identical to the same-named file in the Deneliz project (shared `users` table/rule).
+- `STAFF_PASSWORD_POLICY_ENFORCE_FROM` (env var, `YYYY-MM-DD`, Europe/Istanbul day) turns on *forced* password-change-at-login for staff whose current password doesn't meet the rule. Undefined/empty/invalid = enforcement is fully off and behavior is unchanged. When set and reached, `/api/login` (staff branch) returns `status: 'password_change_required'` with a short-lived, single-purpose `passwordChangeToken` instead of a normal session ticket; `POST /api/changeStaffPassword` consumes that token to set a compliant password and issue a real session ticket. Duty (nöbetçi) logins and magic-login are never subject to this (no personal password involved).
+
 ## Workflow conventions
 - Prefer small, targeted edits close to the relevant feature area rather than broad refactors
 - When changing backend behavior, look at the matching route in `src/routes/index.js` and the controller method in `src/controllers/libraryController.js`

@@ -10,6 +10,7 @@ const {
 const { getCurrentRequestContext } = require('../middleware/ktAuthContext');
 const rateLimiter = require('../utils/rateLimiter');
 const { getTrustedClientIp } = require('../utils/clientIp');
+const { validateStaffPassword } = require('../utils/staffPasswordPolicy');
 
 // =========================================================================
 // 🛡️ GİRİŞ HIZ SINIRI EŞİKLERİ (/api/login) — yalnızca BAŞARISIZ denemeler sayılır.
@@ -55,6 +56,52 @@ const RESET_CODE_RL = {
 const MAGIC_LOGIN_RL = {
     ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 10, lockoutMs: 15 * 60 * 1000 },
 };
+
+// changeStaffPassword: hesap kavramı yok (bilet zaten kendi kendini doğruluyor) —
+// yalnızca IP. Yalnızca GEÇERSİZ/SAHTE/SÜRESİ DOLMUŞ bilet denemeleri sayılır; kural
+// (validateStaffPassword) ihlali SAYILMAZ — doğru bileti olan bir kullanıcının art arda
+// kurala uymayan şifreler denemesi burada cezalandırılmaz, sadece bilet sahteciliği.
+const PWCHANGE_RL = {
+    ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 10, lockoutMs: 15 * 60 * 1000 },
+};
+
+// =========================================================================
+// 🔑 YENİ: PERSONEL ŞİFRE KURALI ZORUNLU DEĞİŞİM — STAFF_PASSWORD_POLICY_ENFORCE_FROM
+// (YYYY-MM-DD, Europe/Istanbul günü). Tanımsız/boş/geçersizse zorlama KAPALI — bu
+// durumda aşağıdaki iki yardımcı da davranışı HİÇ değiştirmez (false / null döner).
+// Deneliz'deki aynı adlı env değişkeniyle birebir aynı anlam taşır; iki projenin
+// tarihleri senkron tutulmalı (aksi halde biri kuralı, diğeri atlatma yolu olur).
+// =========================================================================
+function _staffPasswordPolicyEnforceFromDateStr() {
+    const raw = process.env.STAFF_PASSWORD_POLICY_ENFORCE_FROM;
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+    if (Number.isNaN(Date.parse(`${trimmed}T00:00:00+03:00`))) return null;
+    return trimmed;
+}
+
+// Bugün (Europe/Istanbul) zorlama tarihinde veya sonrasındaysa true. YYYY-MM-DD
+// biçimindeki iki string'in sözlük sırası, kronolojik sırayla AYNI olduğu için doğrudan
+// string karşılaştırması yeterli (ekstra tarih ayrıştırma/saat dilimi matematiği yok).
+function _isStaffPasswordPolicyEnforced() {
+    const enforceFrom = _staffPasswordPolicyEnforceFromDateStr();
+    if (!enforceFrom) return false;
+    return todayIstanbul() >= enforceFrom;
+}
+
+// Zorlama tarihinin Europe/Istanbul 00:00'ının epoch-saniyesi — eski (zorlama
+// başlangıcından ÖNCE verilmiş) kişisel staff ticket'larını geçersiz saymak için
+// kullanılır (bkz. getSchoolAuth). Zorlama kapalıysa/tanımsızsa null.
+function _staffPasswordPolicyEnforceFromEpochSeconds() {
+    const enforceFrom = _staffPasswordPolicyEnforceFromDateStr();
+    if (!enforceFrom) return null;
+    return Math.floor(Date.parse(`${enforceFrom}T00:00:00+03:00`) / 1000);
+}
+
+// Zorunlu şifre değişimi geçiş bileti (purpose:'pwchange') ömrü — sabit, env ile
+// ezilmiyor (kısa olması bilerek sabit tutuluyor).
+const PASSWORD_CHANGE_TOKEN_TTL_SECONDS = 10 * 60; // 10 dakika
 
 // reset_code karşılaştırmasını sabit zamanlı yapar — farklı uzunluktaki string'leri
 // timingSafeEqual'a vermemek için ikisi de önce sabit uzunluklu bir sha256 özetine
@@ -259,7 +306,10 @@ async function getSchoolAuth(code, pass) {
         const incomingToken = extractKtToken(reqCtx.req.headers);
         if (incomingToken) {
             const verifyResult = verifyToken(incomingToken);
-            if (verifyResult.ok && verifyResult.payload.sid === data.id) {
+            // YENİ: purpose:'pwchange' taşıyan geçiş biletleri burada KESİNLİKLE kabul
+            // edilmez — tek amaçları /api/changeStaffPassword'dür, tam oturum bileti
+            // değildir (bkz. libraryController.js'teki değişim ucu).
+            if (verifyResult.ok && verifyResult.payload.sid === data.id && verifyResult.payload.purpose !== 'pwchange') {
                 const payload = verifyResult.payload;
                 const isV2 = payload.v === 2;
                 let role, app_roles, class_teacher_of, ktRole, ktClasses;
@@ -269,6 +319,19 @@ async function getSchoolAuth(code, pass) {
                     const fresh = await getCachedUserAuthFields(payload.uid);
                     if (!fresh || fresh.is_active === false) {
                         return null; // kullanıcı silinmiş veya pasife alınmış — reddet
+                    }
+
+                    // YENİ: zorlama AÇIKKEN, zorlama başlangıcından ÖNCE verilmiş kişisel
+                    // (uid'li) staff ticket'ları geçersiz sayılır — kullanıcı yeniden login
+                    // olduğunda kural kontrolü (login'deki validateStaffPassword çağrısı)
+                    // devreye girer. iat her bilette (v1/v2) zaten var, bilet BİÇİMİ
+                    // değişmedi. Nöbetçi/magic_school (uid'siz) ticket'lar bu branch'e hiç
+                    // girmediğinden doğal olarak muaftır.
+                    if (_isStaffPasswordPolicyEnforced()) {
+                        const enforceFromEpoch = _staffPasswordPolicyEnforceFromEpochSeconds();
+                        if (enforceFromEpoch !== null && typeof payload.iat === 'number' && payload.iat < enforceFromEpoch) {
+                            return null;
+                        }
                     }
 
                     // YENİ: personel pv kontrolü — SADECE v2 biletlerde (v1/eski biletlerde
@@ -494,6 +557,71 @@ exports.cleanBarcode = cleanBarcode;
 // Büyük barkod listelerini Supabase .in() sorgusunun URL'sini şişirmeden parça parça sorgulamak için
 const BARCODE_CHECK_CHUNK_SIZE = 150;
 
+// =========================================================================
+// 🎫 PERSONEL GİRİŞİ BAŞARI YANITI — login() (staff dalı) VE changeStaffPassword()
+// İKİSİ TARAFINDAN kullanılan tek ortak nokta. İkisi de "şifre (eski veya yeni) doğru,
+// hesap aktif, normal oturum bileti üretilsin" durumundan sonra AYNI şekli (role/ktRole/
+// kt_classes/ktToken) üretmek zorunda — burada tek yerde tutulmazsa iki fonksiyon
+// zamanla birbirinden sapabilir (örn. biri computeEffectiveClasses güncellemesini
+// kaçırabilir).
+// =========================================================================
+function buildStaffLoginSuccess(user, school) {
+    let appRoles = user.app_roles;
+    if (typeof appRoles === 'string') {
+        try { appRoles = JSON.parse(appRoles); } catch (e) { appRoles = {}; }
+    }
+    appRoles = appRoles || {};
+
+    const ktRole = appRoles.kutuphanemiz?.role;
+
+    // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
+    // pv, user'ın password/password_hash'inden türetilir (ham değer bilete GİRMEZ,
+    // sadece HMAC özeti); PERSONNEL_* sabitleriyle imzalanır (sliding 30g, mutlak 180g).
+    const makeTicket = (role, ktRoleForTicket, ktClassesForTicket) => {
+        if (!isTokenAuthAvailable()) {
+            _warnSessionSecretMissingOnce();
+            return null;
+        }
+        try {
+            const pv = computeUserPv(user);
+            return signToken(
+                { sid: school.id, uid: user.id, role, ktRole: ktRoleForTicket, ktClasses: ktClassesForTicket, pv },
+                { ttlSeconds: PERSONNEL_SLIDING_TTL_SECONDS, maxAgeSeconds: PERSONNEL_MAX_AGE_SECONDS }
+            );
+        } catch (ticketErr) {
+            console.error('Bilet üretilemedi (staff):', ticketErr.message);
+            return null;
+        }
+    };
+
+    if (user.role === 'admin' || ktRole === 'admin') {
+        return {
+            status: 'success',
+            schoolName: school.school_name,
+            userName: user.full_name,
+            role: user.role,
+            kt_role: 'admin',
+            kt_classes: ['ALL'],
+            ktToken: makeTicket(user.role, 'admin', ['ALL'])
+        };
+    }
+    if (ktRole === 'teacher') {
+        // kt_classes etkin kapsamı (kt_classes ∪ class_teacher_of) döndürür — tek ortak
+        // fonksiyon, getSchoolAuth'un kullandığıyla aynı.
+        const effectiveClasses = exports.computeEffectiveClasses({ role: user.role, app_roles: appRoles, class_teacher_of: user.class_teacher_of });
+        return {
+            status: 'success',
+            schoolName: school.school_name,
+            userName: user.full_name,
+            role: user.role,
+            kt_role: 'teacher',
+            kt_classes: effectiveClasses,
+            ktToken: makeTicket(user.role, 'teacher', effectiveClasses)
+        };
+    }
+    return { status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' };
+}
+
 exports.login = async (req, res) => {
     try {
         const { schoolCode, schoolPass, loginType } = req.body;
@@ -679,61 +807,37 @@ exports.login = async (req, res) => {
                     console.error('Hız sınırlayıcı hatası (staff sıfırlama):', rlErr.message);
                 }
 
-                let appRoles = user.app_roles;
-                if (typeof appRoles === 'string') {
-                    try { appRoles = JSON.parse(appRoles); } catch (e) { appRoles = {}; }
-                }
-                appRoles = appRoles || {};
-
-                const ktRole = appRoles.kutuphanemiz?.role;
-
-                // 🎫 Bilet üretimi — sır eksikse sessizce null (giriş yine de çalışır).
-                // YENİ: pv, user'ın password/password_hash'inden türetilir (ham değer bilete
-                // GİRMEZ, sadece HMAC özeti); PERSONNEL_* sabitleriyle imzalanır (sliding 30g,
-                // mutlak 180g).
-                const makeTicket = (role, ktRoleForTicket, ktClassesForTicket) => {
-                    if (!isTokenAuthAvailable()) {
-                        _warnSessionSecretMissingOnce();
-                        return null;
+                // YENİ: STAFF_PASSWORD_POLICY_ENFORCE_FROM açıksa, doğrulanmış (doğru) şifre
+                // kurala uymuyorsa normal bilet verilmez — kısa ömürlü, tek amaçlı bir geçiş
+                // bileti (purpose:'pwchange') döndürülüp kullanıcı zorunlu şifre değişimine
+                // (POST /api/changeStaffPassword) yönlendirilir. Sır tanımsızsa
+                // (isTokenAuthAvailable false) güvenli bir geçiş bileti üretilemez — bu
+                // durumda zorlama, diğer bilet-temelli özelliklerle AYNI şekilde sessizce
+                // atlanır (kapalıymış gibi davranır).
+                if (_isStaffPasswordPolicyEnforced() && isTokenAuthAvailable()) {
+                    const policyCheck = validateStaffPassword(schoolPass, { username: user.username });
+                    if (!policyCheck.ok) {
+                        let passwordChangeToken = null;
+                        try {
+                            const pv = computeUserPv(user);
+                            const nowSec = Math.floor(Date.now() / 1000);
+                            passwordChangeToken = signToken(
+                                { sid: school.id, uid: user.id, role: 'pwchange', pv, purpose: 'pwchange' },
+                                { ttlSeconds: PASSWORD_CHANGE_TOKEN_TTL_SECONDS, hardExp: nowSec + PASSWORD_CHANGE_TOKEN_TTL_SECONDS }
+                            );
+                        } catch (ticketErr) {
+                            console.error('Geçiş bileti üretilemedi (pwchange):', ticketErr.message);
+                            return res.json({ status: 'error', message: 'Sunucu hatası oluştu.' });
+                        }
+                        return res.json({
+                            status: 'password_change_required',
+                            message: policyCheck.message,
+                            passwordChangeToken
+                        });
                     }
-                    try {
-                        const pv = computeUserPv(user);
-                        return signToken(
-                            { sid: school.id, uid: user.id, role, ktRole: ktRoleForTicket, ktClasses: ktClassesForTicket, pv },
-                            { ttlSeconds: PERSONNEL_SLIDING_TTL_SECONDS, maxAgeSeconds: PERSONNEL_MAX_AGE_SECONDS }
-                        );
-                    } catch (ticketErr) {
-                        console.error('Bilet üretilemedi (staff):', ticketErr.message);
-                        return null;
-                    }
-                };
-
-                if (user.role === 'admin' || ktRole === 'admin') {
-                    return res.json({
-                        status: 'success',
-                        schoolName: school.school_name,
-                        userName: user.full_name,
-                        role: user.role,
-                        kt_role: 'admin',
-                        kt_classes: ['ALL'],
-                        ktToken: makeTicket(user.role, 'admin', ['ALL'])
-                    });
-                } else if (ktRole === 'teacher') {
-                    // YENİ: kt_classes artık etkin kapsamı (kt_classes ∪ class_teacher_of)
-                    // döndürüyor — tek ortak fonksiyon, getSchoolAuth'un kullandığıyla aynı.
-                    const effectiveClasses = exports.computeEffectiveClasses({ role: user.role, app_roles: appRoles, class_teacher_of: user.class_teacher_of });
-                    return res.json({
-                        status: 'success',
-                        schoolName: school.school_name,
-                        userName: user.full_name,
-                        role: user.role,
-                        kt_role: 'teacher',
-                        kt_classes: effectiveClasses,
-                        ktToken: makeTicket(user.role, 'teacher', effectiveClasses)
-                    });
-                } else {
-                    return res.json({ status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' });
                 }
+
+                return res.json(buildStaffLoginSuccess(user, school));
             }
 
             // Buraya gelindiyse: kimlik hiçbir kullanıcıyla eşleşmedi VEYA eşleşen
@@ -792,7 +896,7 @@ exports.session = async (req, res) => {
         // ikinci bir bağımsız kontrolle sağlıyoruz: aynı bileti tekrar doğrula, sid okulla
         // eşleşmiyorsa reddet.
         const verifyResult = verifyToken(incomingToken);
-        if (!verifyResult.ok || verifyResult.payload.sid !== auth.id) {
+        if (!verifyResult.ok || verifyResult.payload.sid !== auth.id || verifyResult.payload.purpose === 'pwchange') {
             return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
         }
 
@@ -1018,6 +1122,15 @@ exports.updatePassword = async (req, res) => {
             return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
         }
 
+        // YENİ: personel şifre kuralı — kod/bilet geçerliliğinden BAĞIMSIZ, her zaman
+        // kontrol edilir (STAFF_PASSWORD_POLICY_ENFORCE_FROM tarihinden bağımsız — bu uç,
+        // "şifremi unuttum" ile belirlenen YENİ şifre için zaten eskiden beri bir kural
+        // (4 karakter) uyguluyordu, burada sadece o kural güncelleniyor).
+        const policyCheck = validateStaffPassword(newPassword, { username: user.username });
+        if (!policyCheck.ok) {
+            return res.json({ status: 'error', message: policyCheck.message });
+        }
+
         // YENİ: password ile BİRLİKTE password_hash de yazılır (hashPassword) — ikisi her zaman
         // aynı şifreyi yansıtsın, düz metnin ileride silinmesi için zemin hazırlanır.
         const newPasswordHash = await hashPassword(newPassword);
@@ -1040,6 +1153,99 @@ exports.updatePassword = async (req, res) => {
         return res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi.' });
     } catch (error) {
         return res.json({ status: 'error', message: 'Şifre güncellenirken bir hata oluştu.' });
+    }
+};
+
+/**
+ * 🔑 YENİ: POST /api/changeStaffPassword — zorunlu şifre değişimi (bkz. login() staff
+ * dalındaki STAFF_PASSWORD_POLICY_ENFORCE_FROM kontrolü). SADECE login'in ürettiği
+ * purpose:'pwchange' geçiş bileti ile çalışır; mevcut şifre TEKRAR SORULMAZ (kullanıcı
+ * az önce login'de doğruladı). Başarıda normal (tam) ktToken üretip login'in başarı
+ * yanıtıyla AYNI biçimde döner — kullanıcı tekrar giriş yapmak zorunda kalmaz.
+ */
+exports.changeStaffPassword = async (req, res) => {
+    try {
+        const { passwordChangeToken, newPassword } = req.body;
+        if (!passwordChangeToken || !newPassword) {
+            return res.json({ status: 'error', message: 'Eksik bilgi gönderdiniz.' });
+        }
+
+        // YENİ: hesap kavramı yok (bilet kendi kendini doğruluyor) — yalnızca IP, ve
+        // SADECE geçersiz/sahte/süresi dolmuş bilet denemeleri sayılır (aşağıda). IP
+        // çözülemezse (getTrustedClientIp null) bu katman fail-open'dır.
+        const pwchangeIp = getTrustedClientIp(req);
+        const pwchangeIpKey = pwchangeIp ? `pwchange:ip:${pwchangeIp}` : null;
+
+        try {
+            const lockCheck = rateLimiter.checkAnyLocked([pwchangeIpKey]);
+            if (lockCheck.locked) return res.json(_rateLimitedResponse(lockCheck.retryAfterSeconds));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (pwchange kontrol):', rlErr.message);
+        }
+
+        const _rejectInvalidTicket = () => {
+            try {
+                rateLimiter.recordFailures([pwchangeIpKey && { key: pwchangeIpKey, ...PWCHANGE_RL.ipWide }].filter(Boolean));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (pwchange kayıt):', rlErr.message);
+            }
+            return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
+        };
+
+        const verifyResult = verifyToken(passwordChangeToken);
+        if (!verifyResult.ok || verifyResult.payload.purpose !== 'pwchange' || !verifyResult.payload.uid) {
+            return _rejectInvalidTicket();
+        }
+
+        const { sid, uid, pv: tokenPv } = verifyResult.payload;
+
+        const { data: user, error } = await supabase.from('users')
+            .select('id, username, full_name, role, app_roles, class_teacher_of, password, password_hash, is_active, school_id')
+            .eq('id', uid)
+            .eq('school_id', sid)
+            .maybeSingle();
+        if (error) throw error;
+        if (!user || user.is_active === false) {
+            return _rejectInvalidTicket();
+        }
+
+        // Bilet pv'si kullanıcının GÜNCEL pv'sine eşit olmalı — eşit değilse şifre bu
+        // biletin verilişinden sonra (örn. aynı bilet ikinci kez kullanılmaya çalışıldığında,
+        // ki birincisi zaten şifreyi değiştirip pv'yi ilerletmiştir) zaten değişmiş demektir;
+        // bilet kendiliğinden ölür — ekstra bir "kullanıldı" kaydı tutmaya gerek yok.
+        const currentPv = computeUserPv(user);
+        if (currentPv === null || typeof tokenPv !== 'string' || tokenPv !== currentPv) {
+            return _rejectInvalidTicket();
+        }
+
+        // Bilet geçerli — buradan sonrası KURAL kontrolüdür, hız sınırına SAYILMAZ.
+        const policyCheck = validateStaffPassword(newPassword, { username: user.username });
+        if (!policyCheck.ok) {
+            return res.json({ status: 'error', message: policyCheck.message });
+        }
+
+        const newPasswordHash = await hashPassword(newPassword);
+        const { error: updateErr } = await supabase.from('users')
+            .update({ password: newPassword, password_hash: newPasswordHash })
+            .eq('id', uid);
+        if (updateErr) throw updateErr;
+
+        // YENİ: 60sn'lik kullanıcı-satırı önbelleği (bkz. getCachedUserAuthFields) eski pv'yi
+        // taşıyor olabilir — hemen silinmezse, az sonra üretilecek YENİ (doğru) ktToken bile
+        // getSchoolAuth'ta "pv uyuşmuyor" diye reddedilip kullanıcıyı anında kilitler.
+        _userAuthCache.delete(uid);
+
+        const { data: school, error: schoolError } = await supabase.from('schools')
+            .select('id, school_name')
+            .eq('id', sid)
+            .maybeSingle();
+        if (schoolError) throw schoolError;
+        if (!school) return _rejectInvalidTicket();
+
+        const freshUser = { ...user, password: newPassword, password_hash: newPasswordHash };
+        return res.json(buildStaffLoginSuccess(freshUser, school));
+    } catch (error) {
+        return res.status(500).json({ status: 'error', message: 'Şifre değiştirilirken bir hata oluştu.' });
     }
 };
 
@@ -2797,6 +3003,11 @@ exports.saveTeacher = async (req, res) => {
             // ikisine de dokunulmaz.
             const passwordChanged = !!(password && password.trim() !== '');
             if (passwordChanged) {
+                // YENİ: kaydedilecek kullanıcı adı (bu istekle yazılan username, DB'deki eski
+                // değer değil) referans alınır — "şifre kullanıcı adıyla aynı olamaz" kontrolü.
+                const policyCheck = validateStaffPassword(password, { username: username || null });
+                if (!policyCheck.ok) throw new Error(policyCheck.message);
+
                 updateData.password = password;
                 updateData.password_hash = await hashPassword(password);
             }
@@ -2815,6 +3026,9 @@ exports.saveTeacher = async (req, res) => {
         } else {
             // YENİ EKLEME İŞLEMİ
             if (!password) throw new Error("Yeni eklerken şifre belirlemek zorunludur.");
+
+            const policyCheck = validateStaffPassword(password, { username: username || null });
+            if (!policyCheck.ok) throw new Error(policyCheck.message);
 
             const insertData = {
                 school_id: auth.id,

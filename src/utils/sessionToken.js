@@ -90,6 +90,13 @@ function signToken(claims, options) {
   if (claims && typeof claims.d === 'string') {
     payload.d = claims.d;
   }
+  // YENİ: tek-amaçlı biletler için (örn. 'pwchange' — zorunlu şifre değişimi geçiş
+  // bileti). VARSA eklenir; normal giriş biletlerinde hiç yer almaz. getSchoolAuth ve
+  // /api/session bu alanı taşıyan bir bileti KESİNLİKLE tam oturum bileti olarak kabul
+  // etmemelidir (bkz. libraryController.js).
+  if (claims && typeof claims.purpose === 'string') {
+    payload.purpose = claims.purpose;
+  }
 
   const payloadB64 = base64urlEncode(JSON.stringify(payload));
   const signatureB64 = base64urlEncode(computeSignature(payloadB64, secret));
