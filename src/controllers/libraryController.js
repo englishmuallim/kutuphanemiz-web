@@ -190,15 +190,16 @@ async function getCachedUserAuthFields(uid) {
     // Hatalı/eksik sonuç ASLA önbelleğe yazılmaz. Yalnızca satır gerçekten yoksa (data null,
     // error yok) null dönüp 401'e izin veriyoruz.
     const { data, error } = await supabase.from('users')
-        .select('is_active, role, app_roles, class_teacher_of, password, password_hash')
+        .select('is_active, role, app_roles, class_teacher_of, password_hash')
         .eq('id', uid)
         .maybeSingle();
 
     if (error) throw error;
     if (!data) return null;
 
-    // YENİ: pv burada, sorgu anında hesaplanır — data.password/data.password_hash
-    // (ham değerler) bu fonksiyonun DIŞINA asla çıkmaz, önbelleğe de yazılmaz.
+    // YENİ: pv burada, sorgu anında hesaplanır — data.password_hash (ham değer) bu
+    // fonksiyonun DIŞINA asla çıkmaz, önbelleğe de yazılmaz. users.password DÜZ METİN
+    // SÜTUNU artık hiç SELECT edilmiyor (geçiş tamamlandı, tek kaynak password_hash).
     const pv = computeUserPv(data);
 
     const entry = {
@@ -224,44 +225,18 @@ function _warnSessionSecretMissingOnce() {
 }
 
 // =========================================================================
-// 🔑 PERSONEL ŞİFRE KURALI (login staff dalı) — password_hash geçiş dönemi
-// Kural: password sütunu DOLUYSA doğruluk kaynağı odur (girilen şifre ona eşit mi).
-// Eşitse: hash yoksa/bayatsa arka planda yeniden üretilip yazılır (password'e dokunulmaz).
-// Hash eşleşse bile password dolu ve girilenden FARKLIYSA reddedilir (bayat hash, eski şifre).
-// password sütunu boş/null ise (düz metin silindikten sonraki durum) yalnızca hash karar verir.
+// 🔑 PERSONEL ŞİFRE KURALI (login staff dalı) — DÜZ METİN GEÇİŞİ TAMAMLANDI.
+// Tek doğruluk kaynağı password_hash; users.password hiç okunmuyor/yazılmıyor,
+// bu yüzden burada artık düz metin karşılaştırması ve backfill YOK. Hash yoksa
+// (henüz üretilmemiş) veya users.password_hash biçimi geçersizse giriş reddedilir
+// (hiçbir şifre/hash değeri loglanmadan).
 // =========================================================================
 async function verifyStaffPassword(user, inputPassword) {
-    const hasPlainColumn = user.password !== null && user.password !== undefined && user.password !== '';
-
-    if (hasPlainColumn) {
-        if (user.password !== inputPassword) {
-            return { ok: false };
-        }
-
-        // Şifre doğru — hash eksikse veya bayatsa arka planda senkronize et.
-        let needsRewrite = !isHashed(user.password_hash);
-        if (!needsRewrite) {
-            const hashMatches = await verifyPassword(user.password_hash, inputPassword);
-            if (!hashMatches) needsRewrite = true;
-        }
-        if (needsRewrite) {
-            try {
-                const freshHash = await hashPassword(inputPassword);
-                await supabase.from('users').update({ password_hash: freshHash }).eq('id', user.id);
-            } catch (backfillErr) {
-                console.error(`password_hash backfill hatasi (uid=${user.id}):`, backfillErr.message);
-            }
-        }
-        return { ok: true };
+    if (!isHashed(user.password_hash)) {
+        return { ok: false };
     }
-
-    // password sütunu boş — yalnızca hash doğruluk kaynağı.
-    if (isHashed(user.password_hash)) {
-        const hashMatches = await verifyPassword(user.password_hash, inputPassword);
-        return { ok: hashMatches };
-    }
-
-    return { ok: false };
+    const hashMatches = await verifyPassword(user.password_hash, inputPassword);
+    return { ok: hashMatches };
 }
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
@@ -743,8 +718,11 @@ exports.login = async (req, res) => {
             // (Eski kod önce .eq('password', schoolPass) ile filtreliyordu; aynı şifreyi
             // paylaşan iki personel varsa bu, yanlış kimlik/şifre kombinasyonunu kabul
             // edebiliyordu. Artık her kimlik eşleşmesine KENDİ satırının şifre kuralı uygulanır.)
+            // YENİ: açık sütun listesi — users.password (düz metin) KASITLI OLARAK dışarıda;
+            // burada listelenenler verifyStaffPassword/buildStaffLoginSuccess'in gerçekten
+            // kullandığı alanların tamamı (id, kimlik eşleştirme alanları, rol/sınıf, hash).
             const { data: candidateUsers, error } = await supabase.from('users')
-                .select('*, full_name')
+                .select('id, username, email, phone, full_name, role, app_roles, class_teacher_of, password_hash, is_active')
                 .eq('school_id', school.id);
 
             if (error) throw error;
@@ -1131,13 +1109,13 @@ exports.updatePassword = async (req, res) => {
             return res.json({ status: 'error', message: policyCheck.message });
         }
 
-        // YENİ: password ile BİRLİKTE password_hash de yazılır (hashPassword) — ikisi her zaman
-        // aynı şifreyi yansıtsın, düz metnin ileride silinmesi için zemin hazırlanır.
+        // YENİ: düz metin geçişi TAMAMLANDI — password her zaman null yazılır, tek kaynak
+        // password_hash'tir.
         const newPasswordHash = await hashPassword(newPassword);
 
         const { error: updateErr } = await supabase
             .from('users')
-            .update({ password: newPassword, password_hash: newPasswordHash, reset_code: null, reset_expires: null })
+            .update({ password: null, password_hash: newPasswordHash, reset_code: null, reset_expires: null })
             .eq('id', user.id);
 
         if (updateErr) throw updateErr;
@@ -1200,7 +1178,7 @@ exports.changeStaffPassword = async (req, res) => {
         const { sid, uid, pv: tokenPv } = verifyResult.payload;
 
         const { data: user, error } = await supabase.from('users')
-            .select('id, username, full_name, role, app_roles, class_teacher_of, password, password_hash, is_active, school_id')
+            .select('id, username, full_name, role, app_roles, class_teacher_of, password_hash, is_active, school_id')
             .eq('id', uid)
             .eq('school_id', sid)
             .maybeSingle();
@@ -1226,7 +1204,7 @@ exports.changeStaffPassword = async (req, res) => {
 
         const newPasswordHash = await hashPassword(newPassword);
         const { error: updateErr } = await supabase.from('users')
-            .update({ password: newPassword, password_hash: newPasswordHash })
+            .update({ password: null, password_hash: newPasswordHash })
             .eq('id', uid);
         if (updateErr) throw updateErr;
 
@@ -1242,7 +1220,11 @@ exports.changeStaffPassword = async (req, res) => {
         if (schoolError) throw schoolError;
         if (!school) return _rejectInvalidTicket();
 
-        const freshUser = { ...user, password: newPassword, password_hash: newPasswordHash };
+        // YENİ: freshUser'da password ALANI YOK (user zaten password'ü hiç SELECT etmedi) —
+        // yalnızca password_hash güncellenir, böylece computeUserPv burada da DB'deki
+        // kalıcı durumla (password_hash kaynaklı) AYNI pv'yi üretir; taze ktToken bir
+        // sonraki istekte "pv uyuşmuyor" diye anında düşmez.
+        const freshUser = { ...user, password_hash: newPasswordHash };
         return res.json(buildStaffLoginSuccess(freshUser, school));
     } catch (error) {
         return res.status(500).json({ status: 'error', message: 'Şifre değiştirilirken bir hata oluştu.' });
@@ -2998,9 +2980,9 @@ exports.saveTeacher = async (req, res) => {
                 app_roles: mergedRoles
             };
 
-            // YENİ: şifre gönderildiyse password ile BİRLİKTE password_hash de yazılır
-            // (hashPassword) — ikisi her zaman aynı şifreyi yansıtsın. Gönderilmediyse
-            // ikisine de dokunulmaz.
+            // YENİ: şifre gönderildiyse yalnızca password_hash yazılır — düz metin geçişi
+            // TAMAMLANDI, password HER ZAMAN null yazılır (eski satırda düz metin dolu
+            // kalmışsa bile bu güncellemeyle temizlenir). Gönderilmediyse ikisine de dokunulmaz.
             const passwordChanged = !!(password && password.trim() !== '');
             if (passwordChanged) {
                 // YENİ: kaydedilecek kullanıcı adı (bu istekle yazılan username, DB'deki eski
@@ -3008,7 +2990,7 @@ exports.saveTeacher = async (req, res) => {
                 const policyCheck = validateStaffPassword(password, { username: username || null });
                 if (!policyCheck.ok) throw new Error(policyCheck.message);
 
-                updateData.password = password;
+                updateData.password = null;
                 updateData.password_hash = await hashPassword(password);
             }
 
@@ -3037,7 +3019,7 @@ exports.saveTeacher = async (req, res) => {
                 username: username || null,
                 email: email || null,
                 phone: phone || null,
-                password: password,
+                password: null,
                 password_hash: await hashPassword(password),
                 app_roles: appRolesPayload
             };

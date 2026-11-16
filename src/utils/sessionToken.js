@@ -219,23 +219,17 @@ function shouldRefresh(payload) {
 // Ham şifre/hash DEĞERİ asla bilete/loga/yanıta girmez; sadece bu özet girer.
 // =========================================================================
 
-// Personel (uid'li) biletler için: password sütunu DOLUYSA ona, BOŞSA (plaintext
-// silindikten sonraki nihai durum) password_hash'e dayanır. Bu seçim bilinçli:
-// password doluyken onu kullanmak, AYNI şifrenin farklı tuzla yeniden hash'lenmesi
-// (backfill/re-salt) durumunda pv'nin DEĞİŞMEMESİNİ garanti eder — scrypt çıktısı
-// rastgele tuzla üretildiği için password_hash'in ham baytlarından "şifre aynı mı"
-// tuzdan bağımsız anlamanın başka bir yolu yoktur. password sütunu nihayetinde
-// silinirse (ayrı, gelecekteki bir adım), pv kaynağı password_hash'e geçer — bu
-// geçiş anında tüm personel biletleri bir kerelik geçersiz olur (beklenen, kabul
-// edilebilir bir sonuç). SINIRLAMA: wipe SONRASI password_hash aynı şifreyle farklı
-// tuzla yeniden üretilirse, bunu "şifre değişti"den ayırt etmenin kriptografik
-// olarak bir yolu yoktur (plaintext olmadan) — pv değişir, kullanıcı yeniden giriş
-// yapar; bu güvenli tarafta bir false-positive'tir, bilerek kabul edilmiştir.
+// Personel (uid'li) biletler için: YALNIZCA password_hash kaynak alınır — düz metin
+// geçişi TAMAMLANDI, users.password artık hiçbir yerde okunmuyor/yazılmıyor (bkz.
+// libraryController.js verifyStaffPassword, saveTeacher, updatePassword,
+// changeStaffPassword). pv, password_hash her değiştiğinde (yeni şifre, backfill/
+// re-salt dahil) değişir — bu kriptografik olarak kaçınılmazdır (plaintext olmadan
+// "şifre aynı mı farklı tuzla mı yeniden hash'lendi" ayrımı yapılamaz); güvenli
+// tarafta bir false-positive olarak bilerek kabul edilmiştir.
 function computeUserPv(userRow) {
   const secret = getCurrentSecret();
   if (!secret) return null;
-  const hasPlain = !!(userRow && userRow.password !== null && userRow.password !== undefined && userRow.password !== '');
-  const source = hasPlain ? userRow.password : ((userRow && userRow.password_hash) || '');
+  const source = (userRow && userRow.password_hash) || '';
   return crypto.createHmac('sha256', secret).update(String(source)).digest('hex').slice(0, PV_HEX_LENGTH);
 }
 
