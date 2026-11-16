@@ -7,6 +7,42 @@ const {
     computeUserPv, computeDutyPv, secondsUntilEndOfIstanbulDay,
 } = require('../utils/sessionToken');
 const { getCurrentRequestContext } = require('../middleware/ktAuthContext');
+const rateLimiter = require('../utils/rateLimiter');
+const { getTrustedClientIp } = require('../utils/clientIp');
+
+// =========================================================================
+// 🛡️ GİRİŞ HIZ SINIRI EŞİKLERİ (/api/login) — yalnızca BAŞARISIZ denemeler sayılır.
+// (a) hesap+IP ve (b) yalnız-IP katmanları IP çözülemediğinde (bkz. getTrustedClientIp)
+// TAMAMEN ATLANIR — sahte bir "bilinmeyen IP" kovası YOK, sadece (c) hesap-geniş çalışır.
+// Nöbetçide "hesap" = tüm okul olduğu için (c) eşiği kasıtlı olarak personelden YÜKSEK
+// (bir kişinin değil, okulun TAMAMININ nöbetçi girişini 60dk kilitlemek çok daha pahalıya
+// gelsin) — ama personelin self-servis şifre sıfırlama yolu olduğu için personelde daha
+// sıkı tutuluyor.
+// =========================================================================
+const LOGIN_RL = {
+    acctIp: { windowMs: 15 * 60 * 1000, maxAttempts: 5, lockoutMs: 15 * 60 * 1000 },
+    ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 100, lockoutMs: 15 * 60 * 1000 },
+    acctWideDuty: { windowMs: 60 * 60 * 1000, maxAttempts: 100, lockoutMs: 60 * 60 * 1000 },
+    acctWideStaff: { windowMs: 60 * 60 * 1000, maxAttempts: 20, lockoutMs: 60 * 60 * 1000 },
+};
+
+function _loginRlKeys(scope, accountKey, ip) {
+    return {
+        acctIpKey: ip ? `login:${scope}:acctip:${accountKey}:${ip}` : null,
+        ipKey: ip ? `login:${scope}:ip:${ip}` : null,
+        acctKey: `login:${scope}:acct:${accountKey}`,
+    };
+}
+
+function _rateLimitedResponse(retryAfterSeconds) {
+    const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+    return {
+        status: 'error',
+        isRateLimited: true,
+        retryAfterSeconds,
+        message: `Çok fazla hatalı deneme. ${minutes} dakika sonra tekrar deneyin.`,
+    };
+}
 
 // =========================================================================
 // 🎫 BİLET ÖMRÜ SABİTLERİ — tek yerde adlandırılmış, ortam değişkeniyle ezilebilir.
@@ -413,10 +449,42 @@ exports.login = async (req, res) => {
         // 1. NÖBETÇİ GİRİŞİ (DUTY)
         // -------------------------
         if (loginType === 'duty') {
+            // YENİ: hız sınırı — "hesap" burada tüm okul (kişi yok), şifre doğrulamasından
+            // ÖNCE kontrol edilir ki kilitliyken doğru şifre bile denenmesin (oracle olmasın).
+            const dutyAccountKey = String(schoolCode || '').trim().toLowerCase();
+            const dutyIp = getTrustedClientIp(req);
+            const { acctIpKey: dutyAcctIpKey, ipKey: dutyIpKey, acctKey: dutyAcctKey } = _loginRlKeys('duty', dutyAccountKey, dutyIp);
+
+            try {
+                const dutyLockCheck = rateLimiter.checkAnyLocked([dutyAcctIpKey, dutyIpKey, dutyAcctKey]);
+                if (dutyLockCheck.locked) return res.json(_rateLimitedResponse(dutyLockCheck.retryAfterSeconds));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (duty kontrol):', rlErr.message);
+            }
+
             // YENİ: nöbetçi şifre doğrulaması artık getSchoolAuth'tan (biletsiz veri uç
             // noktalarından) tamamen ayrı, SADECE bu endpoint'in kullandığı verifyDutyLogin'de.
+            // (throw = lisans hatası, deneme SAYILMAZ; null = yanlış şifre, deneme SAYILIR.)
             const dutyAuth = await verifyDutyLogin(schoolCode, schoolPass);
-            if (!dutyAuth) return res.json({ status: 'error', message: 'Hatalı kurum kodu veya nöbetçi şifresi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.' });
+            if (!dutyAuth) {
+                try {
+                    rateLimiter.recordFailures([
+                        dutyAcctIpKey && { key: dutyAcctIpKey, ...LOGIN_RL.acctIp },
+                        dutyIpKey && { key: dutyIpKey, ...LOGIN_RL.ipWide },
+                        { key: dutyAcctKey, ...LOGIN_RL.acctWideDuty },
+                    ].filter(Boolean));
+                } catch (rlErr) {
+                    console.error('Hız sınırlayıcı hatası (duty kayıt):', rlErr.message);
+                }
+                return res.json({ status: 'error', message: 'Hatalı kurum kodu veya nöbetçi şifresi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.' });
+            }
+
+            // Şifre doğru — (a) hesap+IP sayacı sıfırlanır (yalnızca bu katman, spesifikasyon böyle).
+            try {
+                rateLimiter.reset(dutyAcctIpKey);
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (duty sıfırlama):', rlErr.message);
+            }
 
             const { id: schoolId, school_name, settings, userName, dutyVariant } = dutyAuth;
 
@@ -506,6 +574,26 @@ exports.login = async (req, res) => {
                 (normalizedPhone && u.phone === normalizedPhone)
             );
 
+            // YENİ: hız sınırı hesabı — kimlik (e-posta/kullanıcı adı/telefon) TEK bir
+            // kullanıcıyla eşleşiyorsa o kullanıcının id'si kullanılır, böylece aynı kişi
+            // üç farklı kimlikle denese de TEK sayaca yazılır. Eşleşme yoksa (veya —çok
+            // nadir bir veri tutarsızlığıyla— birden fazla kullanıcıyla eşleşiyorsa, ki bu
+            // durum aşağıda zaten ayrı ve deneme SAYILMAYAN bir hata olarak ele alınıyor)
+            // normalize edilmiş okul+kimlik metni kullanılır. Kontrol, şifre doğrulamasından
+            // ÖNCE yapılır ki kilitliyken doğru şifre bile denenmesin.
+            const staffAccountKey = matchedUsers.length === 1
+                ? `uid:${matchedUsers[0].id}`
+                : `identity:${school.id}:${String(identity || '').trim().toLowerCase()}`;
+            const staffIp = getTrustedClientIp(req);
+            const { acctIpKey: staffAcctIpKey, ipKey: staffIpKey, acctKey: staffAcctKey } = _loginRlKeys('staff', staffAccountKey, staffIp);
+
+            try {
+                const staffLockCheck = rateLimiter.checkAnyLocked([staffAcctIpKey, staffIpKey, staffAcctKey]);
+                if (staffLockCheck.locked) return res.json(_rateLimitedResponse(staffLockCheck.retryAfterSeconds));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (staff kontrol):', rlErr.message);
+            }
+
             const passingUsers = [];
             for (const candidate of matchedUsers) {
                 const result = await verifyStaffPassword(candidate, schoolPass);
@@ -522,9 +610,19 @@ exports.login = async (req, res) => {
             if (user) {
                 console.log("✅ KULLANICI BULUNDU:", user.full_name);
 
-                // YENİ: pasife alınmış kullanıcı girişi reddedilir.
+                // YENİ: pasife alınmış kullanıcı girişi reddedilir. (Şifre dışı bir reddetme —
+                // hız sınırına deneme olarak SAYILMAZ.)
                 if (user.is_active === false) {
                     return res.json({ status: 'error', message: 'Bu kullanıcı hesabı pasif durumda. Lütfen yöneticinizle iletişime geçin.' });
+                }
+
+                // Şifre doğru ve hesap aktif — (a) hesap+IP sayacı sıfırlanır (yalnızca bu
+                // katman, spesifikasyon böyle; rol yetkisiz olsa da şifre doğru olduğundan
+                // zararı yok).
+                try {
+                    rateLimiter.reset(staffAcctIpKey);
+                } catch (rlErr) {
+                    console.error('Hız sınırlayıcı hatası (staff sıfırlama):', rlErr.message);
                 }
 
                 let appRoles = user.app_roles;
@@ -582,6 +680,19 @@ exports.login = async (req, res) => {
                 } else {
                     return res.json({ status: 'error', message: 'Bu panele giriş için Kütüphane yetkiniz bulunmamaktadır.' });
                 }
+            }
+
+            // Buraya gelindiyse: kimlik hiçbir kullanıcıyla eşleşmedi VEYA eşleşen
+            // kullanıcı(lar)ın hiçbiri girilen şifreyi geçemedi — gerçek bir başarısız
+            // deneme, hız sınırına SAYILIR.
+            try {
+                rateLimiter.recordFailures([
+                    staffAcctIpKey && { key: staffAcctIpKey, ...LOGIN_RL.acctIp },
+                    staffIpKey && { key: staffIpKey, ...LOGIN_RL.ipWide },
+                    { key: staffAcctKey, ...LOGIN_RL.acctWideStaff },
+                ].filter(Boolean));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (staff kayıt):', rlErr.message);
             }
             return res.json({ status: 'error', message: 'Giriş bilgileri hatalı. Lütfen kimlik ve şifrenizi kontrol edip tekrar deneyin.' });
         }

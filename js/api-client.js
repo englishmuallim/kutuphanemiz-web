@@ -178,6 +178,10 @@ async function login(options) {
                         color: '#f8fafc',
                         iconColor: '#f59e0b'
                     });
+                } else if (result.isRateLimited) {
+                    // YENİ: hız sınırı kilidi — sunucu zaten kalan süreyi result.message'a
+                    // Türkçe gömüyor, burada sadece ayrı bir başlık/ikonla gösteriyoruz.
+                    Swal.fire({ icon: 'warning', title: 'Çok Fazla Deneme', text: result.message });
                 } else {
                     // Normal şifre/kullanıcı hataları için
                     Swal.fire({ icon: 'error', title: 'Giriş Başarısız', text: result.message });
