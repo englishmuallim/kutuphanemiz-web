@@ -200,6 +200,16 @@ async function login(options) {
 // =========================================================================
 // 🔐 KÜTÜPHANEMİZ - BİREYSEL ŞİFRE SIFIRLAMA ZİNCİRİ
 // =========================================================================
+// YENİ: login()'deki isRateLimited dalıyla AYNI SweetAlert2 gösterimi — şifre
+// sıfırlama akışının 3 adımı ve sihirli bilet için ortak kullanılır.
+function showApiErrorAlert(data, fallbackTitle) {
+    if (data && data.isRateLimited) {
+        Swal.fire({ icon: 'warning', title: 'Çok Fazla Deneme', text: data.message });
+    } else {
+        Swal.fire({ icon: 'error', title: fallbackTitle, text: data && data.message });
+    }
+}
+
 async function forgotPassword() {
     // 1. ADIM: Kurum Kodu ve Kimlik Bilgisi İsteme
     const { value: formValues } = await Swal.fire({
@@ -240,15 +250,22 @@ async function forgotPassword() {
         let data = await res.json();
 
         if (data.status !== 'success') {
-            return Swal.fire({ icon: 'error', title: 'Hata', text: data.message });
+            return showApiErrorAlert(data, 'Hata');
         }
 
         // 2. ADIM: 6 Haneli Kodu İsteme
+        // YENİ: "hesap bulunamadı" durumu artık burada da status:'success' dönüyor ama
+        // GERÇEK bir maskedEmail OLMADAN (hesap var/yok sızmasın) — bu yüzden metin
+        // koşullu: gerçek adres varsa onu, yoksa nötr bir cümleyi göster. Akış (6 haneli
+        // kod sorması) HER İKİ durumda da birebir aynı.
+        const codeSentText = data.maskedEmail
+            ? `<b>${data.maskedEmail}</b> adresine 6 haneli bir doğrulama kodu gönderdik.<br><br>Lütfen kodu aşağıya girin:`
+            : 'Bu bilgilerle eşleşen ve e-postası kayıtlı bir hesap varsa bir kod gönderildi.<br><br>Kodunuz geldiyse aşağıya girin:';
         const { value: resetCode } = await Swal.fire({
             title: 'Kod Gönderildi!',
             html: `
                 <p style="font-size:14px; color:#333; margin-bottom:15px;">
-                    <b>${data.maskedEmail}</b> adresine 6 haneli bir doğrulama kodu gönderdik.<br><br>Lütfen kodu aşağıya girin:
+                    ${codeSentText}
                 </p>
                 <input id="swal-reset-code" type="text" class="swal2-input" placeholder="123456" maxlength="6" style="text-align:center; font-size:24px; letter-spacing:4px;">
             `,
@@ -279,7 +296,7 @@ async function forgotPassword() {
         data = await res.json();
 
         if (data.status !== 'success') {
-            return Swal.fire({ icon: 'error', title: 'Geçersiz Kod', text: data.message });
+            return showApiErrorAlert(data, 'Geçersiz Kod');
         }
 
         // 3. ADIM: Yeni Şifre İsteme
@@ -325,7 +342,7 @@ async function forgotPassword() {
         if (data.status === 'success') {
             Swal.fire({ icon: 'success', title: 'Başarılı!', text: 'Şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.', confirmButtonColor: '#4CAF50' });
         } else {
-            Swal.fire({ icon: 'error', title: 'Hata', text: data.message });
+            showApiErrorAlert(data, 'Hata');
         }
 
     } catch (error) {
@@ -2679,7 +2696,7 @@ async function checkMagicToken() {
 
                 Swal.fire({ icon: 'success', title: 'Sızma Başarılı!', text: 'Süper Admin olarak giriş yapıldı.', timer: 2000, showConfirmButton: false });
             } else {
-                Swal.fire({ icon: 'error', title: 'Sızma Başarısız', text: result.message });
+                showApiErrorAlert(result, 'Sızma Başarısız');
             }
         } catch (error) {
             console.error(error);

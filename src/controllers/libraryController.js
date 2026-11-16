@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const supabase = require('../api/supabase');
 const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo } = require('../utils/studentUtils');
 const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
@@ -25,6 +26,59 @@ const LOGIN_RL = {
     acctWideDuty: { windowMs: 60 * 60 * 1000, maxAttempts: 100, lockoutMs: 60 * 60 * 1000 },
     acctWideStaff: { windowMs: 60 * 60 * 1000, maxAttempts: 20, lockoutMs: 60 * 60 * 1000 },
 };
+
+// =========================================================================
+// 🛡️ AŞAMA 2 — ŞİFRE SIFIRLAMA + SİHİRLİ BİLET HIZ SINIRLARI
+// =========================================================================
+// forgotPassword: TÜM çağrılar sayılır (başarı dahil) — çünkü "başarı" burada gerçek
+// bir e-posta göndermek demek, asıl korunan kaynak bu (e-posta bombardımanı/kod isteme
+// spam'i). LOGIN_RL'nin "yalnızca başarısız" kuralından KASITLI bir sapma.
+const RESET_REQUEST_RL = {
+    acctIp: { windowMs: 60 * 60 * 1000, maxAttempts: 3, lockoutMs: 60 * 60 * 1000 },
+    ipWide: { windowMs: 60 * 60 * 1000, maxAttempts: 30, lockoutMs: 60 * 60 * 1000 },
+    acctWide: { windowMs: 60 * 60 * 1000, maxAttempts: 10, lockoutMs: 60 * 60 * 1000 },
+};
+
+// verifyResetCode + updatePassword PAYLAŞILAN sayaç — ikisi de AYNI anahtarı kullanır
+// (schoolId+uid). Yalnızca YANLIŞ kod denemesi sayılır; süresi dolmuş kod dalı SAYILMAZ
+// (kullanıcı hatası değil, zaman aşımı). IP katmanı yok — hesap zaten şifre-sıfırlama
+// akışının kendisinden (findLibraryUserForReset) çözülüyor, IP'ye bakılmadan tek bir
+// hesap-geneli eşik yeterli (sızdırılan/tahmin edilen kod, hangi IP'den denenirse
+// denensin aynı sayaca yazılır).
+const RESET_CODE_RL = {
+    acctWide: { windowMs: 15 * 60 * 1000, maxAttempts: 5, lockoutMs: 15 * 60 * 1000 },
+};
+
+// magic-login: hesap kavramı YOK (istek schoolCode taşımıyor) — yalnızca IP. IP
+// çözülemezse (bkz. getTrustedClientIp) bu uç nokta için GERİYE DÜŞÜLECEK bir
+// hesap-geneli katman YOKTUR — fail-open, sınırlama tamamen devre dışı kalır.
+const MAGIC_LOGIN_RL = {
+    ipWide: { windowMs: 15 * 60 * 1000, maxAttempts: 10, lockoutMs: 15 * 60 * 1000 },
+};
+
+// reset_code karşılaştırmasını sabit zamanlı yapar — farklı uzunluktaki string'leri
+// timingSafeEqual'a vermemek için ikisi de önce sabit uzunluklu bir sha256 özetine
+// çevrilir (clientIp.js'in eski sır-karşılaştırma desenindeki AYNI teknik).
+function _safeCodeEquals(storedCode, inputCode) {
+    if (typeof storedCode !== 'string' || storedCode === '') return false;
+    if (typeof inputCode !== 'string' || inputCode === '') return false;
+    const a = crypto.createHash('sha256').update(storedCode).digest();
+    const b = crypto.createHash('sha256').update(inputCode).digest();
+    return crypto.timingSafeEqual(a, b);
+}
+
+// verifyResetCode/updatePassword'un paylaşılan kilidi tetiklendiğinde (5. yanlış kod)
+// kodu DB'de hemen geçersiz kılar — kilit süresi dolsa bile artık ÖLÜ bir kod kalır,
+// kullanıcı forgotPassword'den (kendi ayrı limiti altında) yeni bir kod istemek zorunda
+// kalır. SQL/şema değişikliği YOK — reset_code/reset_expires zaten mevcut kolonlar.
+async function _invalidateResetCodeIfLocked(userId, lockResult) {
+    if (!lockResult || !lockResult.locked) return;
+    try {
+        await supabase.from('users').update({ reset_code: null, reset_expires: null }).eq('id', userId);
+    } catch (invalidateErr) {
+        console.error('Reset kodu geçersiz kılınamadı:', invalidateErr.message);
+    }
+}
 
 function _loginRlKeys(scope, accountKey, ip) {
     return {
@@ -763,12 +817,18 @@ exports.session = async (req, res) => {
 // =========================================================================
 const emailService = require('../api/emailService');
 
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+// YENİ: crypto.randomInt kriptografik olarak güvenli bir RNG kullanır (Math.random
+// tahmin edilebilir/kriptografik değildir) — aralık Math.floor(100000+Math.random()*900000)
+// ile BİREBİR aynı (100000 dahil, 1000000 hariç → 100000-999999).
+const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
 
 // 🕵🏻‍♂️ YARDIMCI MOTOR: Kurumu ve Personeli Bulur
+// YENİ: `reason` alanı eklendi (dış mesaj metnini DEĞİŞTİRMEZ, sadece forgotPassword'ün
+// "okul bulunamadı" ile "kimlik bulunamadı" durumlarını birbirinden ayırabilmesi için —
+// ilki aynen kalacak, ikincisi genel bir "başarılı" mesajına dönüşecek).
 const findLibraryUserForReset = async (schoolCode, identity) => {
     const { data: school } = await supabase.from('schools').select('id, school_name').eq('school_code', schoolCode).single();
-    if (!school) return { error: 'Bu kurum koduna ait bir okul bulunamadı.' };
+    if (!school) return { error: 'Bu kurum koduna ait bir okul bulunamadı.', reason: 'school_not_found' };
 
     const cleanIdentity = String(identity).trim();
     const phoneIdentity = cleanIdentity.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, '');
@@ -782,7 +842,7 @@ const findLibraryUserForReset = async (schoolCode, identity) => {
         (phoneIdentity && u.phone && u.phone.replace(/\D/g, '').replace(/^0/, '').replace(/^90/, '') === phoneIdentity)
     );
 
-    if (!targetUser) return { error: 'Girdiğiniz bilgilere ait bir personel veya yönetici hesabı bulunamadı. (Not: Nöbetçi şifreleri sistemden sıfırlanamaz, idareden öğrenilmelidir).' };
+    if (!targetUser) return { error: 'Girdiğiniz bilgilere ait bir personel veya yönetici hesabı bulunamadı. (Not: Nöbetçi şifreleri sistemden sıfırlanamaz, idareden öğrenilmelidir).', reason: 'identity_not_found' };
     return { school, user: targetUser };
 };
 
@@ -795,11 +855,52 @@ exports.forgotPassword = async (req, res) => {
         if (!schoolCode || !identity) return res.json({ status: 'error', message: 'Eksik bilgi gönderdiniz.' });
 
         const result = await findLibraryUserForReset(schoolCode, identity);
-        if (result.error) return res.json({ status: 'error', message: result.error });
+
+        // YENİ: hız sınırı hesabı — gerçek bir kullanıcı çözüldüyse uid'e göre (e-posta/
+        // kullanıcı adı/telefon hangisiyle girilirse girilsin tek sayaç), çözülemediyse
+        // (okul yok veya kimlik yok) normalize okul+kimlik metnine göre — her iki durumda
+        // da bir anahtar üretilir ki rastgele okul kodu/kimlik denemeleri de throttlansın.
+        const resetAccountKey = result.user
+            ? `uid:${result.user.id}`
+            : `identity:${String(schoolCode).trim().toLowerCase()}:${String(identity).trim().toLowerCase()}`;
+        const resetIp = getTrustedClientIp(req);
+        const { acctIpKey: resetAcctIpKey, ipKey: resetIpKey, acctKey: resetAcctKey } = _loginRlKeys('forgot', resetAccountKey, resetIp);
+
+        try {
+            const resetLockCheck = rateLimiter.checkAnyLocked([resetAcctIpKey, resetIpKey, resetAcctKey]);
+            if (resetLockCheck.locked) return res.json(_rateLimitedResponse(resetLockCheck.retryAfterSeconds));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (forgotPassword kontrol):', rlErr.message);
+        }
+
+        // YENİ: TÜM çağrılar sayılır (başarılı kod gönderimi dahil) — bu endpoint'te
+        // korunan asıl kaynak "gerçek bir e-posta göndermek", LOGIN_RL'nin "yalnızca
+        // başarısız" kuralı burada KASITLI olarak uygulanmıyor.
+        try {
+            rateLimiter.recordFailures([
+                resetAcctIpKey && { key: resetAcctIpKey, ...RESET_REQUEST_RL.acctIp },
+                resetIpKey && { key: resetIpKey, ...RESET_REQUEST_RL.ipWide },
+                { key: resetAcctKey, ...RESET_REQUEST_RL.acctWide },
+            ].filter(Boolean));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (forgotPassword kayıt):', rlErr.message);
+        }
+
+        if (result.error) {
+            // YENİ: "okul bulunamadı" AYNEN kalıyor. "kimlik bulunamadı" ise artık hesap
+            // var/yok sızdırmayan GENEL bir "başarılı" yanıta dönüşüyor — gerçekte hiçbir
+            // kod/e-posta gönderilmeden. maskedEmail YOK (front-end bunu nötr bir metinle
+            // karşılıyor, bkz. js/api-client.js).
+            if (result.reason === 'identity_not_found') {
+                return res.json({ status: 'success', message: 'Eğer bu bilgilerle eşleşen ve e-postası kayıtlı bir hesap varsa, sıfırlama kodu gönderildi.' });
+            }
+            return res.json({ status: 'error', message: result.error });
+        }
 
         const { school, user } = result;
 
-        // 🛑 Çıkmaz Sokak: E-posta Yoksa!
+        // 🛑 Çıkmaz Sokak: E-posta Yoksa! (AYNEN kalıyor — kasıtlı olarak kendi özel
+        // mesajını koruyor, bkz. plan onayı.)
         if (!user.email) {
             return res.json({ status: 'error', message: 'Sisteme kayıtlı bireysel bir e-posta adresiniz bulunmuyor. Şifrenizi sıfırlamak için lütfen sistem yöneticinizle iletişime geçin.' });
         }
@@ -833,14 +934,45 @@ exports.verifyResetCode = async (req, res) => {
         const result = await findLibraryUserForReset(schoolCode, identity);
 
         if (result.error) return res.json({ status: 'error', message: result.error });
-        const { user } = result;
+        const { school, user } = result;
 
-        if (!user.reset_code || user.reset_code !== resetCode) {
+        // YENİ: updatePassword İLE PAYLAŞILAN tek sayaç (schoolId+uid) — kilit kontrolü
+        // kod karşılaştırmasından ÖNCE.
+        const resetCodeKey = `reset:code:acct:${school.id}:${user.id}`;
+        try {
+            const codeLockCheck = rateLimiter.checkLocked(resetCodeKey);
+            if (codeLockCheck.locked) return res.json(_rateLimitedResponse(codeLockCheck.retryAfterSeconds));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (verifyResetCode kontrol):', rlErr.message);
+        }
+
+        // YENİ: eşleşme kontrolü, mevcut davranışla AYNI ÖNCELİK sırasında — yanlış kod
+        // her zaman "kod hatalı" döner (kodun ayrıca süresi dolmuş olsa da bunu hiç
+        // açıklamaz, orijinal davranışla birebir aynı). Süresi dolmuşluk SADECE kod
+        // DOĞRU eşleştiğinde ayrıca kontrol edilir.
+        if (!_safeCodeEquals(user.reset_code, resetCode)) {
+            try {
+                const afterFail = rateLimiter.recordFailure(resetCodeKey, RESET_CODE_RL.acctWide);
+                await _invalidateResetCodeIfLocked(user.id, afterFail);
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (verifyResetCode kayıt):', rlErr.message);
+            }
             return res.json({ status: 'error', message: 'Girdiğiniz kod hatalı.' });
         }
 
+        // Kod doğru ama süresi dolmuş — kullanıcı hatası DEĞİL, hız sınırına SAYILMAZ
+        // (sayaç da sıfırlanmaz, dokunulmaz).
         if (new Date(user.reset_expires) < new Date()) {
             return res.json({ status: 'error', message: 'Bu kodun süresi dolmuş. Lütfen yeni bir kod isteyin.' });
+        }
+
+        // Doğru ve geçerli kod — paylaşılan sayaç sıfırlanır (updatePassword'da da aynı
+        // kod tekrar kullanılacağı için orada tekrar doğrulanacak, ama birikmiş
+        // yanlış-deneme geçmişi artık anlamsız).
+        try {
+            rateLimiter.reset(resetCodeKey);
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (verifyResetCode sıfırlama):', rlErr.message);
         }
 
         return res.json({ status: 'success', message: 'Kod başarıyla doğrulandı.' });
@@ -858,9 +990,31 @@ exports.updatePassword = async (req, res) => {
         const result = await findLibraryUserForReset(schoolCode, identity);
 
         if (result.error) return res.json({ status: 'error', message: result.error });
-        const { user } = result;
+        const { school, user } = result;
 
-        if (!user.reset_code || user.reset_code !== resetCode || new Date(user.reset_expires) < new Date()) {
+        // YENİ: verifyResetCode İLE PAYLAŞILAN AYNI anahtar/sayaç.
+        const resetCodeKey = `reset:code:acct:${school.id}:${user.id}`;
+        try {
+            const codeLockCheck = rateLimiter.checkLocked(resetCodeKey);
+            if (codeLockCheck.locked) return res.json(_rateLimitedResponse(codeLockCheck.retryAfterSeconds));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (updatePassword kontrol):', rlErr.message);
+        }
+
+        // YENİ: mevcut tek-koşullu kontrol, verifyResetCode'daki ile AYNI önceliğe
+        // bölündü — yanlış kod her zaman "geçersiz" döner (süre dolmuş olsa da bunu
+        // açıklamaz), süresi dolmuşluk SADECE kod doğru eşleştiğinde kontrol edilir.
+        if (!_safeCodeEquals(user.reset_code, resetCode)) {
+            try {
+                const afterFail = rateLimiter.recordFailure(resetCodeKey, RESET_CODE_RL.acctWide);
+                await _invalidateResetCodeIfLocked(user.id, afterFail);
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (updatePassword kayıt):', rlErr.message);
+            }
+            return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
+        }
+
+        if (new Date(user.reset_expires) < new Date()) {
             return res.json({ status: 'error', message: 'Geçersiz veya süresi dolmuş işlem.' });
         }
 
@@ -874,6 +1028,14 @@ exports.updatePassword = async (req, res) => {
             .eq('id', user.id);
 
         if (updateErr) throw updateErr;
+
+        // Başarılı sıfırlama — paylaşılan sayaç da sıfırlanır (temizlik amaçlı; kod
+        // zaten null'landı, bu anahtar bir daha bu kod için kullanılmayacak).
+        try {
+            rateLimiter.reset(resetCodeKey);
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (updatePassword sıfırlama):', rlErr.message);
+        }
 
         return res.json({ status: 'success', message: 'Şifreniz başarıyla güncellendi.' });
     } catch (error) {
@@ -2849,12 +3011,30 @@ exports.magicLogin = async (req, res) => {
         const { bilet } = req.body;
         if (!bilet) return res.json({ status: 'error', message: 'Bilet bulunamadı.' });
 
+        // YENİ: hesap kavramı YOK (istek schoolCode taşımıyor) — yalnızca IP. IP
+        // çözülemezse (getTrustedClientIp null döner) bu uç nokta için geriye düşülecek
+        // bir hesap-geneli katman YOKTUR — fail-open, sınırlama tamamen devre dışı kalır.
+        const magicIp = getTrustedClientIp(req);
+        const magicIpKey = magicIp ? `magic:ip:${magicIp}` : null;
+
+        try {
+            const magicLockCheck = rateLimiter.checkAnyLocked([magicIpKey]);
+            if (magicLockCheck.locked) return res.json(_rateLimitedResponse(magicLockCheck.retryAfterSeconds));
+        } catch (rlErr) {
+            console.error('Hız sınırlayıcı hatası (magic-login kontrol):', rlErr.message);
+        }
+
         const { data: schools, error } = await supabase
             .from('schools')
             .select('id, school_code, school_name, kt_settings')
             .contains('kt_settings', { magic_token: bilet });
 
         if (error || !schools || schools.length === 0) {
+            try {
+                rateLimiter.recordFailures([magicIpKey && { key: magicIpKey, ...MAGIC_LOGIN_RL.ipWide }].filter(Boolean));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (magic-login kayıt):', rlErr.message);
+            }
             return res.json({ status: 'error', message: 'Geçersiz veya kullanılmış bilet.' });
         }
 
@@ -2862,6 +3042,11 @@ exports.magicLogin = async (req, res) => {
         const settings = school.kt_settings || {};
 
         if (Date.now() > settings.magic_token_expires) {
+            try {
+                rateLimiter.recordFailures([magicIpKey && { key: magicIpKey, ...MAGIC_LOGIN_RL.ipWide }].filter(Boolean));
+            } catch (rlErr) {
+                console.error('Hız sınırlayıcı hatası (magic-login kayıt):', rlErr.message);
+            }
             return res.json({ status: 'error', message: 'Biletin süresi dolmuş.' });
         }
 
