@@ -11,6 +11,7 @@ const { getCurrentRequestContext } = require('../middleware/ktAuthContext');
 const rateLimiter = require('../utils/rateLimiter');
 const { getTrustedClientIp } = require('../utils/clientIp');
 const { validateStaffPassword } = require('../utils/staffPasswordPolicy');
+const { escapeHtml } = require('../utils/htmlEscape');
 
 // =========================================================================
 // 🛡️ GİRİŞ HIZ SINIRI EŞİKLERİ (/api/login) — yalnızca BAŞARISIZ denemeler sayılır.
@@ -251,6 +252,8 @@ async function verifyStaffPassword(user, inputPassword) {
 
 // --- ORTAK KULLANIM İÇİN OKUL BULUCU ---
 async function getSchoolAuth(code, pass) {
+    // YENİ: okul kodu trim edilir — büyük/küçük harf duyarlılığı KASITLI korunur (.eq ile).
+    code = String(code || '').trim();
     // YENİ: schools sorgusunda gerçek bir Supabase hatası (ağ/DB) varsa fırlat; yalnızca
     // okul satırı gerçekten bulunamadıysa (error yok, data yok) null dön.
     const { data, error: schoolError } = await supabase.from('schools')
@@ -275,7 +278,7 @@ async function getSchoolAuth(code, pass) {
 
     if (data.kt_status !== 'active' || isExpired) {
         // Özel bir işaretle (LİSANS_İPTAL|) hata fırlatıyoruz ki, catch bloğu bunu anlayıp şık mesaj bassın.
-        throw new Error(`LİSANS_İPTAL|Sayın <strong>${data.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
+        throw new Error(`LİSANS_İPTAL|Sayın <strong>${escapeHtml(data.school_name)}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
     }
     // =========================================================================
 
@@ -423,6 +426,8 @@ async function getSchoolId(code, pass) {
 // noktalarından (getSchoolAuth) ayrıştırıldı.
 // =========================================================================
 async function verifyDutyLogin(code, pass) {
+    // YENİ: okul kodu trim edilir — büyük/küçük harf duyarlılığı KASITLI korunur (.eq ile).
+    code = String(code || '').trim();
     const { data, error: schoolError } = await supabase.from('schools')
         .select('id, school_name, kt_status, kt_start_date, kt_end_date, kt_settings')
         .eq('school_code', code)
@@ -439,7 +444,7 @@ async function verifyDutyLogin(code, pass) {
     const isExpired = endDate < today;
 
     if (data.kt_status !== 'active' || isExpired) {
-        throw new Error(`LİSANS_İPTAL|Sayın <strong>${data.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
+        throw new Error(`LİSANS_İPTAL|Sayın <strong>${escapeHtml(data.school_name)}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`);
     }
 
     if (typeof pass !== 'string' || pass === '') {
@@ -613,7 +618,10 @@ function buildStaffLoginSuccess(user, school) {
 
 exports.login = async (req, res) => {
     try {
-        const { schoolCode, schoolPass, loginType } = req.body;
+        const { schoolPass, loginType } = req.body;
+        // YENİ: okul kodu trim edilir (baştaki/sondaki boşluklar normalize), büyük/küçük harf
+        // duyarlılığı KASITLI olarak korunur (.eq ile aranıyor, .ilike'a geçilmedi).
+        const schoolCode = String(req.body.schoolCode || '').trim();
         const identity = req.body.identity || req.body.username || req.body.email || req.body.phone || "";
 
         // -------------------------
@@ -723,7 +731,7 @@ exports.login = async (req, res) => {
                 return res.json({
                     status: 'error',
                     isLicenseError: true,
-                    message: `Sayın <strong>${school.school_name}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`
+                    message: `Sayın <strong>${escapeHtml(school.school_name)}</strong> kullanıcısı,<br><br>Kurumunuzun <strong>Kütüphanemiz</strong> kullanım lisansı aktif değildir. Süreniz dolmuş veya sistem yöneticisi tarafından askıya alınmış olabilir.`
                 });
             }
             // =========================================================================
@@ -923,6 +931,8 @@ const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
 // "okul bulunamadı" ile "kimlik bulunamadı" durumlarını birbirinden ayırabilmesi için —
 // ilki aynen kalacak, ikincisi genel bir "başarılı" mesajına dönüşecek).
 const findLibraryUserForReset = async (schoolCode, identity) => {
+    // YENİ: okul kodu trim edilir — büyük/küçük harf duyarlılığı KASITLI korunur (.eq ile).
+    schoolCode = String(schoolCode || '').trim();
     const { data: school } = await supabase.from('schools').select('id, school_name').eq('school_code', schoolCode).single();
     if (!school) return { error: 'Bu kurum koduna ait bir okul bulunamadı.', reason: 'school_not_found' };
 
@@ -2931,10 +2941,18 @@ exports.getSettings = async (req, res) => {
 // ==========================================
 // YENİ: OKUL LOGOSU YÜKLEME
 // ==========================================
+const ALLOWED_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif']);
+
 exports.uploadSchoolLogo = async (req, res) => {
     try {
         const schoolCode = req.headers['x-school-code'];
         const fileExt = String(req.headers['x-file-ext'] || 'png').toLowerCase();
+
+        // YENİ: dosya uzantısı sabit bir beyaz listeye karşı kontrol edilir — Storage'a
+        // yazılan dosya adının/URL'nin bir parçası olduğu için serbest metin kabul edilmez.
+        if (!ALLOWED_LOGO_EXTENSIONS.has(fileExt)) {
+            return res.json({ success: false, message: 'Geçersiz dosya türü. Sadece PNG, JPG, JPEG, WEBP veya GIF kabul edilir.' });
+        }
 
         const auth = await getSchoolAuth(schoolCode);
         if (!auth || !exports.isAdmin(auth)) {

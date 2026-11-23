@@ -374,7 +374,7 @@ window.openMyAccountModal = openMyAccountModal;
 // durumunda true, başarısızlıkta false döner — çağıran taraf buna göre karar verir.
 async function login(options) {
     const silent = !!(options && options.silent);
-    const code = document.getElementById("schoolCode").value;
+    const code = document.getElementById("schoolCode").value.trim();
     const pass = document.getElementById("schoolPass").value;
     const identity = document.getElementById("teacherIdentity").value;
     const remember = document.getElementById("beniHatirla").checked;
@@ -1791,11 +1791,23 @@ async function loadSettings() {
             const s = res.data || {};
 
             // YENİ: Okul logosu (header + Ayarlar sayfasındaki önizleme)
+            // Güvenlik: logo_url innerHTML'e GÖMÜLMEZ — <img> DOM ile oluşturulup src ÖZELLİK
+            // olarak atanır (HTML parse edilmez), ve sadece https:// adresler kabul edilir.
             const logoPreviewEl = document.getElementById("setting_logo_preview");
             if (logoPreviewEl) {
-                logoPreviewEl.innerHTML = s.logo_url
-                    ? `<img src="${s.logo_url}" alt="Okul Logosu" style="width:100%; height:100%; object-fit:cover; border-radius:10px;">`
-                    : '🏫';
+                logoPreviewEl.innerHTML = '';
+                if (s.logo_url && /^https:\/\//i.test(s.logo_url)) {
+                    const logoImg = document.createElement('img');
+                    logoImg.src = s.logo_url;
+                    logoImg.alt = 'Okul Logosu';
+                    logoImg.style.width = '100%';
+                    logoImg.style.height = '100%';
+                    logoImg.style.objectFit = 'cover';
+                    logoImg.style.borderRadius = '10px';
+                    logoPreviewEl.appendChild(logoImg);
+                } else {
+                    logoPreviewEl.textContent = '🏫';
+                }
             }
             const headerLogoEl = document.getElementById("appHeaderLogo");
             if (headerLogoEl) headerLogoEl.src = s.logo_url || 'app_logo.png';

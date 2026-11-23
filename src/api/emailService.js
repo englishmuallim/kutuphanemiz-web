@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { escapeHtml } = require('../utils/htmlEscape');
 
 // Brevo API Key'ini .env dosyasından alıyoruz
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
@@ -27,7 +28,7 @@ exports.sendResetCodeEmail = async (toEmail, schoolName, resetCode) => {
                 htmlContent: `
                     <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
                         <h2>Şifre Sıfırlama Talebi</h2>
-                        <p>Merhaba <b>${schoolName}</b>,</p>
+                        <p>Merhaba <b>${escapeHtml(schoolName)}</b>,</p>
                         <p>Kütüphanemiz sistemi için şifre sıfırlama talebinde bulundunuz.</p>
                         <p>Güvenlik kodunuz:</p>
                         <h1 style="color: #4CAF50; letter-spacing: 5px;">${resetCode}</h1>

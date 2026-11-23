@@ -64,7 +64,7 @@ window.onKtSessionExpired = function () {
 
     clearKtSessionStorage();
 
-    Swal.fire({ icon: 'info', title: 'Oturumunuz sona erdi', text: 'Süre dolmuş ya da şifreniz değiştirilmiş olabilir. Lütfen tekrar giriş yapın.' }).then(() => {
+    Swal.fire({ icon: 'info', title: 'Oturumunuz sona erdi', text: 'Okul kodu veya şifre değişmiş olabilir; lütfen yeniden giriş yapın.' }).then(() => {
         showLoginScreen();
     });
 };
@@ -83,7 +83,7 @@ async function silentUpgrade() {
         return;
     }
 
-    const savedCode = localStorage.getItem("kutuphane_code");
+    const savedCode = (localStorage.getItem("kutuphane_code") || "").trim();
     const savedPass = localStorage.getItem("kutuphane_pass");
 
     document.getElementById("schoolCode").value = savedCode || "";
@@ -113,7 +113,7 @@ window.onload = async function () {
     }
 
     const token = (typeof getKtToken === 'function') ? getKtToken() : null;
-    const savedCode = localStorage.getItem("kutuphane_code");
+    const savedCode = (localStorage.getItem("kutuphane_code") || "").trim();
 
     // 2. Bilet + okul kodu varsa -> /api/session ile doğrula, arayüzü oradan kur.
     if (token && savedCode) {
