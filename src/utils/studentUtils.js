@@ -32,15 +32,11 @@ const buildGraduatedStudentNo = (studentNo, academicYear) => {
     return `${studentNo}${endYear}`;
 };
 
-// Okul türüne göre geçerli kademe (sınıf) listesi. 13 = "Mezun" (dershane/özel okul için).
+// Okul türüne göre geçerli kademe (sınıf) listesi. Deneliz'in school_type sütunuyla paylaşılan,
+// TEK geçerli 8 değerli küme (eski "dershane" / "özel okul" değerleri veritabanında artık yok,
+// bu dosyada da bilerek tutulmuyor). 13 = "Mezun" — sadece dershane-lise ve
+// dershane-ortaokul-lise'de var; bunlar için GERÇEK, aktif bir kademedir (arşiv değildir).
 const GRADUATE_GRADE = 13;
-const SCHOOL_TYPE_GRADE_RANGES = {
-    'ilkokul': [1, 4],
-    'ortaokul': [5, 8],
-    'lise': [9, 12],
-    'ilkokul-ortaokul': [1, 8],
-    'ortaokul-lise': [5, 12],
-};
 
 const range = (start, end) => {
     const arr = [];
@@ -48,21 +44,65 @@ const range = (start, end) => {
     return arr;
 };
 
-const getGradesForSchoolType = (schoolType) => {
-    const type = normalizeTurkishText(schoolType);
+const SCHOOL_TYPES = {
+    'ilkokul': { grades: range(1, 4) },
+    'ortaokul': { grades: range(5, 8) },
+    'lise': { grades: range(9, 12) },
+    'ilkokul-ortaokul': { grades: range(1, 8) },
+    'ortaokul-lise': { grades: range(5, 12) },
+    'dershane-ortaokul': { grades: range(5, 8) },
+    'dershane-lise': { grades: [...range(9, 12), GRADUATE_GRADE] },
+    'dershane-ortaokul-lise': { grades: [...range(5, 12), GRADUATE_GRADE] },
+};
 
-    if (SCHOOL_TYPE_GRADE_RANGES[type]) {
-        const [start, end] = SCHOOL_TYPE_GRADE_RANGES[type];
-        return range(start, end);
+// Her türe hasGraduate (Mezun kademesi var mı) ve lastAcademicGrade (Mezun hariç en yüksek
+// kademe — yıl sonu atlatmada bu kademedeki öğrenci normal +1 değil, Mezun'a geçer/arşivlenir)
+// önceden hesaplanıyor.
+Object.keys(SCHOOL_TYPES).forEach((key) => {
+    const info = SCHOOL_TYPES[key];
+    info.hasGraduate = info.grades.includes(GRADUATE_GRADE);
+    const academicGrades = info.grades.filter((g) => g !== GRADUATE_GRADE);
+    info.lastAcademicGrade = Math.max(...academicGrades);
+});
+
+const VALID_SCHOOL_TYPES = Object.keys(SCHOOL_TYPES);
+
+// Tanınmayan/boş okul türünde null döner — çağıran taraf bunu SESSİZCE bir varsayılana
+// düşürmemeli, açık hata olarak ele almalı (bkz. getGradeOptions, restoreStudent, promoteAllStudents).
+const getSchoolTypeInfo = (schoolType) => {
+    const type = normalizeTurkishText(schoolType);
+    return SCHOOL_TYPES[type] || null;
+};
+
+const getGradesForSchoolType = (schoolType) => {
+    const info = getSchoolTypeInfo(schoolType);
+    return info ? info.grades.slice() : null;
+};
+
+// 13 (Mezun) için ortak etiket. Backend tarafında raporlama/log amaçlı; frontend'de aynı mantık
+// js/ktAuth.js'teki window.ktGradeLabel ile ayrıca (DOM'a bağımlı olduğu için ayrı dosyada) sağlanır.
+const gradeLabel = (grade) => (Number(grade) === GRADUATE_GRADE ? 'Mezun' : `${grade}. Sınıf`);
+
+// Yıl sonu toplu terfi/mezuniyet için SAF fonksiyon: okul türü + mevcut kademe -> yapılacak işlem.
+// Tanınmayan türde null döner (çağıran taraf hiçbir öğrenciye dokunmadan hata dönmeli).
+// Türün kademe listesinde olmayan bir grade değeri (bozuk/tutarsız veri) için 'skip' döner.
+const getPromotionAction = (schoolType, grade) => {
+    const info = getSchoolTypeInfo(schoolType);
+    if (!info) return null;
+
+    const gradeNum = Number(grade);
+    if (!Number.isInteger(gradeNum) || !info.grades.includes(gradeNum)) {
+        return { action: 'skip' };
     }
-    if (type === 'dershane') {
-        return [...range(5, 12), GRADUATE_GRADE];
+    if (info.hasGraduate && gradeNum === GRADUATE_GRADE) {
+        return { action: 'archive' };
     }
-    if (type === 'ozel okul') {
-        return [...range(1, 12), GRADUATE_GRADE];
+    if (gradeNum === info.lastAcademicGrade) {
+        return info.hasGraduate
+            ? { action: 'promote', targetGrade: GRADUATE_GRADE }
+            : { action: 'archive' };
     }
-    // Tanınmayan/boş: varsayılan 5-8
-    return range(5, 8);
+    return { action: 'promote', targetGrade: gradeNum + 1 };
 };
 
 // Öğrenci arama için Türkçe varyasyon genişletmeli OR filtresi (student_no + full_name üzerinde).
@@ -148,6 +188,10 @@ module.exports = {
     getAcademicYearEndYear,
     buildGraduatedStudentNo,
     getGradesForSchoolType,
+    getSchoolTypeInfo,
+    getPromotionAction,
+    gradeLabel,
+    VALID_SCHOOL_TYPES,
     buildStudentSearchOrFilter,
     GRADUATE_GRADE,
     classTeacherOfToKtFormat,

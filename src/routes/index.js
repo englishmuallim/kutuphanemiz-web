@@ -25,7 +25,6 @@ router.post('/stats', libraryController.stats);
 router.post('/getClasses', libraryController.getClasses);
 router.post('/stats', libraryController.stats);
 router.post('/statDetails', libraryController.statDetails);
-router.post('/getClasses', libraryController.getClasses);
 router.post('/overdue', libraryController.overdue);
 router.post('/getReport', libraryController.getReport);
 router.post('/getBorrowedReport', libraryController.getBorrowedReport);

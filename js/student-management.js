@@ -76,10 +76,13 @@ async function loadGradeOptions() {
         });
         if (res.status === 401) { redirectToLogin(); return; }
         const r = await res.json();
-        if (r.status !== 'success') return;
+        if (r.status !== 'success') {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Kademe listesi alınamadı.' });
+            return;
+        }
 
         const grades = (r.data && r.data.grades) || [];
-        const labelFor = (g) => (g === 13 ? 'Mezun' : `${g}. Sınıf`);
+        const labelFor = (g) => (typeof window.ktGradeLabel === 'function' ? window.ktGradeLabel(g) : `${g}. Sınıf`);
         const optionsHtml = grades.map(g => `<option value="${g}">${labelFor(g)}</option>`).join('');
 
         document.getElementById('sm_gradeFilter').innerHTML = `<option value="">-- Kademe --</option>${optionsHtml}`;

@@ -692,30 +692,55 @@ function toggleTeacherRoleSelect() {
     }
 }
 
-function populateGradeAndClassSelects() {
+// YENİ: Kademe listesi artık sabit "5-12 + Hazırlık" değil — /api/getGradeOptions'tan,
+// okulun GERÇEK türüne göre gelir (örn. ilkokul'da 1-4, dershane-lise'de 9-12 + Mezun).
+// "Hazırlık" kaldırıldı: hiçbir öğrencinin grade'i bu değeri almıyor (salt-okunur kontrol
+// edildi), bu yüzden bir öğretmeni "Hazırlık" sınıfına atamak hiçbir zaman bir öğrenciyle
+// eşleşmiyordu — kullanılmayan bir seçenekti.
+async function populateGradeAndClassSelects() {
     const gradeSelect = document.getElementById('teacherFormGrade');
     const classSelect = document.getElementById('teacherFormClass');
-    // YENİ: Sınıf öğretmenliği bölümünün seçicileri de AYNI sabit listeden doldurulur.
+    // Sınıf öğretmenliği bölümünün seçicileri de AYNI listeden doldurulur.
     const ctoGradeSelect = document.getElementById('teacherFormCtoGrade');
     const ctoClassSelect = document.getElementById('teacherFormCtoClass');
-    const grades = ['5', '6', '7', '8', '9', '10', '11', '12', 'Hazırlık'];
     const subeler = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-    const fillGrade = (sel) => {
-        if (!sel) return;
-        sel.innerHTML = '<option value="">Kademe</option>';
-        grades.forEach(g => sel.innerHTML += `<option value="${g}">${g}. Sınıf</option>`);
-    };
     const fillClass = (sel) => {
         if (!sel) return;
         sel.innerHTML = '<option value="">Şube</option>';
         subeler.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
     };
-
-    fillGrade(gradeSelect);
     fillClass(classSelect);
-    fillGrade(ctoGradeSelect);
     fillClass(ctoClassSelect);
+
+    const resetGrade = (sel) => { if (sel) sel.innerHTML = '<option value="">Kademe</option>'; };
+    resetGrade(gradeSelect);
+    resetGrade(ctoGradeSelect);
+
+    try {
+        const res = await fetch('/api/getGradeOptions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ktAuthFields())
+        });
+        const r = await res.json();
+        if (r.status !== 'success') {
+            Swal.fire({ icon: 'error', title: 'Hata', text: r.message || 'Kademe listesi alınamadı.' });
+            return;
+        }
+
+        const grades = (r.data && r.data.grades) || [];
+        const labelFor = (g) => (typeof window.ktGradeLabel === 'function' ? window.ktGradeLabel(g) : `${g}. Sınıf`);
+        const fillGrade = (sel) => {
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Kademe</option>';
+            grades.forEach(g => sel.innerHTML += `<option value="${g}">${labelFor(g)}</option>`);
+        };
+        fillGrade(gradeSelect);
+        fillGrade(ctoGradeSelect);
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Bağlantı Hatası', text: 'Kademe listesi yüklenemedi.' });
+    }
 }
 
 function addClassToTeacherForm() {

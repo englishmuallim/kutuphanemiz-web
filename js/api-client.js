@@ -69,7 +69,7 @@ async function loadClasses() {
                 if (sel.tagName === 'INPUT') return;
                 const defaultOpt = sel.firstElementChild ? sel.firstElementChild.outerHTML : '<option value="">Kademe</option>';
                 let options = defaultOpt;
-                if (r.data.grades) r.data.grades.forEach(g => { options += `<option value="${g}">${g}. Sınıf</option>`; });
+                if (r.data.grades) r.data.grades.forEach(g => { options += `<option value="${g}">${typeof window.ktGradeLabel === 'function' ? window.ktGradeLabel(g) : (g + '. Sınıf')}</option>`; });
                 sel.innerHTML = options;
             });
 
@@ -1952,7 +1952,7 @@ async function startClassPromotion() {
             <div style="text-align:left; font-size:0.9rem; color:#374151;">
                 <p>Bu işlem <b>geri alınamaz</b>:</p>
                 <ul style="margin:8px 0; padding-left:20px;">
-                    <li>4, 8 ve 12. sınıftaki tüm aktif öğrenciler <b>mezun/arşiv</b> edilecek.</li>
+                    <li>Okul türünüzün en üst kademesindeki tüm aktif öğrenciler <b>mezun/arşiv</b> edilecek (varsa önce Mezun kademesine geçecek, sonraki atlatmada Mezun'dan arşivlenecek).</li>
                     <li>Diğer tüm aktif öğrencilerin sınıfı <b>bir üst sınıfa</b> geçirilecek.</li>
                 </ul>
                 <p>Devam etmek için aşağıya büyük harflerle <b>ONAYLIYORUM</b> yazın.</p>
@@ -1991,7 +1991,8 @@ async function requestClassPromotion(force) {
             Swal.fire({
                 icon: 'success',
                 title: 'Sınıflar Atlatıldı',
-                html: `<div><b>${result.promotedCount}</b> öğrenci üst sınıfa geçirildi.</div><div><b>${result.graduatedCount}</b> öğrenci mezun/arşiv edildi.</div>`
+                html: `<div><b>${result.promotedCount}</b> öğrenci üst sınıfa geçirildi.</div><div><b>${result.graduatedCount}</b> öğrenci mezun/arşiv edildi.</div>` +
+                    (result.skippedCount > 0 ? `<div style="color:#b45309; margin-top:6px;"><b>${result.skippedCount}</b> öğrencinin sınıf bilgisi okul türü için geçersiz olduğundan dokunulmadı.</div>` : '')
             });
             if (typeof getStats === 'function') getStats();
             return;

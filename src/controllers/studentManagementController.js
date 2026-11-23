@@ -138,6 +138,10 @@ exports.getGradeOptions = async (req, res) => {
         if (!auth) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
 
         const grades = getGradesForSchoolType(auth.schoolType);
+        if (!grades) {
+            console.error(`[school_type] Tanınmayan okul türü — schoolId=${auth.id} schoolType=${JSON.stringify(auth.schoolType)}`);
+            return res.json({ status: 'error', message: 'Okul türünüz tanınamadı, lütfen yönetici ile iletişime geçin.' });
+        }
         res.json({ status: 'success', data: { grades } });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
@@ -285,6 +289,10 @@ exports.restoreStudent = async (req, res) => {
         }
 
         const validGrades = getGradesForSchoolType(auth.schoolType);
+        if (!validGrades) {
+            console.error(`[school_type] Tanınmayan okul türü — schoolId=${auth.id} schoolType=${JSON.stringify(auth.schoolType)}`);
+            return res.json({ status: 'error', message: 'Okul türünüz tanınamadı, lütfen yönetici ile iletişime geçin.' });
+        }
         if (!validGrades.includes(gradeNum)) {
             return res.json({ status: 'error', message: 'Seçilen kademe bu okul türü için uygun değil.' });
         }

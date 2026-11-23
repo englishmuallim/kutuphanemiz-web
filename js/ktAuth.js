@@ -57,6 +57,13 @@
     window.ktAuthFields = ktAuthFields;
     window.ktAuthHeaderFields = ktAuthHeaderFields;
 
+    // Backend'deki studentUtils.js#gradeLabel ile AYNI mantık: 13 = "Mezun" (dershane-lise /
+    // dershane-ortaokul-lise'de gerçek, aktif bir kademe — arşiv değil). Kademe gösteren HER
+    // dropdown (student-management.js, api-client.js, ui.js) bu tek fonksiyonu kullanır.
+    window.ktGradeLabel = function (grade) {
+        return Number(grade) === 13 ? 'Mezun' : (grade + '. Sınıf');
+    };
+
     // --- GLOBAL FETCH SARMALAYICI ---
     // Çift yüklemeye karşı: zaten kurulmuşsa tekrar sarmalamaz (fonksiyonlar yine de
     // yeniden atanır ama bu zararsız/idempotent).

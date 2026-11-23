@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const supabase = require('../api/supabase');
-const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo } = require('../utils/studentUtils');
+const { normalizeTurkishText, buildGraduatedStudentNo, buildStudentSearchOrFilter, classTeacherOfToKtFormat, classScopeKey, classScopeKeyFromCombo, getSchoolTypeInfo, getPromotionAction } = require('../utils/studentUtils');
 const { createSignedPhotoUrlMap } = require('../utils/photoStorage');
 const { hashPassword, verifyPassword, isHashed } = require('../utils/passwordHash');
 const {
@@ -1515,55 +1515,6 @@ exports.statDetails = async (req, res) => {
                 if (data.length < step) fetchMore = false; // 1000'den az geldiyse bitti
             } else {
                 fetchMore = false; // Veri hiç gelmediyse bitti
-            }
-        }
-
-        res.json({ status: 'success', data: allData });
-    } catch (error) { res.status(500).json({ status: 'error', message: error.message }); }
-};
-
-exports.getClasses = async (req, res) => {
-    try {
-        const { schoolCode, schoolPass, type } = req.body;
-        const schoolId = await getSchoolId(schoolCode, schoolPass);
-        if (!schoolId) return res.status(401).json({ status: 'error', message: 'Yetkisiz' });
-
-        let allData = [];
-        let from = 0;
-        const step = 1000;
-        let fetchMore = true;
-
-        while (fetchMore) {
-            let queryData = null;
-            if (type === 'emanet') {
-                const { data } = await supabase.from('transactions')
-                    .select('borrow_date, students(student_no, full_name, class_name), books(barcode, book_name)')
-                    .eq('school_id', schoolId).eq('status', 'borrowed')
-                    .order('borrow_date', { ascending: false })
-                    .range(from, from + step - 1);
-                queryData = data;
-            } else if (type === 'kitap') {
-                const { data } = await supabase.from('books')
-                    .select('barcode, book_name, author, shelf, condition')
-                    .eq('school_id', schoolId).eq('is_active', true)
-                    .order('book_name', { ascending: true })
-                    .range(from, from + step - 1);
-                queryData = data;
-            } else if (type === 'ogrenci') {
-                const { data } = await supabase.from('students')
-                    .select('student_no, full_name, class_name')
-                    .eq('school_id', schoolId).eq('is_active', true)
-                    .order('class_name', { ascending: true })
-                    .range(from, from + step - 1);
-                queryData = data;
-            }
-
-            if (queryData && queryData.length > 0) {
-                allData.push(...queryData);
-                from += step;
-                if (queryData.length < step) fetchMore = false; // 1000'den az veri geldiyse son sayfadayız demektir
-            } else {
-                fetchMore = false; // Veri bitti
             }
         }
 
@@ -3552,6 +3503,12 @@ exports.promoteAllStudents = async (req, res) => {
             return res.json({ success: false, message: 'Bu işlem için yönetici yetkisi gereklidir.' });
         }
 
+        // Tanınmayan okul türünde HİÇBİR öğrenciye dokunmadan dur.
+        if (!getSchoolTypeInfo(auth.schoolType)) {
+            console.error(`[school_type] Tanınmayan okul türü — sınıf atlatma durduruldu. schoolId=${auth.id} schoolType=${JSON.stringify(auth.schoolType)}`);
+            return res.json({ success: false, message: 'Okul türünüz tanınamadı, lütfen yönetici ile iletişime geçin.' });
+        }
+
         const { data: school, error: schoolError } = await supabase
             .from('schools')
             .select('active_academic_year, last_promotion_academic_year')
@@ -3592,15 +3549,22 @@ exports.promoteAllStudents = async (req, res) => {
 
         const toGraduate = [];
         const toPromote = [];
+        let skippedCount = 0;
 
         allStudents.forEach(student => {
-            const gradeNum = parseInt(student.grade, 10);
-            if (Number.isNaN(gradeNum)) return; // Geçersiz/eksik sınıf bilgisi olan öğrenciye dokunma
+            // Okul türünün tanımlı kademe listesine göre: archive (mezun/arşiv) | promote (üst
+            // kademe/Mezun'a geçiş) | skip (türün kademe listesine uymayan bozuk/tutarsız veri —
+            // dokunulmaz, sayılır).
+            const result = getPromotionAction(auth.schoolType, student.grade);
+            if (!result || result.action === 'skip') {
+                skippedCount += 1;
+                return;
+            }
 
-            if (gradeNum === 4 || gradeNum === 8 || gradeNum === 12) {
+            if (result.action === 'archive') {
                 toGraduate.push({ id: student.id, student_no: buildGraduatedStudentNo(student.student_no, activeYear) });
             } else {
-                toPromote.push({ id: student.id, grade: String(gradeNum + 1) });
+                toPromote.push({ id: student.id, grade: String(result.targetGrade) });
             }
         });
 
@@ -3635,7 +3599,9 @@ exports.promoteAllStudents = async (req, res) => {
             success: true,
             promotedCount: toPromote.length,
             graduatedCount: toGraduate.length,
-            message: `İşlem tamamlandı: ${toPromote.length} öğrenci üst sınıfa geçirildi, ${toGraduate.length} öğrenci mezun/arşiv edildi.`
+            skippedCount,
+            message: `İşlem tamamlandı: ${toPromote.length} öğrenci üst sınıfa geçirildi, ${toGraduate.length} öğrenci mezun/arşiv edildi.` +
+                (skippedCount > 0 ? ` ${skippedCount} öğrencinin sınıf bilgisi okul türü için geçersiz olduğundan dokunulmadı.` : '')
         });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
