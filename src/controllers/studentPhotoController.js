@@ -3,6 +3,7 @@ const { getSchoolAuth, isAdmin } = require('./libraryController');
 const { PHOTO_BUCKET, createSignedPhotoUrlMap } = require('../utils/photoStorage');
 
 const DEFAULT_SIGNED_URL_TTL = 600; // 10 dakika
+const MAX_SIGNED_URL_TTL = 600; // istemciden gelen expiresIn bu değeri aşamaz
 
 function isJpegBuffer(buffer) {
     return Buffer.isBuffer(buffer) && buffer.length > 3 &&
@@ -29,9 +30,14 @@ async function findStudentInSchool(schoolId, { studentId, studentNo }) {
 exports.createSignedPhotoUrlMap = createSignedPhotoUrlMap;
 
 // deleteStudent gibi diğer controller'lardan öğrenci kalıcı silinirken çağrılır.
+// NOT: Supabase Storage'ın toplu remove() ucu var olmayan bir path için hata DÖNDÜRMEZ
+// (error: null, data: boş dizi) — yani "dosya zaten yok" durumu burada doğal olarak
+// hataya düşmez; error sadece gerçek bir storage hatasında (ağ/izin vb.) dolar ve
+// çağıran (deleteStudent) bu durumda satırı silmemesi için fırlatılır.
 exports.removePhotoFile = async (photoPath) => {
     if (!photoPath) return;
-    await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
+    const { error } = await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
+    if (error) throw error;
 };
 
 // ==========================================
@@ -138,7 +144,7 @@ exports.getStudentPhotoUrl = async (req, res) => {
             return res.json({ status: 'success', url: null });
         }
 
-        const ttl = Number.isInteger(expiresIn) && expiresIn > 0 ? expiresIn : DEFAULT_SIGNED_URL_TTL;
+        const ttl = Number.isInteger(expiresIn) && expiresIn > 0 ? Math.min(expiresIn, MAX_SIGNED_URL_TTL) : DEFAULT_SIGNED_URL_TTL;
         const urlMap = await createSignedPhotoUrlMap([student.photo_path], ttl);
         const url = urlMap.get(student.photo_path) || null;
 

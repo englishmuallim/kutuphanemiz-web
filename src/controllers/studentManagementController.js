@@ -357,16 +357,22 @@ exports.deleteStudent = async (req, res) => {
         if (findError) throw findError;
         if (!student) return res.json({ status: 'error', message: 'Öğrenci bulunamadı.' });
 
+        // KRİTİK: Yetim fotoğraf dosyası kalmasın diye önce storage'daki dosya kaldırılır;
+        // bu adım başarısız olursa veritabanı satırı SİLİNMEZ, işlem güvenle tekrar denenebilir.
+        if (student.photo_path) {
+            try {
+                await removePhotoFile(student.photo_path);
+            } catch (photoError) {
+                return res.status(500).json({ status: 'error', message: 'Öğrenci fotoğrafı silinemediği için işlem durduruldu. Lütfen tekrar deneyin.' });
+            }
+        }
+
         const { error } = await supabase.from('students')
             .delete()
             .eq('id', id)
             .eq('school_id', auth.id);
 
         if (error) throw error;
-
-        if (student.photo_path) {
-            await removePhotoFile(student.photo_path);
-        }
 
         res.json({ status: 'success', message: 'Öğrenci başarıyla silindi.' });
     } catch (error) {
